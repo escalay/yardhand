@@ -1,0 +1,11 @@
+# Builds the image from this checkout instead of pulling a release:
+#   docker compose -f docker-compose.yml -f compose.build.yml up -d --build
+services:
+  gateway:
+    image: yardhand:local
+    build:
+      context: ../..
+      dockerfile: apps/gateway/Dockerfile
+      args:
+        # Shown beside the version in Settings
+        GIT_SHA: ${GIT_SHA:-}

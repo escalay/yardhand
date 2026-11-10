@@ -1,0 +1,120 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/inter/wght.css";
+@import "@fontsource-variable/inter/wght-italic.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+/* Light only: shadcn's `dark:` classes apply under a `.dark` class the app never sets, never from the OS setting */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Yardhand, light only: a cool paper ground, graphite ink, one signal blue, square panels and hairlines; the dark
+ * yard (graphite with tracks running into one) behind sign-in, the claim and the setup rail. The console layer adds
+ * a mono face for code, tool names and JSON, and ok / warn / error colours shown as text with a dot, never as pills.
+ * shadcn's role names (card, popover, secondary, accent, destructive, ring) are mapped onto these tokens below.
+ */
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-background: oklch(98.6% 0.004 250);
+  --color-foreground: oklch(21% 0.025 255);
+  --color-muted-foreground: oklch(47% 0.02 255);
+  --color-faint-foreground: oklch(63% 0.018 255);
+  --color-muted: oklch(96.8% 0.006 250);
+  --color-border: oklch(90.5% 0.01 250);
+  --color-input: oklch(81% 0.016 250);
+  --color-primary: oklch(54% 0.19 256);
+  --color-primary-foreground: oklch(1 0 0);
+  --color-primary-highlight: oklch(62% 0.17 256);
+  --color-inverse: oklch(19% 0.025 255);
+  --color-inverse-foreground: oklch(1 0 0);
+  --color-inverse-highlight: oklch(31% 0.03 255);
+  --color-mist: oklch(95.2% 0.018 250);
+  --color-lilac: oklch(91% 0.04 250);
+  --color-frost: oklch(94% 0.025 220);
+
+  /* Console layer: outcomes, tuned to sit beside the graphite ink, not on top of it */
+  --color-ok: oklch(56% 0.13 160);
+  --color-warn: oklch(66% 0.14 70);
+  --color-error: oklch(55% 0.19 25);
+  --color-ok-soft: oklch(96% 0.03 160);
+  --color-warn-soft: oklch(96.5% 0.04 80);
+  --color-error-soft: oklch(96% 0.03 25);
+
+  /* shadcn's names, on these tokens */
+  --color-card: oklch(1 0 0);
+  --color-card-foreground: var(--color-foreground);
+  --color-popover: oklch(1 0 0);
+  --color-popover-foreground: var(--color-foreground);
+  --color-secondary: var(--color-muted);
+  --color-secondary-foreground: var(--color-foreground);
+  --color-accent: var(--color-mist);
+  --color-accent-foreground: var(--color-foreground);
+  --color-destructive: var(--color-error);
+  --color-destructive-foreground: oklch(1 0 0);
+  --color-ring: var(--color-primary);
+
+  --shadow-button-inverse:
+    0 0 0 1px oklch(14% 0.025 255), inset 0 1px 0 0 rgb(255 255 255 / 0.18), inset 0 -1px 0 0 rgb(0 0 0 / 0.3),
+    inset 0 0 0 1px rgb(255 255 255 / 0.05), 0 1px 2px 0 rgb(14 20 50 / 0.2), 0 2px 3px -1px rgb(14 20 50 / 0.25),
+    0 4px 6px -3px rgb(14 20 50 / 0.25);
+  --shadow-button-primary:
+    0 0 0 1px oklch(46% 0.18 256), inset 0 1px 0 0 rgb(255 255 255 / 0.3), inset 0 -1px 0 0 rgb(0 0 0 / 0.15),
+    inset 0 0 0 1px rgb(255 255 255 / 0.08), 0 1px 2px 0 rgb(40 60 200 / 0.2), 0 2px 3px -1px rgb(40 60 200 / 0.3),
+    0 4px 6px -3px rgb(40 60 200 / 0.3);
+  --shadow-button-muted:
+    0 0 0 1px rgb(30 31 37 / 0.1), inset 0 1px 0 0 rgb(255 255 255 / 1), inset 0 -1px 0 0 rgb(30 31 37 / 0.06),
+    0 1px 2px 0 rgb(30 31 37 / 0.06), 0 2px 3px -1px rgb(30 31 37 / 0.08), 0 4px 6px -3px rgb(30 31 37 / 0.08);
+  /* Overlays (dialogs, sheets, menus) lift off the page; nothing else casts a shadow */
+  --shadow-overlay: 0 0 0 1px rgb(30 31 37 / 0.08), 0 12px 32px -8px rgb(14 20 50 / 0.18);
+
+  --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+}
+
+@utility list-dash {
+  list-style-type: "– ";
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    font-feature-settings: "tnum" 1;
+  }
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: var(--color-inverse);
+    color: var(--color-inverse-foreground);
+  }
+  /* Headings stay regular weight; the key word is italic semibold */
+  h1 em,
+  h2 em {
+    font-style: italic;
+    font-weight: 600;
+    /* The slant leans into the next word; a hair of room keeps the space visible */
+    padding-right: 0.08em;
+  }
+  *:focus-visible {
+    outline: none;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}

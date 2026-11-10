@@ -1,0 +1,6 @@
+# The vendored kit lists its files' checksums in kit.json; they look like keys and are not.
+[extend]
+useDefault = true
+
+[allowlist]
+paths = ['''apps/gateway/src/kit/kit\.json''']

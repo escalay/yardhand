@@ -1,0 +1,25 @@
+{
+  "name": "yardhand",
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter gateway dev",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "gate": "pnpm check && pnpm typecheck && pnpm test",
+    "gen:client": "pnpm --filter @yardhand/client gen",
+    "e2e": "pnpm --filter @yardhand/web e2e",
+    "demo": "pnpm --filter gateway demo"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.4"
+  }
+}

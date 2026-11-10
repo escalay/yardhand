@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+  - packages/*
+
+# A new version of a dependency is installable a week after it was published: time for a bad release to be caught
+minimumReleaseAge: 10080
+
+# Packages that ship prebuilt binaries as optional packages: nothing to build, so pnpm skips their scripts
+allowBuilds:
+  esbuild: false
+  workerd: false
+  sharp: false

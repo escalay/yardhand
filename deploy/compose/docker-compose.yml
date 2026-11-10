@@ -1,0 +1,84 @@
+# Yardhand on any Docker host: the gateway (API, MCP at /mcp, the app at /app) and, with `--profile https`,
+# Caddy in front for automatic certificates. README.md walks through it; in short:
+#
+#   docker compose up -d                                      # http://localhost:8080/app, the code in the log
+#   docker compose --profile https up -d                      # with PUBLIC_HOST set: https://<host>/app
+#
+# Settings live in .env (see .env.example). Nothing here needs editing.
+name: yardhand
+
+x-image: &image # The release this file came with; GATEWAY_IMAGE picks another (or one you built: compose.build.yml)
+  image: ${GATEWAY_IMAGE:-ghcr.io/escalay/yardhand:0.0.0} # x-release-please-version
+
+# The container needs no privilege beyond its own files: no capabilities, no way to gain any, a read-only root
+x-hardened: &hardened
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  gateway:
+    <<: [*image, *hardened]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Its own address, for the links and OAuth redirects it hands out. From .env; else localhost on its port
+      PUBLIC_HOST: ${PUBLIC_HOST:-http://localhost:${GATEWAY_PORT:-8080}}
+    ports:
+      # This machine only by default; GATEWAY_BIND=0.0.0.0 opens it to the network
+      - "${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-8080}:80"
+    volumes:
+      # The database, its daily backups and the search index: everything worth keeping
+      - gateway-state:/state
+    restart: unless-stopped
+    stop_grace_period: 15s
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # HTTPS with automatic certificates for PUBLIC_HOST (its DNS must point here, ports 80 and 443 open)
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: [https]
+    command: caddy reverse-proxy --from ${PUBLIC_HOST:-localhost} --to gateway:80
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  gateway-state:
+  caddy-data:
+  caddy-config:

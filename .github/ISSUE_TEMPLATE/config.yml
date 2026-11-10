@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security issue
+    url: https://github.com/escalay/yardhand/security/advisories/new
+    about: Privately, never in a public issue.
+  - name: Self-hosting guide
+    url: https://github.com/escalay/yardhand/blob/main/deploy/compose/README.md
+    about: Setup, HTTPS, backups, updates and every setting.

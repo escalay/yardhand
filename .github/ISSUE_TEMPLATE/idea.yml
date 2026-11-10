@@ -1,0 +1,16 @@
+name: Idea
+description: Something Yardhand should do
+labels: [idea]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you are trying to do
+      description: The job, not the solution yet. Who does it, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: What would help
+      description: How you imagine it working, if you have a picture.

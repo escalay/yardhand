@@ -1,0 +1,33 @@
+# Weekly updates, grouped so a week is one pull request per ecosystem, and only versions that have been out a week.
+# Security fixes come as soon as they exist.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      dependencies:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+  # The base image's digest follows its tag; a new Node major is moved by hand, with .node-version
+  - package-ecosystem: docker
+    directory: /apps/gateway
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

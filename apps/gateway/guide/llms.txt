@@ -1,0 +1,78 @@
+# Yardhand
+
+> A self-hosted gateway: one endpoint for every tool behind it, from MCP servers and REST APIs its owner connected.
+> Find a tool by what you want to do, read its input schema, run it. Over MCP at `/mcp`, or over REST here.
+> Send `Authorization: Bearer <key>` on every call (one key per client), or an OAuth token the owner approves.
+
+## Start
+
+- MCP clients: connect to `/mcp`. You get `search_tools`, `describe_tool`, `call_tool`, `get_result`,
+  `list_upstreams`, `read_resource`, `get_playbook`, and any tools pinned for your key. The server instructions list
+  the upstreams you may use, and mark those with a manual. Playbooks are also listed as prompts (slash commands).
+- REST clients: `GET /api` links to everything. The usual path is three calls:
+  1. `GET /api/tools?q=<what you want to do>`: tools across every upstream, best match first.
+  2. `GET /api/tools/{name}`: the tool's description and JSON Schema input.
+  3. `POST /api/calls` with `{"tool": "<name>", "arguments": {…}}`, or `POST /api/tools/{name}/calls` with the
+     arguments as the whole body. The answer carries the tool's own result (`result.content`, and
+     `result.structuredContent` when it declares an output schema).
+- Typed clients: `GET /api/tools/openapi.json` describes every tool your key may use as an OpenAPI 3.1 operation.
+- The owner manages the gateway in the browser at `/app` (connections, keys, reviews, the call log). Everything there
+  is an `/api` route too, but those routes answer only the owner's key: a client key gets 403.
+
+## Manuals, playbooks and links
+
+Some upstreams say more than their tools do:
+
+- A **manual**: how the upstream wants its tools used. Read it once before its tools: `read_resource`
+  `gateway://u/<upstream>/manual` (MCP), or `GET /api/manuals/{name}`. `GET /api/manuals` lists them; MCP clients with
+  the Skills extension also get them as skills (`skill://<manual>/SKILL.md`). The gateway adds a short note at the
+  top saying how its tools and links are named here; the rest is as the upstream wrote it.
+- **Playbooks**: the upstream's step-by-step way to do one task (its MCP prompts). `search_tools` (and
+  `GET /api/tools?q=…`, in `playbooks`) suggests one when it fits; `get_playbook` or
+  `GET /api/playbooks/{name}/messages?arguments={…}` fills it in. Named `<upstream>-<prompt>`.
+- **Links** a tool returns, like `cookbook://recipes/123`: read them as they came with `read_resource` or
+  `GET /api/resources?uri=…`; the gateway finds the upstream by the scheme. `GET /api/links` lists the kinds.
+
+Reading any of these uses the upstream's credential and is logged like a call, but needs no write scope.
+
+## Pack keys
+
+A key can be locked to a **pack**: a kit for one kind of work, curated by the owner. `GET /api/me` says so
+(`pack`). A pack key sees only the pack: its tools are listed directly over MCP (in the pack's own wording), its
+description is the server instructions, and search, `describe_tool`, playbooks, manuals and calls stay inside it. A
+call to anything else is refused (403) and logged; the per-upstream passthrough (`/u/{id}/mcp`) is refused too. A
+pack key opens only the links its tools returned in the last day (through `/u/{upstream}/r/…` and `read_resource`).
+Keys can expire: a 403 says when.
+
+## Rules worth knowing
+
+- Tool names are `<upstream>.<tool>`, e.g. `cookbook.research_recipes`.
+- A tool that changes things (`needsWrite: true`, `[changes things]` in MCP) needs a key with write scope; a
+  read-only key never sees those tools.
+- The owner can switch tools off: one tool, a group of a connection's tools, or everything on a connection that
+  changes or deletes things. An off tool is left out of lists and searches; calling it anyway is a 403 whose `detail`
+  says which switch is off. Ask the owner rather than looking for another way round.
+- Over MCP, a result bigger than your key's cap is cut: you get page 1 and a call id; `get_result` (or
+  `GET /api/calls/{id}/result?page=2`) gives the rest for an hour. REST answers are never cut.
+- `POST` runs accept `Idempotency-Key`: a retried request with the same key answers the first result again.
+- Calls are rate-limited per key (`RateLimit` headers; 429 with `Retry-After` when over).
+- Errors are `application/problem+json` with a `detail` that says what to do next: arguments that don't match
+  the tool's input schema are a 400 listing each bad field in `errors`, before the upstream is called. A tool
+  that ran and reported its own failure answers 200 with `status: "tool_error"` and `result.isError: true`.
+- Links in a result that point at an upstream's own host are rewritten to `/u/{upstream}/r/<path>`: open them
+  with the same key (read-only, through the gateway).
+- A connection's tools come in groups (`groups` on `GET /api/upstreams`, printed by `list_upstreams`): narrow a
+  search to one with `group` and `upstream` (`search_tools`, or `GET /api/tools?upstream=…&group=…`).
+- In lists a tool has a short `summary`; `GET /api/tools/{name}` gives the full `description` and schemas.
+- Lists are HAL: follow `_links.next` until it is absent.
+- Send W3C trace context (a `traceparent` header on REST, `_meta.traceparent` on MCP) and each call is recorded as a
+  span inside your own trace; without it, each call is a trace of its own. Only metadata is traced, never arguments
+  or results.
+
+## Endpoints
+
+{{api.endpoints}}
+
+## MCP tools
+
+{{mcp.tools}}
