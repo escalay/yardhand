@@ -1,0 +1,32 @@
+# Yardhand on Fly.io: one always-on machine from the release image, with a volume for its data.
+#   fly launch --from https://github.com/escalay/yardhand --copy-config --ha=false
+#   fly secrets set PUBLIC_HOST=<your app>.fly.dev
+#   fly logs        # the setup code
+[build]
+  image = "ghcr.io/escalay/yardhand:0.1.0" # x-release-please-version
+
+[env]
+  PORT = "8080"
+
+[mounts]
+  source = "state"
+  destination = "/state"
+  initial_size = "1gb"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/api/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

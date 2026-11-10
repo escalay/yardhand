@@ -46,6 +46,16 @@ open http://localhost:8080/app     # claim it, then a guided setup connects your
 No settings are needed to start. [Self-hosting](deploy/compose/README.md) covers HTTPS, your own network, backups,
 updates and every setting.
 
+On a platform, with a disk for the data:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/escalay/yardhand)
+
+```sh
+fly launch --from https://github.com/escalay/yardhand --copy-config --ha=false   # Fly.io; then set PUBLIC_HOST as fly.toml says
+```
+
+The setup code is in the service's logs on both.
+
 On a new server it is one paste: give [`deploy/cloud-init.yaml`](deploy/cloud-init.yaml) as the user data when you
 create an Ubuntu or Debian server at any provider, and Yardhand is running when it boots.
 

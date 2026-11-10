@@ -1,0 +1,21 @@
+# Yardhand on Render: the "Deploy to Render" button in the README reads this file. One web service from the
+# release image, with a disk for its data. Render gives the service its address and its port.
+services:
+  - type: web
+    name: yardhand
+    runtime: image
+    image:
+      url: ghcr.io/escalay/yardhand:0.1.0 # x-release-please-version
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      # The address Yardhand hands out in links and OAuth redirects: the one Render gives it
+      - key: PUBLIC_HOST
+        fromService:
+          name: yardhand
+          type: web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+    disk:
+      name: state
+      mountPath: /state
+      sizeGB: 1
