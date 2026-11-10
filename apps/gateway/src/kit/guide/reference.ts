@@ -5,8 +5,8 @@
  * `{{api.operations}}`, `{{mcp.tools}}`, `{{mcp.count}}`, `{{mcp.resources}}` and `{{skills.<name>.playbooks}}`; `serveGuide` fills them.
  *
  * @example
- * endpointsMarkdown(doc)             // ### Search … - `GET /api/v1/search/recipes?q=…` — Screens for a description. …
- * toolRoute(tool, doc)               // { method: 'GET', path: '/api/v1/search/recipes', operationId: 'searchScreens' }
+ * endpointsMarkdown(doc)             // ### Search … - `GET /api/v1/search/recipes?q=…` — Recipes for a description. …
+ * toolRoute(tool, doc)               // { method: 'GET', path: '/api/v1/search/recipes', operationId: 'searchRecipes' }
  */
 import type { ResourceLike, ToolLike } from '../core/discovery.js'
 

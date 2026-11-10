@@ -29,7 +29,7 @@ import { generatedVars, type OpenApiDoc } from './reference.js'
 
 export const MARKDOWN = 'text/markdown; charset=utf-8'
 
-/** `{{counts.screens}}` → the value at that path; numbers get thousands separators. Unknown names stay as they are. */
+/** `{{counts.recipes}}` → the value at that path; numbers get thousands separators. Unknown names stay as they are. */
 export const fillTemplate = (template: string, vars: Record<string, unknown>) => {
   const missing = new Set<string>()
   const text = template.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (whole, path: string) => {

@@ -107,7 +107,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
    logs, exports, call payloads sent to Langfuse, or errors.
 3. Third-party upstreams (`trust = review`) never change a live tool by themselves: a changed description or schema is
    a `pending` version until the owner approves it.
-4. `src/kit/` is vendored from agent-api-kit and never edited in place; an update replaces it whole.
+4. `src/kit/` is vendored from agent-api-kit. Its behaviour is never edited in place; its examples, comments and the
+   route key (`agent-api-kit/route`) are this repo's own, so an update is reviewed line by line, never copied over whole.
 5. Tool names use only letters, digits, `_`, `-`, `.`.
 6. Access is per upstream, then per tool: the link proxy `GET /u/{id}/r/*` lets any client allowed on an upstream
    read any path on that upstream's own origin with the gateway's credential (reads only, never other hosts).

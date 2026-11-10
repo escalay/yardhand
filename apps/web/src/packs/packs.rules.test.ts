@@ -108,8 +108,8 @@ describe('adding tools by hand', () => {
   })
 
   it('searches by what the pack is for', () => {
-    expect(packQueryOf({ title: 'Design', description: 'Find screens and notes.' })).toBe(
-      'Design. Find screens and notes.',
+    expect(packQueryOf({ title: 'Support', description: 'Find orders and tickets.' })).toBe(
+      'Support. Find orders and tickets.',
     )
   })
 
