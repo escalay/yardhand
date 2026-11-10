@@ -46,6 +46,9 @@ open http://localhost:8080/app     # claim it, then a guided setup connects your
 No settings are needed to start. [Self-hosting](deploy/compose/README.md) covers HTTPS, your own network, backups,
 updates and every setting.
 
+On a new server it is one paste: give [`deploy/cloud-init.yaml`](deploy/cloud-init.yaml) as the user data when you
+create an Ubuntu or Debian server at any provider, and Yardhand is running when it boots.
+
 ## Connect an agent
 
 The app writes the setup for each agent, key included. For Claude Code it is one line:

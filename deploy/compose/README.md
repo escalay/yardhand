@@ -32,6 +32,13 @@ Yardhand checks its settings before it starts. If one is wrong it says which, an
 `docker compose logs gateway`. To change a setting, copy `.env.example` to `.env`, edit it, and
 `docker compose up -d`.
 
+## On a new server
+
+[`deploy/cloud-init.yaml`](../cloud-init.yaml) does the steps above on a fresh Ubuntu or Debian server: paste it as
+the user data (cloud-init) when you create the server. It installs Docker, starts the latest release from
+`/opt/yardhand`, and leaves a message at login saying where the app is and how to read the setup code. For HTTPS on
+your own name, put the name on its `PUBLIC_HOST` line before pasting and point the name's DNS at the server.
+
 ## Where it is reached
 
 By default it listens on this machine only. Pick the row that fits, set the lines in `.env` (start from

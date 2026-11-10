@@ -1,0 +1,34 @@
+#cloud-config
+# Yardhand on a new server, in one paste: give this file as "user data" (cloud-init) when you create an Ubuntu or
+# Debian server at any provider. It installs Docker, downloads the compose file of the latest release and starts it.
+#
+# For HTTPS on your own name, put the name on the PUBLIC_HOST line below before pasting, and point its DNS at the
+# server; Caddy gets the certificate. Left empty, Yardhand listens on the server only, and you reach it through an
+# SSH tunnel. When the server is up, log in: the message of the day says where the app is and how to read the setup
+# code. Everything lives in /opt/yardhand (deploy/compose/README.md covers settings, updates and backups).
+write_files:
+  - path: /opt/yardhand/.env
+    permissions: "0600"
+    content: |
+      # A name here (gateway.example.com) gets HTTPS by Caddy. Empty: this server only.
+      PUBLIC_HOST=
+  - path: /opt/yardhand/start.sh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      # Starts Yardhand: with Caddy and HTTPS when .env names a host, on this server only otherwise
+      set -e
+      cd /opt/yardhand
+      host=$(sed -n 's/^PUBLIC_HOST=//p' .env | tail -n 1)
+      if [ -n "$host" ]; then
+        docker compose --profile https up -d
+        where="https://$host/app"
+      else
+        docker compose up -d
+        where="http://localhost:8080/app, after: ssh -L 8080:localhost:8080 <this server>"
+      fi
+      printf '\nYardhand is running.\n  The app:         %s\n  The setup code:  docker compose --project-directory /opt/yardhand logs gateway\n\n' "$where" > /etc/motd
+runcmd:
+  - curl -fsSL https://get.docker.com | sh
+  - curl -fsSL -o /opt/yardhand/docker-compose.yml https://github.com/escalay/yardhand/releases/latest/download/docker-compose.yml
+  - /opt/yardhand/start.sh
