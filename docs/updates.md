@@ -108,7 +108,8 @@ Settings does it.
 - The data is copied before every upgrade.
 - Each release names the oldest version that can move to it in one step (`upgradeFrom` in its `release.json`).
 - Setting names don't change; a replaced one keeps working for a release.
-- Every change is run through a real update and a real rollback before it merges (`scripts/smoke-upgrade.sh`).
+- Every change is run through real updates before it merges (`scripts/smoke-upgrade.sh`): the last release with
+  data in it is updated to the new build, then an update is asked for in the app, then one that fails is rolled back.
 
 ## For agents and scripts
 
