@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # The self-hosting path end to end against an image: start the compose file with no settings, read the setup code
 # from the log, claim the instance, connect the sample tools and run one, back up, restart, and find the owner still
-# there. CI runs it on every change; run it locally with GATEWAY_IMAGE set to an image you built.
+# there, with the updater beside it. CI runs it on every change; run it locally with GATEWAY_IMAGE set to an image you
+# built. It runs in a copy of the compose folder whose .env keeps the instance from calling out.
 set -euo pipefail
-cd "$(dirname "$0")/../deploy/compose"
-export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-yardhand-smoke}" GATEWAY_PORT="${GATEWAY_PORT:-8099}" GATEWAY_TELEMETRY=off
+work="$(mktemp -d)"
+cp "$(dirname "$0")/../deploy/compose/docker-compose.yml" "$work/"
+printf 'GATEWAY_TELEMETRY=off\nGATEWAY_UPDATE_CHECK=off\n' > "$work/.env"
+cd "$work"
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-yardhand-smoke}" GATEWAY_PORT="${GATEWAY_PORT:-8099}"
 : "${GATEWAY_IMAGE:?set GATEWAY_IMAGE to the image to test}"
 base="http://localhost:${GATEWAY_PORT}"
 fail() { echo "smoke: $*" >&2; docker compose logs gateway >&2 || true; exit 1; }
 healthy() { for _ in $(seq 1 60); do curl -fsS -o /dev/null "$base/api/health" && return 0; sleep 1; done; return 1; }
-trap 'docker compose down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
+trap 'docker compose down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
 
 docker compose up -d
 healthy || fail "never answered /api/health"
@@ -30,8 +34,16 @@ total=$(curl -fsS -X POST "$base/api/calls" "${auth[@]}" -H 'content-type: appli
 [ "$(curl -fsS -X POST "$base/api/system/jobs/backup/runs" "${auth[@]}" | jq -r '.jobs[] | select(.name=="backup") | .ok')" = true ] \
   || fail "the backup failed"
 
+updates=$(curl -fsS "$base/api/system/updates" "${auth[@]}")
+[ "$(echo "$updates" | jq -r .check)" = false ] || fail "the update check is on, so this test would call out"
+for _ in $(seq 1 30); do
+  [ "$(curl -fsS "$base/api/system/updates" "${auth[@]}" | jq -r .updater.present)" = true ] && break
+  sleep 1
+done
+[ "$(curl -fsS "$base/api/system/updates" "${auth[@]}" | jq -r .how)" = updater ] || fail "the gateway doesn't see the updater beside it"
+
 docker compose restart gateway >/dev/null
 healthy || fail "didn't come back after a restart"
 [ "$(curl -fsS -o /dev/null -w '%{http_code}' "$base/api/me" "${auth[@]}")" = 200 ] || fail "the owner was lost on restart"
 [ "$(curl -fsS "$base/api/session" | jq -r .setup)" = false ] || fail "setup opened again after a restart"
-echo "smoke: claimed, ran a tool, backed up and restarted fine"
+echo "smoke: claimed, ran a tool, backed up, saw its updater and restarted fine"

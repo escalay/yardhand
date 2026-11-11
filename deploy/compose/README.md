@@ -89,7 +89,7 @@ the first 24 hours after the first start. `GATEWAY_TELEMETRY=off` (or `DO_NOT_TR
 
 | Task | How |
 |---|---|
-| Update | `curl -fsSLO https://github.com/escalay/yardhand/releases/latest/download/docker-compose.yml && docker compose up -d`. Read the release notes first. The data is backed up before the new version migrates it (Settings › Backups lists it); an older version refuses data a newer one wrote |
+| Update | Settings › Updates › Update now: the updater verifies the release, starts it, and puts the old version and data back if it doesn't come up. By hand: `curl -fsSLO https://github.com/escalay/yardhand/releases/latest/download/docker-compose.yml && docker compose pull && docker compose up -d`. [docs/updates.md](../../docs/updates.md) has it all |
 | Pin a version | `GATEWAY_IMAGE=ghcr.io/escalay/yardhand:0.1.0` in `.env` (any release tag), then `docker compose up -d` |
 | Go back a version | restore the backup kept before the upgrade (Settings › Backups, `before-<version>.sqlite`), then pin the older version |
 | Build from source | in a clone: `docker compose -f docker-compose.yml -f compose.build.yml up -d --build` |
@@ -122,6 +122,11 @@ on another gateway where you enter the credentials again.
 The gateway runs with a read-only filesystem apart from its volume and `/tmp`, with every Linux capability dropped and
 no way to gain new privileges. It publishes one port, on localhost unless you open it. Its only outbound connections
 are to the servers you connect and the optional parts you switch on.
+
+The updater beside it is the exception, on purpose: it holds the Docker socket, which is as good as root on this
+machine, so that the gateway doesn't have to. It acts only on a version number the gateway leaves for it and installs
+only releases signed by Yardhand's release workflow. `GATEWAY_UPDATER=0` in `.env` removes it
+([docs/updates.md](../../docs/updates.md)).
 
 ## Remove it
 

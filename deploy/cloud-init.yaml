@@ -5,7 +5,8 @@
 # For HTTPS on your own name, put the name on the PUBLIC_HOST line below before pasting, and point its DNS at the
 # server; Caddy gets the certificate. Left empty, Yardhand listens on the server only, and you reach it through an
 # SSH tunnel. When the server is up, log in: the message of the day says where the app is and how to read the setup
-# code. Everything lives in /opt/yardhand (deploy/compose/README.md covers settings, updates and backups).
+# code. Everything lives in /opt/yardhand (deploy/compose/README.md covers settings and backups; updates come from
+# Settings in the app, docs/updates.md).
 write_files:
   - path: /opt/yardhand/.env
     permissions: "0600"
