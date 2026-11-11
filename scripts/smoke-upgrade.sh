@@ -4,7 +4,11 @@
 # version through the API and the updater installs it; then one that dies after migrating, and the old version,
 # compose file and data must be back; last, the updater is switched off. The newer versions are the image under test
 # with another version number, pushed to a registry on this machine; only the signature check is replaced, since
-# nobody signed them. CI runs it on every change; locally, set GATEWAY_IMAGE (and UPGRADE_FROM for another release).
+# nobody signed them. Before that, every older release that can still update in one step (deploy/release.json's
+# upgradeFrom and up) is updated to the image under test too, with data in it. CI runs it on every change; locally,
+# set GATEWAY_IMAGE (and UPGRADE_FROM to start from one release only).
+# UPGRADE_HTTPS=1 runs it all with Caddy in front (`--profile https`, ports 80 and 443 on this machine), as a server
+# started from deploy/cloud-init.yaml with a host name runs, and asks everything through the proxy.
 set -euo pipefail
 : "${GATEWAY_IMAGE:?set GATEWAY_IMAGE to the image to test}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,11 +16,29 @@ work="$(mktemp -d)"
 registry=yardhand-upgrade-registry
 repo=localhost:5598/yardhand
 export COMPOSE_PROJECT_NAME=yardhand-upgrade
+last=$(jq -r '."."' "$root/.release-please-manifest.json")
+if [ -z "${UPGRADE_FROM:-}" ]; then
+  least=$(jq -r .upgradeFrom "$root/deploy/release.json")
+  # Every release from the oldest that updates in one step up to the one before the last; the last gets the full run
+  for older in $(git ls-remote --tags --refs https://github.com/escalay/yardhand.git 'v*' | sed 's|.*refs/tags/v||' \
+    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | awk -v least="$least" -v last="$last" '
+        function key(v, p) { split(v, p, "."); return p[1] * 1000000 + p[2] * 1000 + p[3] }
+        key($0) >= key(least) && key($0) < key(last)'); do
+    UPGRADE_FROM="$older" UPGRADE_LEGS=first "$0"
+  done
+fi
 port="${GATEWAY_PORT:-8098}"
 under_test="$GATEWAY_IMAGE"
 # Out of this shell: compose would read them here and the updater, starting from the folder, would not
 unset GATEWAY_PORT GATEWAY_IMAGE
 base="http://localhost:${port}"
+profile=()
+if [ -n "${UPGRADE_HTTPS:-}" ]; then
+  base="https://localhost"
+  profile=(--profile https)
+  # Caddy signs localhost with its own authority, which nothing here trusts
+  curl() { command curl -k "$@"; }
+fi
 updater_image=$(sed -n 's/^ *image: \(ghcr.io\/escalay\/updater:.*\)$/\1/p' "$root/deploy/compose/docker-compose.yml")
 cleanup() {
   (cd "$work" && docker compose down -v --remove-orphans >/dev/null 2>&1) || true
@@ -24,7 +46,7 @@ cleanup() {
   rm -rf "$work"
 }
 trap cleanup EXIT
-fail() { echo "upgrade: $*" >&2; (cd "$work" && docker compose logs --tail 60 gateway updater >&2) || true; exit 1; }
+fail() { echo "upgrade: $*" >&2; (cd "$work" && docker compose logs --tail 60 gateway updater caddy >&2) || true; exit 1; }
 
 docker rm -f "$registry" >/dev/null 2>&1 || true
 docker run -d --name "$registry" -p 127.0.0.1:5598:5000 registry:2 >/dev/null
@@ -38,7 +60,7 @@ printf 'FROM %s\nCOPY --chmod=755 cosign /usr/local/bin/cosign\n' "${UPDATER_BAS
 build() { docker buildx build --builder "$(docker context show)" --load -q "$@" >/dev/null; }
 build -t yardhand-upgrade-updater "$work/updater"
 
-from="${UPGRADE_FROM:-$(jq -r '."."' "$root/.release-please-manifest.json")}"
+from="${UPGRADE_FROM:-$last}"
 docker pull -q "ghcr.io/escalay/yardhand:$from" >/dev/null || fail "release $from, the one to update from, couldn't be pulled"
 compose_for() { sed "s|ghcr.io/escalay/yardhand:[0-9.]*}|$repo:$1}|" "$root/deploy/compose/docker-compose.yml"; }
 
@@ -68,6 +90,7 @@ release 98.2.0 "await db.run('create table left_by_a_failed_update (x)'); proces
 compose_for "$from" > "$work/docker-compose.yml"
 # Every setting is in .env: the updater starts the new version from this folder, not from this shell
 printf 'GATEWAY_PORT=%s\nGATEWAY_TELEMETRY=off\nGATEWAY_UPDATE_CHECK=off\n' "$port" > "$work/.env"
+[ -z "${UPGRADE_HTTPS:-}" ] || echo 'PUBLIC_HOST=localhost' >> "$work/.env"
 # The owner's own compose file beside the release's: the updater keeps it through an update
 cat > "$work/docker-compose.override.yml" <<YAML
 services:
@@ -85,7 +108,7 @@ services:
       - ./releases:/www/releases:ro
 YAML
 cd "$work"
-docker compose up -d >/dev/null 2>"$work/up.log" || fail "the project didn't start: $(cat "$work/up.log")"
+docker compose "${profile[@]}" up -d >/dev/null 2>"$work/up.log" || fail "the project didn't start: $(cat "$work/up.log")"
 healthy() { for _ in $(seq 1 60); do curl -fsS -o /dev/null "$base/api/health" && return 0; sleep 1; done; return 1; }
 healthy || fail "never answered /api/health"
 code=$(docker compose logs gateway | grep -o 'Setup code  [A-Z0-9-]*' | tail -1 | awk '{print $3}')
@@ -116,6 +139,7 @@ done
 grep -q "$repo:98.0.0}" docker-compose.yml || fail "the compose file isn't the new release's"
 mine
 echo "upgrade: release $from → this build: its data migrated, the owner and the connection are there"
+[ "${UPGRADE_LEGS:-all}" = all ] || exit 0
 
 for _ in $(seq 1 30); do [ "$(updates | jq -r .updater.present)" = true ] && break; sleep 1; done
 [ "$(updates | jq -r .how)" = updater ] || fail "the gateway doesn't see the updater beside it"
@@ -150,7 +174,7 @@ echo "upgrade: 98.1.0 → a 98.2.0 that dies after migrating: rolled back ($(upd
 
 # Without the updater: the container is gone and the owner is shown the commands
 echo 'GATEWAY_UPDATER=0' >> .env
-docker compose up -d >/dev/null 2>&1
+docker compose "${profile[@]}" up -d >/dev/null 2>&1
 [ -z "$(docker compose ps -q updater)" ] || fail "GATEWAY_UPDATER=0 left the updater running"
 for _ in $(seq 1 100); do [ "$(updates | jq -r .how)" = manual ] && break; sleep 1; done
 [ "$(updates | jq -r .how)" = manual ] || fail "without the updater the gateway still says $(updates | jq -r .how)"

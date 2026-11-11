@@ -74,10 +74,12 @@ jobs:
       - run: scripts/smoke-compose.sh
         env:
           GATEWAY_IMAGE: yardhand:ci
-      # A real update through the API and the updater, then one that fails and must roll back
+      # Real updates through the updater, with Caddy and HTTPS in front: from every release that can still update in
+      # one step, one asked for through the API, and one that fails and must roll back
       - run: scripts/smoke-upgrade.sh
         env:
           GATEWAY_IMAGE: yardhand:ci
+          UPGRADE_HTTPS: "1"
 
   # actionlint for mistakes, zizmor for the ways a workflow can be turned against its repository
   workflows:

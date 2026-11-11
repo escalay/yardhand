@@ -49,7 +49,7 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 | `deploy/release.json` | `upgradeFrom`: the oldest version that can update to the next release in one step. The release workflow adds the version, the image's digest and the compose file's hash and publishes it, signed, as the release's `release.json`: the only thing the updater installs from |
 | `deploy/cloud-init.yaml` | the same start on a new server, pasted as user data: installs Docker, starts the latest release in `/opt/yardhand` |
 | `packages/client/` | `@yardhand/client`: typed REST client for scripts (`pnpm gen:client` refreshes the tool types) |
-| `scripts/` | `smoke-compose.sh`, the self-hosting path end to end against an image, and `smoke-upgrade.sh`, real updates through the updater: the last release with data in it to the image under test, one asked for through the API, one that dies after migrating and must roll back, and the updater switched off (CI runs both) |
+| `scripts/` | `smoke-compose.sh`, the self-hosting path end to end against an image, and `smoke-upgrade.sh`, real updates through the updater with Caddy in front: every release from `upgradeFrom` up, with data in it, to the image under test, one asked for through the API, one that dies after migrating and must roll back, and the updater switched off (CI runs both) |
 | `.github/` | CI (gate, browser tests, the image through the self-hosting path, actionlint and zizmor on the workflows, gitleaks, the pull request title, dependency review), CodeQL, Scorecard, and the release workflow: release-please drafts the release, the image is scanned, smoke-tested, pushed to GHCR and signed, then the release is published |
 
 ## Vocabulary
