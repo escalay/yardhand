@@ -13,7 +13,7 @@ import { Status } from '@/ui/Status'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/shadcn/collapsible'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { SettingsCard, SettingsGroup } from './SettingsGroup'
-import { DOC_URL, newerVersion, OFF_LINE, reportGroups, timingLine } from './telemetry.rules'
+import { DOC_URL, newerVersion, OFF_LINE, offVariable, reportGroups, timingLine } from './telemetry.rules'
 
 export const TELEMETRY_ID = 'usage-telemetry'
 
@@ -55,16 +55,29 @@ const Card = ({ view }: { view: Schemas['Telemetry'] }) => {
           </p>
         ) : null}
         <div className="flex flex-col gap-3 px-5 py-4">
+          {view.on ? (
+            <>
+              <p className="text-sm text-pretty text-muted-foreground">
+                To switch it off, add this line to .env and restart Yardhand. There is no switch here on purpose: it is
+                set where the instance runs, so nothing in the app can turn it back on.
+              </p>
+              <Code copy label=".env">
+                {OFF_LINE}
+              </Code>
+            </>
+          ) : (
+            <p className="text-sm text-pretty text-muted-foreground">
+              It stays off while <Mono>{offVariable(view.off)}</Mono> is set where this instance runs. To send reports
+              again, take that line out of .env and restart Yardhand.
+            </p>
+          )}
           <p className="text-sm text-pretty text-muted-foreground">
-            {view.on
-              ? 'To switch it off, add this line to .env and restart Yardhand. There is no switch here on purpose: it is set where the instance runs, so nothing in the app can turn it back on.'
-              : 'It stays off for as long as that variable is set. This line in .env, then a restart, is the usual way:'}
-          </p>
-          <Code copy label=".env">
-            {OFF_LINE}
-          </Code>
-          <p className="text-sm text-pretty text-muted-foreground">
-            <Mono>DO_NOT_TRACK=1</Mono> does the same. What every field means, and what is never sent:{' '}
+            {view.on ? (
+              <>
+                <Mono>DO_NOT_TRACK=1</Mono> does the same.{' '}
+              </>
+            ) : null}
+            What every field means, and what is never sent:{' '}
             <a href={DOC_URL} target="_blank" rel="noreferrer" className="underline underline-offset-4">
               docs/telemetry.md
             </a>

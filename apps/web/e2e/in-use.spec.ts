@@ -251,6 +251,7 @@ test('the usage report is shown before it is ever sent, field by field, with how
   await notice.getByRole('link', { name: 'See the report' }).click()
 
   const group = page.locator('#usage-telemetry')
+  await expect(group).toBeInViewport()
   await expect(group.getByRole('heading', { name: 'Usage telemetry' })).toBeVisible()
   await expect(group.getByText(/Nothing has been sent yet\. The first report goes in \d+ h/)).toBeVisible()
   await expect(group.getByText('https://pulse.escalay.space/v1/yardhand')).toBeVisible()
@@ -285,6 +286,38 @@ test('the usage report is shown before it is ever sent, field by field, with how
   await page.reload()
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   await expect(page.getByRole('complementary', { name: 'Usage telemetry' })).toHaveCount(0)
+})
+
+test('switched off, Settings names the variable; a newer release is named once a report has an answer', async ({
+  page,
+}) => {
+  await signIn(page, demo())
+  // The demo is always on and never sends, so the answer is changed on its way to the app
+  await page.route('**/api/system/telemetry', async (route) => {
+    const response = await route.fetch()
+    const view = await response.json()
+    await route.fulfill({
+      response,
+      json: {
+        ...view,
+        on: false,
+        off: 'DO_NOT_TRACK is set',
+        latest: '9.9.9',
+        sent: { at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(), body: view.next },
+      },
+    })
+  })
+  await page.goto('/app')
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Usage telemetry' })).toHaveCount(0)
+  await page.goto('/app/settings')
+  const group = page.locator('#usage-telemetry')
+  await expect(group.getByText('Off', { exact: true })).toBeVisible()
+  await expect(group.getByText('Nothing is sent: DO_NOT_TRACK is set in this instance’s environment.')).toBeVisible()
+  await expect(group.getByText(/It stays off while DO_NOT_TRACK is set/)).toBeVisible()
+  await expect(group.getByText('The report it would send, were it on')).toBeVisible()
+  await expect(group.getByText(/A newer version is out: 9\.9\.9/)).toBeVisible()
+  await expect(group.getByRole('button', { name: 'See the last one sent, 3 h ago' })).toBeVisible()
 })
 
 test('every page fits the window, long names included', async ({ page }) => {
