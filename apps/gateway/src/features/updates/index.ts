@@ -223,7 +223,7 @@ export const createUpdates = (
       if (updater(now).present) return void leave(version, now)
       if (hook) return callHook(hook)
       throw new ProblemError('conflict', {
-        detail: `Nothing here can carry out an update: no updater container runs beside this gateway and no deploy hook is set. Update by hand where it runs: ${MANUAL.replace('\n', ' && ')} (${DOCS}).`,
+        detail: `Nothing here can carry out an update: no updater container runs beside this gateway and no deploy hook is set. Update by hand where it runs: ${MANUAL.replaceAll('\n', ' && ')} (${DOCS}).`,
       })
     },
   }
