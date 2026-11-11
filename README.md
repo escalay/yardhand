@@ -91,6 +91,13 @@ no names, addresses, queries or keys. The first goes 24 hours after the first st
 report before then. `GATEWAY_TELEMETRY=off` (or `DO_NOT_TRACK=1`) in `.env` switches it off.
 [docs/telemetry.md](docs/telemetry.md) lists every field, what the collector keeps and for how long.
 
+## Updates
+
+Settings shows when a newer version is out, with its release notes. On a Docker Compose install, "Update now" has
+the updater beside the gateway verify the signed release, start it, and put the old version and your data back if it
+doesn't come up. The updater holds the Docker socket; `GATEWAY_UPDATER=0` removes it, and `GATEWAY_UPDATE_CHECK=off`
+stops the daily check. [docs/updates.md](docs/updates.md) explains every step.
+
 ## Develop
 
 Node 26 and pnpm (`corepack enable`).
