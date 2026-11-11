@@ -86,6 +86,7 @@ the second with the release's and keeps the first.
 | Install | How it updates |
 |---|---|
 | Docker Compose, and a server started from `deploy/cloud-init.yaml` | The updater, from Settings |
+| Kubernetes, from the Helm chart | By hand with `helm upgrade`; Settings gives the command. [deploy/helm/README.md](../deploy/helm/README.md) |
 | A platform that redeploys on a hook (Render and the like) | Set `GATEWAY_UPDATE_HOOK`; the platform must follow the `latest` image tag |
 | Anything else | By hand, below |
 
@@ -96,8 +97,15 @@ curl -fsSL -o docker-compose.yml https://github.com/escalay/yardhand/releases/la
 docker compose pull && docker compose up -d
 ```
 
-The data is copied before the new version migrates it either way. To go back, restore
-`before-<version>.sqlite` in Settings › Backups and pin the older version with `GATEWAY_IMAGE`.
+The data is copied before the new version migrates it either way.
+
+**If the new version never comes up,** put the old one back however you run it: `GATEWAY_IMAGE` pinned to the old
+tag, the old compose file, `helm rollback`. When the old version starts and finds the copy a newer one made without
+ever coming up, it takes that copy as its data by itself and says so in its log. What the failed version left is
+kept as `backups/failed-<version>.sqlite`.
+
+To go back from a version that did run, restore `before-<version>.sqlite` in Settings › Backups and pin the older
+version.
 
 **Coming from 0.2.0 or earlier:** those versions have no updater, so this first move is by hand. From then on
 Settings does it.
@@ -105,7 +113,8 @@ Settings does it.
 ## What every release promises
 
 - Migrations only go forward, and a step that shipped never changes.
-- The data is copied before every upgrade.
+- The data is copied before every upgrade, and an upgrade that never came up is undone when the old version starts
+  again, on every kind of install.
 - Each release names the oldest version that can move to it in one step (`upgradeFrom` in its `release.json`).
 - Setting names don't change; a replaced one keeps working for a release.
 - Every change is run through real updates before it merges (`scripts/smoke-upgrade.sh`), with HTTPS in front:
