@@ -1,6 +1,7 @@
 # Every change: the gate (lint, types, unit tests), the browser tests against demo gateways, the image built and run
-# through the self-hosting path end to end, the workflows themselves linted, a secrets scan, and on pull requests the
-# title (it becomes the commit, and the changelog) and a review of new dependencies.
+# through the self-hosting path end to end and through an update and a rollback, the workflows themselves linted, a
+# secrets scan, and on pull requests the title (it becomes the commit, and the changelog) and a review of new
+# dependencies.
 name: CI
 
 on:
@@ -71,6 +72,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - run: scripts/smoke-compose.sh
+        env:
+          GATEWAY_IMAGE: yardhand:ci
+      # A real update through the API and the updater, then one that fails and must roll back
+      - run: scripts/smoke-upgrade.sh
         env:
           GATEWAY_IMAGE: yardhand:ci
 
