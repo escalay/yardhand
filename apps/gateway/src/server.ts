@@ -38,6 +38,10 @@ if (problems.length) {
   await new Promise((resolve) => setTimeout(resolve, 5000))
   process.exit(78)
 }
+if (upgrade.undone)
+  console.log(
+    `Yardhand ${upgrade.undone} was started on this data and never came up: the data from before it was put back (what it left is in backups/failed-${upgrade.undone}.sqlite)`,
+  )
 if (upgrade.backup) console.log(`backed up the data before upgrading to ${VERSION}: ${upgrade.backup}`)
 const db = await openDb(`file:${databaseFile}`)
 const code = instance.open ? setupCode() : null

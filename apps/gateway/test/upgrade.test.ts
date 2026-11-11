@@ -1,5 +1,5 @@
 /** Upgrades: a newer version backs the data up before migrating; an older one refuses data a newer one wrote. */
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -49,6 +49,64 @@ describe('upgrades', () => {
     expect(prepareUpgrade(stateDir, join(stateDir, 'state.sqlite'), '0.1.0')).toMatchObject({
       problem: null,
       backup: null,
+    })
+  })
+
+  describe('an update that never came up', () => {
+    /** A newer version starts on the data, copies it, writes something, and dies before it is up. */
+    const failedUpdate = (stateDir: string, databaseFile: string, version: string) => {
+      prepareUpgrade(stateDir, databaseFile, version)
+      new DatabaseSync(databaseFile).exec('create table half_migrated (x)')
+    }
+    const tables = (file: string) => {
+      const db = new DatabaseSync(file, { readOnly: true })
+      const names = (db.prepare("select name from sqlite_master where type = 'table'").all() as { name: string }[]).map(
+        (row) => row.name,
+      )
+      db.close()
+      return names
+    }
+
+    it('is undone when the old version starts again: the data from before, and what was left kept aside', () => {
+      const { stateDir, databaseFile } = instance('0.2.0')
+      failedUpdate(stateDir, databaseFile, '0.3.0')
+      const back = prepareUpgrade(stateDir, databaseFile, '0.2.0')
+      expect(back).toMatchObject({ problem: null, undone: '0.3.0' })
+      expect(tables(databaseFile)).toEqual(['notes'])
+      expect(tables(join(stateDir, 'backups', 'failed-0.3.0.sqlite'))).toContain('half_migrated')
+      // The copy is used up, so the next start has nothing to undo and the next try at 0.3.0 makes a fresh one
+      expect(existsSync(join(stateDir, 'backups', 'before-0.3.0.sqlite'))).toBe(false)
+      expect(prepareUpgrade(stateDir, databaseFile, '0.2.0').undone).toBeNull()
+    })
+
+    it('is undone before a version in between upgrades, so its copy holds whole data', () => {
+      const { stateDir, databaseFile } = instance('0.2.0')
+      failedUpdate(stateDir, databaseFile, '0.4.0')
+      const next = prepareUpgrade(stateDir, databaseFile, '0.3.0')
+      expect(next.undone).toBe('0.4.0')
+      expect(tables(next.backup as string)).toEqual(['notes'])
+    })
+
+    it('leaves alone the copies of updates that worked, and data with no version on record', () => {
+      const { stateDir, databaseFile } = instance('0.2.0')
+      prepareUpgrade(stateDir, databaseFile, '0.3.0').stamp()
+      new DatabaseSync(databaseFile).exec('create table written_since (x)')
+      expect(prepareUpgrade(stateDir, databaseFile, '0.3.0').undone).toBeNull()
+      expect(tables(databaseFile)).toContain('written_since')
+
+      const fresh = instance()
+      mkdirSync(join(fresh.stateDir, 'backups'))
+      writeFileSync(join(fresh.stateDir, 'backups', 'before-0.9.0.sqlite'), 'left by something else')
+      expect(prepareUpgrade(fresh.stateDir, fresh.databaseFile, '0.2.0').undone).toBeNull()
+    })
+
+    it('still refuses a newer version’s data once that version did come up', () => {
+      const { stateDir, databaseFile } = instance('0.2.0')
+      prepareUpgrade(stateDir, databaseFile, '0.3.0').stamp()
+      const back = prepareUpgrade(stateDir, databaseFile, '0.2.0')
+      expect(back.problem).toContain('newer than this 0.2.0')
+      expect(back.undone).toBeNull()
+      expect(existsSync(join(stateDir, 'backups', 'before-0.3.0.sqlite'))).toBe(true)
     })
   })
 })
