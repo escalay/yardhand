@@ -8,7 +8,7 @@
 name: yardhand
 
 x-image: &image # The release this file came with; GATEWAY_IMAGE picks another (or one you built: compose.build.yml)
-  image: ${GATEWAY_IMAGE:-ghcr.io/escalay/yardhand:0.1.0} # x-release-please-version
+  image: ${GATEWAY_IMAGE:-ghcr.io/escalay/yardhand:0.2.0} # x-release-please-version
 
 # The container needs no privilege beyond its own files: no capabilities, no way to gain any, a read-only root
 x-hardened: &hardened
