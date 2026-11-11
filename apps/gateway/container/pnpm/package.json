@@ -1,0 +1,8 @@
+{
+  "name": "yardhand-image-pnpm",
+  "private": true,
+  "description": "The pnpm the image installs with, locked so npm ci checks it against a hash. Keep it at the version in the root package.json.",
+  "dependencies": {
+    "pnpm": "12.3.4"
+  }
+}
