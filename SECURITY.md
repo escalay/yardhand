@@ -35,3 +35,10 @@ cosign verify ghcr.io/escalay/yardhand:<version> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 gh attestation verify oci://ghcr.io/escalay/yardhand:<version> --owner escalay
 ```
+
+The files of a release (`docker-compose.yml`, `env.example`) come with their provenance, `yardhand.intoto.jsonl`.
+With the three downloaded into one folder:
+
+```sh
+gh attestation verify docker-compose.yml --repo escalay/yardhand --bundle yardhand.intoto.jsonl
+```
