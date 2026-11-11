@@ -168,12 +168,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CREATED: ${{ needs.release-please.outputs.created }}
           BUNDLE: ${{ steps.files.outputs.bundle-path }}
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           if [ -n "$BUNDLE" ]; then
             cp "$BUNDLE" yardhand.intoto.jsonl
             for file in release/*; do
               gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" --bundle yardhand.intoto.jsonl > /dev/null
             done
+            # The two checks the updater makes before it installs a release, with its own cosign
+            if [ "$CREATED" = "true" ]; then
+              updater=$(sed -n 's/^ *image: \(ghcr.io\/escalay\/updater:.*\)$/\1/p' deploy/compose/docker-compose.yml)
+              signer="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/heads/main"
+              head -n 1 yardhand.intoto.jsonl > bundle.json
+              docker run --rm -v "$PWD:/work" -w /work --entrypoint cosign "$updater" verify-blob-attestation \
+                --bundle bundle.json --new-bundle-format --type slsaprovenance1 --certificate-identity "$signer" \
+                --certificate-oidc-issuer https://token.actions.githubusercontent.com release/release.json
+              docker run --rm --entrypoint cosign "$updater" verify "${IMAGE}@${DIGEST}" \
+                --certificate-identity "$signer" --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+            fi
             mv yardhand.intoto.jsonl release/
           fi
           gh release upload "$TAG" release/* --clobber
