@@ -1119,7 +1119,7 @@ export interface paths {
         put?: never;
         /**
          * Run a job now
-         * @description Runs the hourly sync, the daily backup or the daily usage report now and answers when it is done, with what it did; a run already going is joined (owner only).
+         * @description Runs the hourly sync, the daily backup, the daily usage report or the daily check for a newer version now and answers when it is done, with what it did; a run already going is joined (owner only).
          */
         post: operations["runJob"];
         delete?: never;
@@ -1142,6 +1142,70 @@ export interface paths {
         get: operations["getTelemetry"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Updates
+         * @description The version running, the newest release the last check named with its release notes, whether the daily check and automatic updates are on, how an update happens here, and the last runs (owner only). Reading it asks nobody.
+         */
+        get: operations["getUpdates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Switch the daily check or automatic updates
+         * @description Switches the daily check for a newer version, or automatic updates, on or off (owner only). Automatic updates need the updater container: without it this answers 409.
+         */
+        patch: operations["changeUpdates"];
+        trace?: never;
+    };
+    "/api/system/updates/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check for a newer version now
+         * @description Asks for the newest release now: one plain request, with no id and no report, even when the daily check is off (owner only). A failed check is a 503; the daily check tries again.
+         */
+        post: operations["checkForUpdates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/updates/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update to a newer version
+         * @description Asks for an update to `version`, or to the newest release known (owner only). The gateway never updates itself: with the updater it leaves a request beside its data, and the updater checks the release’s signature, starts it and puts the old version back if it doesn’t come up; with only a deploy hook it calls the hook. Follow `status` on `GET /api/system/updates`: the gateway restarts on the way. Answers 409 when nothing newer is known, an update is under way, or neither an updater nor a hook is there.
+         */
+        post: operations["requestUpdate"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3021,7 +3085,7 @@ export interface components {
         /** @description A scheduled job: its last run and when the next is due. */
         JobRun: {
             /** @enum {string} */
-            name: "sync" | "backup" | "usage";
+            name: "sync" | "backup" | "usage" | "updates";
             /** @description When it last ran, across restarts; null if never. */
             at: string | null;
             ok: boolean | null;
@@ -3141,6 +3205,82 @@ export interface components {
          * @enum {string}
          */
         UsageCount: "0" | "1-10" | "11-100" | "101-1k" | "1k-10k" | "10k+";
+        /** @description Updates: the version running, the newest one, the switches and past runs. */
+        Updates: {
+            /** @description The version running. */
+            current: string;
+            /** @description The newest release the last check named; null before the first check. */
+            latest: {
+                version: string;
+                checkedAt: string;
+                /** @description Its release notes. */
+                notes: string;
+            } | null;
+            /** @description The newest release is newer than the version running. */
+            newer: boolean;
+            /** @description The daily check is on. */
+            check: boolean;
+            /** @description A newer version is installed by itself, through the updater. */
+            auto: boolean;
+            /** @description Where the newest version is asked (GATEWAY_UPDATE_URL). */
+            checkUrl: string;
+            /** @description The updater container beside this gateway. */
+            updater: {
+                /** @description It wrote beside the data in the last 90 seconds. */
+                present: boolean;
+                version: string | null;
+            };
+            /** @description A deploy hook is set (GATEWAY_UPDATE_HOOK). */
+            hook: boolean;
+            /**
+             * @description What an update request does here: the `updater` carries it out, the platform’s deploy `hook` is called, or `manual`: run the commands in `manual`.
+             * @enum {string}
+             */
+            how: "updater" | "hook" | "manual";
+            /** @description The commands that update a Docker Compose install by hand. */
+            manual: string;
+            /** @description The page on updates. */
+            docs: string;
+            /** @description The update under way, or the last one. */
+            status: components["schemas"]["UpdateRun"] | null;
+            /** @description The last 20 updates, newest first. */
+            history: components["schemas"]["UpdateRun"][];
+            _links: components["schemas"]["Links"];
+        };
+        /** @description One update, as the updater reports it. */
+        UpdateRun: {
+            /** @description The request it answers. */
+            id: string;
+            /**
+             * @description `working`: under way. `done`: the new version runs. `failed`: it didn’t come up healthy, so the old version and its data were put back. `refused`: it never started (a bad version, a signature that didn’t check, a version too old to upgrade directly).
+             * @enum {string}
+             */
+            state: "working" | "done" | "failed" | "refused";
+            /** @description What it is doing, or the last thing it did. */
+            step: string;
+            from: string;
+            to: string;
+            startedAt: string;
+            /** @description When this was written. */
+            at: string;
+            /** @description Why it failed or was refused. */
+            detail: string | null;
+        };
+        /** @description The switches to change; one left out stays as it is. */
+        UpdatesChange: {
+            /** @description The daily check. */
+            check?: boolean;
+            /** @description Install a newer version by itself. */
+            auto?: boolean;
+        };
+        /** @description Which version to move to. */
+        UpdateRequest: {
+            /**
+             * @description The version to move to, as `1.2.3`. Left out: the newest release known.
+             * @example 0.3.0
+             */
+            version?: string;
+        };
         /** @description Upstreams, clients, pins, tool access and packs, without secrets. */
         GatewayConfig: {
             [key: string]: unknown;
@@ -7137,8 +7277,8 @@ export interface operations {
                 "Idempotency-Key"?: string;
             };
             path: {
-                /** @description The job: `sync`, `backup` or `usage`. */
-                name: "sync" | "backup" | "usage";
+                /** @description The job: `sync`, `backup`, `usage` or `updates`. */
+                name: "sync" | "backup" | "usage" | "updates";
             };
             cookie?: never;
         };
@@ -7220,6 +7360,247 @@ export interface operations {
             };
             /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getUpdates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["Updates"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    changeUpdates: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatesChange"];
+            };
+        };
+        responses: {
+            /** @description Updates, as they are now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["Updates"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    checkForUpdates: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updates, after the check. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["Updates"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `upstream`: A service this call depends on (a model, storage) failed. Retry after `Retry-After` seconds. `unavailable`: The data is still loading or being replaced. Retry after `Retry-After` seconds. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestUpdate: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The request was left for the updater, or the hook was called. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["Updates"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `upstream`: A service this call depends on (a model, storage) failed. Retry after `Retry-After` seconds. `unavailable`: The data is still loading or being replaced. Retry after `Retry-After` seconds. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

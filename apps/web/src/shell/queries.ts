@@ -18,3 +18,8 @@ export const telemetryQuery = queryOptions({
   queryFn: () => unwrap(api.GET('/api/system/telemetry')),
   staleTime: 60_000,
 })
+export const updatesQuery = queryOptions({
+  queryKey: ['updates'],
+  queryFn: () => unwrap(api.GET('/api/system/updates')),
+  staleTime: 60_000,
+})

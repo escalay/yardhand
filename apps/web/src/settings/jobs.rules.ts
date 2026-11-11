@@ -7,6 +7,10 @@ export const JOBS = {
     title: 'Send the usage report',
     does: 'Every day: an anonymous report, unless switched off (GATEWAY_TELEMETRY=off).',
   },
+  updates: {
+    title: 'Check for a newer version',
+    does: 'Every day: asks for the newest version, unless switched off in Updates below.',
+  },
 } as const
 
 const MINUTE = 60_000

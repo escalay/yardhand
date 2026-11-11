@@ -10,6 +10,7 @@ import { RecentCalls } from '@/activity/RecentCalls'
 import type { Overview, Schemas } from '@/api/client'
 import { shortTitleOf } from '@/connections/connections.rules'
 import { TelemetryNotice } from '@/settings/TelemetryNotice'
+import { UpdateNotice } from '@/settings/UpdateNotice'
 import { changeOf, percent, RANGES, shareOf } from '@/shell/filters.rules'
 import { overviewQuery, systemQuery } from '@/shell/queries'
 import { ScopePicker } from '@/shell/ScopePicker'
@@ -348,6 +349,7 @@ export const HomePage = ({ search }: { search: OverviewSearch }) => {
     <>
       <Page className={data.totals.upstreams ? 'pb-0 lg:pb-0' : undefined}>
         <Head overview={data} />
+        <UpdateNotice />
         <TelemetryNotice />
         {setupOpen ? <Checklist setup={data.setup} /> : null}
         <Nudges nudges={data.nudges} />

@@ -21,6 +21,7 @@ import { Jobs } from './Jobs'
 import { versionLine } from './jobs.rules'
 import { SettingsCard, SettingsCells, SettingsGroup } from './SettingsGroup'
 import { Telemetry } from './Telemetry'
+import { Updates } from './Updates'
 
 const FEATURES = {
   meaningSearch: {
@@ -166,6 +167,7 @@ export const SettingsPage = () => {
             </SettingsCells>
             <Jobs jobs={data.jobs} />
           </SettingsGroup>
+          <Updates />
           <Telemetry />
           {data.liveSync.length ? (
             <SettingsGroup title="Live sync" description={liveLine(data.liveSync)}>

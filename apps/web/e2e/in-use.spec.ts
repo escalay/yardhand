@@ -320,6 +320,92 @@ test('switched off, Settings names the variable; a newer release is named once a
   await expect(group.getByRole('button', { name: 'See the last one sent, 3 h ago' })).toBeVisible()
 })
 
+test('a newer version is named on Home and installed from Settings, followed through the restart', async ({ page }) => {
+  await signIn(page, demo())
+  // The demo never asks for a newer version and has no updater, so the answers are changed on their way to the app
+  const run = (state: string, step: string) => ({
+    id: 'run-2',
+    state,
+    step,
+    from: '0.2.0',
+    to: '9.9.9',
+    startedAt: new Date().toISOString(),
+    at: new Date().toISOString(),
+    detail: null,
+  })
+  const stage = { status: null as ReturnType<typeof run> | null, how: 'manual', current: '0.2.0', down: false }
+  await page.route('**/api/system/updates**', async (route) => {
+    if (stage.down) return route.abort('connectionrefused')
+    const asking = route.request().method() === 'POST' && route.request().url().endsWith('/requests')
+    const response = await route.fetch(
+      asking ? { method: 'GET', url: route.request().url().replace('/requests', '') } : {},
+    )
+    const view = await response.json()
+    await route.fulfill({
+      status: asking ? 202 : response.status(),
+      headers: response.headers(),
+      json: {
+        ...view,
+        current: stage.current,
+        latest: {
+          version: '9.9.9',
+          checkedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          notes: 'https://github.com/escalay/yardhand/releases/tag/v9.9.9',
+        },
+        newer: stage.current !== '9.9.9',
+        how: stage.how,
+        updater: { present: stage.how === 'updater', version: stage.how === 'updater' ? '1.0.0' : null },
+        status: stage.status,
+        history: stage.status?.state === 'done' ? [stage.status] : [],
+      },
+    })
+  })
+  await page.goto('/app')
+  const notice = page.getByRole('complementary', { name: 'Update available' })
+  await expect(notice).toContainText('Yardhand 9.9.9 is available; this is 0.2.0.')
+  await expect(notice.getByRole('link', { name: 'Release notes' })).toHaveAttribute(
+    'href',
+    'https://github.com/escalay/yardhand/releases/tag/v9.9.9',
+  )
+  await notice.getByRole('link', { name: 'See the update' }).click()
+
+  // Without an updater: the commands to run, and automatic updates can't be switched on
+  const group = page.locator('#updates')
+  await expect(group).toBeInViewport()
+  await expect(group.getByText('Yardhand 9.9.9 is available')).toBeVisible()
+  await expect(group.getByText('Last checked 2 h ago.')).toBeVisible()
+  await expect(group.locator('pre')).toContainText('docker compose pull && docker compose up -d')
+  await expect(group.getByRole('button', { name: 'Update now' })).toHaveCount(0)
+  await expect(group.getByRole('switch', { name: 'Update automatically' })).toBeDisabled()
+  await expect(group.getByText(/Needs the updater container/)).toBeVisible()
+  // The daily check is the owner's to switch: off in the demo, on from here
+  const daily = group.getByRole('switch', { name: 'Check for updates daily' })
+  await expect(daily).not.toBeChecked()
+  await daily.click()
+  await expect(daily).toBeChecked()
+  await daily.click()
+  await expect(daily).not.toBeChecked()
+
+  // With the updater: one click, each step shown, the restart ridden out, the new app loaded
+  stage.how = 'updater'
+  await page.reload()
+  await expect(group.getByRole('switch', { name: 'Update automatically' })).toBeEnabled()
+  await group.getByRole('button', { name: 'Update now' }).click()
+  await expect(group.getByText('Asked. The updater takes it within a few seconds.')).toBeVisible()
+  stage.status = run('working', 'Checking the release’s signature')
+  await expect(group.getByText(/Checking the release’s signature\. Yardhand restarts on the way/)).toBeVisible()
+  stage.down = true
+  await expect(group.getByText('Restarting… Yardhand is coming back on the new version.')).toBeVisible()
+  stage.down = false
+  stage.current = '9.9.9'
+  stage.status = run('done', 'Done')
+  await expect(page.getByText('Updated to 9.9.9. Loading the new version…')).toBeVisible()
+  await expect(group.getByText('This is the newest version.')).toBeVisible()
+  await expect(group.getByRole('button', { name: 'Update now' })).toHaveCount(0)
+  await group.getByRole('button', { name: 'Past updates (1)' }).click()
+  await expect(group.getByText('0.2.0 → 9.9.9')).toBeVisible()
+})
+
 test('every page fits the window, long names included', async ({ page }) => {
   await signIn(page, demo())
   await fitsTheWindow(page)
