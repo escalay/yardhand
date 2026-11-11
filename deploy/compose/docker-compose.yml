@@ -60,7 +60,7 @@ services:
   # version and data back if the new one doesn't come up. It needs the Docker socket, which is as good as root on
   # this machine; the gateway itself has no such access. GATEWAY_UPDATER=0 in .env removes it (docs/updates.md).
   updater:
-    image: ghcr.io/escalay/updater:1.0.0
+    image: ghcr.io/escalay/updater:1.0.1
     deploy:
       replicas: ${GATEWAY_UPDATER:-1}
     environment:
