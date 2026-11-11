@@ -4,7 +4,9 @@
 # through the self-hosting path before it is pushed, carries an SBOM and build provenance, and is signed with cosign
 # (keyless, by this workflow's identity). The release is published last, once its image and files are there: a
 # release anyone can see is one that installs. If the image job fails, re-run the failed job and it finishes the
-# release. The release's files carry their own provenance (yardhand.intoto.jsonl); running this workflow by hand with a
+# release. Each release has a release.json naming its image by digest, its compose file by hash and the oldest version
+# that can update to it directly (deploy/release.json): the updater installs only what that file names
+# (docs/updates.md). The release's files carry their own provenance (yardhand.intoto.jsonl); running this workflow by hand with a
 # tag writes it again for a release that is already out.
 name: Release
 
@@ -141,13 +143,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CREATED: ${{ needs.release-please.outputs.created }}
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           mkdir release
           if [ "$CREATED" = "true" ]; then
             cp deploy/compose/docker-compose.yml release/docker-compose.yml
             cp deploy/compose/.env.example release/env.example
+            jq -n --arg version "${TAG#v}" --arg image "${IMAGE}@${DIGEST}" \
+              --arg from "$(jq -r .upgradeFrom deploy/release.json)" \
+              --arg sha "$(sha256sum release/docker-compose.yml | cut -d' ' -f1)" \
+              '{version: $version, upgradeFrom: $from, image: $image, compose: {file: "docker-compose.yml", sha256: $sha}}' \
+              > release/release.json
           else
-            gh release download "$TAG" --dir release --pattern docker-compose.yml --pattern env.example
+            gh release download "$TAG" --dir release --pattern docker-compose.yml --pattern env.example --pattern release.json
           fi
       - id: files
         if: ${{ env.TAG != '' && !github.event.repository.private }}
