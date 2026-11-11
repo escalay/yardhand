@@ -1119,9 +1119,29 @@ export interface paths {
         put?: never;
         /**
          * Run a job now
-         * @description Runs the hourly sync or the daily backup now and answers when it is done, with what it did; a run already going is joined (owner only).
+         * @description Runs the hourly sync, the daily backup or the daily usage report now and answers when it is done, with what it did; a run already going is joined (owner only).
          */
         post: operations["runJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/telemetry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Usage telemetry
+         * @description Whether the daily usage report is on, where it goes, when the first one goes, the exact report it would send now and the last one sent (owner only). Reading it sends nothing. It is switched off in the environment: GATEWAY_TELEMETRY=off.
+         */
+        get: operations["getTelemetry"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3001,7 +3021,7 @@ export interface components {
         /** @description A scheduled job: its last run and when the next is due. */
         JobRun: {
             /** @enum {string} */
-            name: "sync" | "backup";
+            name: "sync" | "backup" | "usage";
             /** @description When it last ran, across restarts; null if never. */
             at: string | null;
             ok: boolean | null;
@@ -3026,6 +3046,101 @@ export interface components {
             lastChangeAt: string | null;
             error: string | null;
         };
+        /** @description Usage telemetry: whether it is on, where it sends and the exact report. */
+        Telemetry: {
+            on: boolean;
+            /** @description Why it is off: `GATEWAY_TELEMETRY is off` or `DO_NOT_TRACK is set`; null when on. */
+            off: string | null;
+            /** @description Where reports go (GATEWAY_TELEMETRY_URL). */
+            url: string;
+            /** @description The first report goes no earlier than this: a day after first run. */
+            firstAt: string;
+            next: components["schemas"]["UsageReportBody"];
+            /** @description The last report sent, as it was sent; null if none yet. */
+            sent: {
+                at: string;
+                body: components["schemas"]["UsageReportBody"] & unknown;
+            } | null;
+            /** @description The newest release, as the collector’s last answer named it; null until a report is sent. */
+            latest: string | null;
+            _links: components["schemas"]["Links"];
+        };
+        /** @description What it would send now. */
+        UsageReportBody: {
+            /** @description The number of the field list; a new field is a new number. */
+            schema: number;
+            /** @description A random id kept by this instance, derived from nothing. */
+            instance: string;
+            version: string;
+            report: components["schemas"]["UsageReport"];
+        };
+        /** @description The daily usage report: ranges and yes/no answers, never a name. */
+        UsageReport: {
+            /**
+             * @description How it was installed, as the template that started it says.
+             * @enum {string}
+             */
+            install: "compose" | "cloud-init" | "render" | "fly" | "source" | "other";
+            /**
+             * @description The processor it runs on.
+             * @enum {string}
+             */
+            arch: "x64" | "arm64" | "other";
+            /**
+             * @description Days since it first ran a version with telemetry.
+             * @enum {string}
+             */
+            age: "0" | "1-7" | "8-30" | "31-90" | "91-365" | "365+";
+            /** @description Its own address starts with https://. */
+            https: boolean;
+            /**
+             * @description The database file’s size.
+             * @enum {string}
+             */
+            database: "<10MB" | "10-100MB" | "100MB-1GB" | "1GB+";
+            /** @description It has an owner. */
+            claimed: boolean;
+            connections: components["schemas"]["UsageCount"];
+            /** @description At least one is an MCP server. */
+            connections_mcp: boolean;
+            /** @description At least one is a REST API. */
+            connections_http: boolean;
+            /** @description At least one is Composio. */
+            connections_composio: boolean;
+            tools: components["schemas"]["UsageCount"] & unknown;
+            clients_key: components["schemas"]["UsageCount"] & unknown;
+            clients_oauth: components["schemas"]["UsageCount"] & unknown;
+            packs: components["schemas"]["UsageCount"] & unknown;
+            reviews_waiting: components["schemas"]["UsageCount"] & unknown;
+            calls_1d: components["schemas"]["UsageCount"] & unknown;
+            calls: components["schemas"]["UsageCount"] & unknown;
+            calls_mcp: components["schemas"]["UsageCount"] & unknown;
+            calls_rest: components["schemas"]["UsageCount"] & unknown;
+            calls_app: components["schemas"]["UsageCount"] & unknown;
+            calls_tool_error: components["schemas"]["UsageCount"] & unknown;
+            calls_refused: components["schemas"]["UsageCount"] & unknown;
+            calls_failed: components["schemas"]["UsageCount"] & unknown;
+            searches: components["schemas"]["UsageCount"] & unknown;
+            clients_active: components["schemas"]["UsageCount"] & unknown;
+            /** @description Search by meaning is on. */
+            meaning_search: boolean;
+            /**
+             * @description Which kind of provider smart grouping uses, or `off`.
+             * @enum {string}
+             */
+            ai_grouping: "off" | "openrouter" | "openai" | "local" | "custom";
+            /** @description Call traces go to Langfuse. */
+            langfuse: boolean;
+            /** @description Review alerts go to Discord. */
+            discord: boolean;
+            /** @description Cloudflare Access signs the owner in. */
+            access_signin: boolean;
+        };
+        /**
+         * @description Connections, of any kind.
+         * @enum {string}
+         */
+        UsageCount: "0" | "1-10" | "11-100" | "101-1k" | "1k-10k" | "10k+";
         /** @description Upstreams, clients, pins, tool access and packs, without secrets. */
         GatewayConfig: {
             [key: string]: unknown;
@@ -7022,8 +7137,8 @@ export interface operations {
                 "Idempotency-Key"?: string;
             };
             path: {
-                /** @description The job: `sync` or `backup`. */
-                name: "sync" | "backup";
+                /** @description The job: `sync`, `backup` or `usage`. */
+                name: "sync" | "backup" | "usage";
             };
             cookie?: never;
         };
@@ -7036,6 +7151,53 @@ export interface operations {
                 };
                 content: {
                     "application/hal+json": components["schemas"]["System"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getTelemetry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Usage telemetry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["Telemetry"];
                 };
             };
             /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */

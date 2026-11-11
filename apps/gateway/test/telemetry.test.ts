@@ -1,6 +1,6 @@
 /**
  * Usage telemetry: the report carries ranges and yes/no answers and nothing an owner named; it waits a day, goes once
- * asked, and never goes when switched off.
+ * asked, and never goes when switched off. Its owner reads the exact report at GET /api/system/telemetry.
  */
 import { randomBytes } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { createTelemetry, offReason } from '../src/features/telemetry/index.js'
 import { countRange, daysRange, sizeRange } from '../src/features/telemetry/report.js'
+import { ReportSchema } from '../src/features/telemetry/routes.js'
 import { hashApiKey, openDb } from '../src/kit/index.js'
 
 const OWNER = 'owner-key-for-telemetry'
@@ -42,7 +43,8 @@ const start = async (env: Record<string, string> = {}) => {
       return Response.json({ ok: true, latest: '9.9.9' })
     }) as typeof fetch,
   )
-  return { app, post, telemetry, sent }
+  const get = (path: string, key = OWNER) => app.request(path, { headers: { authorization: `Bearer ${key}` } })
+  return { app, post, get, telemetry, sent }
 }
 
 describe('ranges', () => {
@@ -132,5 +134,62 @@ describe('the report', () => {
     await telemetry.send(new Date(Date.now() + 2 * DAY))
     await telemetry.send(new Date(Date.now() + 3 * DAY))
     expect(sent[0]?.body.instance).toBe(sent[1]?.body.instance)
+  })
+})
+
+describe('GET /api/system/telemetry', () => {
+  it('shows the owner what would be sent, field for field, and sends nothing', async () => {
+    const { app, get, telemetry, sent } = await start({ GATEWAY_TELEMETRY_URL: 'https://collector.example.test/v1' })
+    app.services.telemetry.current = telemetry
+    const response = await get('/api/system/telemetry')
+    expect(response.status).toBe(200)
+    const view = (await response.json()) as any
+    expect(view).toMatchObject({
+      on: true,
+      off: null,
+      url: 'https://collector.example.test/v1',
+      sent: null,
+      latest: null,
+      next: { schema: 1, version: expect.stringMatching(/^\d+\.\d+\.\d+/) },
+    })
+    expect(new Date(view.firstAt).getTime()).toBeGreaterThan(Date.now() + DAY - 60_000)
+    expect(Object.keys(view.next).sort()).toEqual(['instance', 'report', 'schema', 'version'])
+    // Strict: a field the report gained without the schema naming it fails here
+    expect(ReportSchema.parse(view.next.report)).toEqual(view.next.report)
+    expect(sent).toEqual([])
+
+    await telemetry.send(new Date(Date.now() + 2 * DAY))
+    const after = (await (await get('/api/system/telemetry')).json()) as any
+    expect(after.sent.body).toEqual(sent[0]?.body)
+    expect(after.latest).toBe('9.9.9')
+    expect(after.next.instance).toBe(view.next.instance)
+  })
+
+  it('says why it is off', async () => {
+    const { app, get, telemetry } = await start({ DO_NOT_TRACK: '1' })
+    app.services.telemetry.current = telemetry
+    const view = (await (await get('/api/system/telemetry')).json()) as any
+    expect(view).toMatchObject({ on: false, off: 'DO_NOT_TRACK is set' })
+  })
+
+  it('is the owner’s only, and is linked from the system', async () => {
+    const { app, post, get, telemetry } = await start()
+    app.services.telemetry.current = telemetry
+    const client = (await (
+      await post('/api/clients', { name: 'a script', scope: 'read', upstreams: 'all' })
+    ).json()) as {
+      key: string
+    }
+    expect((await get('/api/system/telemetry', client.key)).status).toBe(403)
+    expect((await app.request('/api/system/telemetry')).status).toBe(401)
+    const system = (await (await get('/api/system')).json()) as any
+    expect(system._links.telemetry.href).toMatch(/\/api\/system\/telemetry$/)
+  })
+
+  it('says so where the process runs without telemetry', async () => {
+    const { get } = await start()
+    const response = await get('/api/system/telemetry')
+    expect(response.status).toBe(409)
+    expect(((await response.json()) as any).detail).toMatch(/runs without usage telemetry/)
   })
 })

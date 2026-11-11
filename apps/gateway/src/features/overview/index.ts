@@ -274,7 +274,12 @@ export const feature: Feature = {
           alerts: Boolean(env.DISCORD_WEBHOOK_URL),
         },
         publicOrigin,
-        _links: linksOf(originOf(c), { self: SYSTEM_PATH, config: '/api/config', overview: PATH }),
+        _links: linksOf(originOf(c), {
+          self: SYSTEM_PATH,
+          telemetry: `${SYSTEM_PATH}/telemetry`,
+          config: '/api/config',
+          overview: PATH,
+        }),
       }
     }
     app.openapi(routes.system, async (c) => {

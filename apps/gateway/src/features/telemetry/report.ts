@@ -5,6 +5,7 @@
  */
 import { sql } from 'drizzle-orm'
 import type { Db } from '../../kit/index.js'
+import type { Provider } from '../ai/config.js'
 
 /** What the report reads: named here, apart from the services, so the services can hold telemetry without a circle. */
 export type Source = {
@@ -13,38 +14,41 @@ export type Source = {
   catalog: { pending: () => Promise<unknown[]> }
   publicOrigin: string
   meaning: unknown
-  ai: { grouping: () => Promise<{ key: { value: string }; provider: { value: string } }> }
+  ai: { grouping: () => Promise<{ key: { value: string }; provider: { value: Provider } }> }
   traces: unknown
   env: { DISCORD_WEBHOOK_URL?: string; ACCESS_TEAM?: string; ACCESS_AUD?: string }
 }
 
 export const SCHEMA = 1
 
-const COUNT_STEPS: [number, string][] = [
+const COUNT_STEPS = [
   [0, '0'],
   [10, '1-10'],
   [100, '11-100'],
   [1000, '101-1k'],
   [10_000, '1k-10k'],
-]
+] as const
 /** A count as a range, so a report can't single out an instance by its exact numbers. */
-export const countRange = (count: number) => COUNT_STEPS.find(([upTo]) => count <= upTo)?.[1] ?? '10k+'
+export const countRange = (count: number) => COUNT_STEPS.find(([upTo]) => count <= upTo)?.[1] ?? ('10k+' as const)
 
-const DAY_STEPS: [number, string][] = [
+const DAY_STEPS = [
   [0, '0'],
   [7, '1-7'],
   [30, '8-30'],
   [90, '31-90'],
   [365, '91-365'],
-]
-export const daysRange = (days: number) => DAY_STEPS.find(([upTo]) => days <= upTo)?.[1] ?? '365+'
+] as const
+export const daysRange = (days: number) => DAY_STEPS.find(([upTo]) => days <= upTo)?.[1] ?? ('365+' as const)
 
 const MEGABYTE = 1_000_000
-export const sizeRange = (bytes: number) =>
+export const sizeRange = (bytes: number): '<10MB' | '10-100MB' | '100MB-1GB' | '1GB+' =>
   bytes < 10 * MEGABYTE ? '<10MB' : bytes < 100 * MEGABYTE ? '10-100MB' : bytes < 1000 * MEGABYTE ? '100MB-1GB' : '1GB+'
 
-const INSTALLS = ['compose', 'cloud-init', 'render', 'fly', 'source']
-const ARCHS = ['x64', 'arm64']
+const INSTALLS = ['compose', 'cloud-init', 'render', 'fly', 'source'] as const
+const ARCHS = ['x64', 'arm64'] as const
+/** A value from a short list, or `other`: nothing an owner typed reaches the report. */
+const oneOf = <Known extends string>(known: readonly Known[], value: string | undefined) =>
+  known.find((entry) => entry === value) ?? ('other' as const)
 const DAY = 24 * 60 * 60 * 1000
 
 /** The counts, in the order the query selects them (the database answers a raw query with bare rows). */
@@ -114,8 +118,8 @@ export const buildReport = async (
   const waiting = (await tools.pending()).length + (await catalog.pending()).length
   const grouping = await ai.grouping()
   return {
-    install: facts.install && INSTALLS.includes(facts.install) ? facts.install : 'other',
-    arch: ARCHS.includes(facts.arch) ? facts.arch : 'other',
+    install: oneOf(INSTALLS, facts.install),
+    arch: oneOf(ARCHS, facts.arch),
     age: daysRange(Math.floor((now.getTime() - new Date(facts.since).getTime()) / DAY)),
     https: publicOrigin.startsWith('https://'),
     database: sizeRange(facts.databaseBytes),
@@ -140,7 +144,7 @@ export const buildReport = async (
     searches: countRange(counts.searches),
     clients_active: countRange(counts.active),
     meaning_search: Boolean(meaning),
-    ai_grouping: grouping.key.value ? grouping.provider.value : 'off',
+    ai_grouping: grouping.key.value ? grouping.provider.value : ('off' as const),
     langfuse: Boolean(traces),
     discord: Boolean(env.DISCORD_WEBHOOK_URL),
     access_signin: Boolean(env.ACCESS_TEAM && env.ACCESS_AUD),

@@ -23,6 +23,7 @@ import { feature as home } from './home/index.js'
 import { feature as overview } from './overview/index.js'
 import { feature as packs } from './packs/index.js'
 import { feature as searches } from './searches/index.js'
+import { feature as telemetry } from './telemetry/index.js'
 import { feature as tools } from './tools/index.js'
 import { feature as upstreams } from './upstreams/index.js'
 import { feature as vault } from './vault/index.js'
@@ -53,6 +54,7 @@ export const FEATURES: Feature[] = [
   events,
   searches,
   overview,
+  telemetry,
   config,
   backups,
 ]

@@ -1,11 +1,16 @@
 /**
  * Usage telemetry (docs/telemetry.md): once a day this instance sends an anonymous report, unless it is switched off
  * with `GATEWAY_TELEMETRY=off` or `DO_NOT_TRACK=1`. A new instance, and one that just upgraded to a version with
- * telemetry, waits a day first, so its owner reads the notice before anything leaves. A failed send is dropped.
+ * telemetry, waits a day first, so its owner reads the notice before anything leaves. A failed send is tried again
+ * within the hour, as any failed job is. The owner reads the exact report at `GET /api/system/telemetry`.
  */
 import { randomUUID } from 'node:crypto'
+import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import { VERSION } from '../../version.js'
+import { requireOwner } from '../clients/principals.js'
+import type { Feature } from '../index.js'
 import { buildReport, type Facts, type Report, SCHEMA, type Source } from './report.js'
+import { PATH, routes, TAG } from './routes.js'
 
 export const DEFAULT_URL = 'https://pulse.escalay.space/v1/yardhand'
 const WAIT_MS = 24 * 60 * 60 * 1000
@@ -90,3 +95,24 @@ export const createTelemetry = (
 }
 
 export type Telemetry = ReturnType<typeof createTelemetry>
+
+export const feature: Feature = {
+  name: 'telemetry',
+  tag: { name: TAG, description: 'The daily usage report, as its owner sees it.' },
+  migrations: [],
+  register: (app, { telemetry }) => {
+    app.openapi(routes.telemetry, async (c) => {
+      requireOwner(c)
+      if (!telemetry.current)
+        throw new ProblemError('conflict', {
+          detail:
+            'This gateway runs without usage telemetry (a test process), so there is no report to show and nothing is sent.',
+        })
+      return c.json(
+        { ...(await telemetry.current.view()), _links: linksOf(originOf(c), { self: PATH, system: '/api/system' }) },
+        200,
+      )
+    })
+  },
+  tools: [],
+}

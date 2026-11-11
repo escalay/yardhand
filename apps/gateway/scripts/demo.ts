@@ -1,7 +1,7 @@
 /**
  * A gateway with fake upstreams, for working on the app and for its browser tests: an MCP server (echo, shout), a
  * REST API with an OpenAPI spec and an OAuth MCP server, all on local ports, and the built app at /app. Nothing leaves
- * this machine. `--seed` also connects two of them, makes an agent and some calls, as after a week of use.
+ * this machine: the usage report is built for Settings to show and never sent. `--seed` also connects two of them, makes an agent and some calls, as after a week of use.
  *
  * @example
  * pnpm --filter gateway demo            # empty: the first-run path
@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { serve } from '@hono/node-server'
 import { createApp } from '../src/app.js'
+import { createTelemetry } from '../src/features/telemetry/index.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
 import { startOAuthUpstream } from '../test/fixtures/oauth-upstream.js'
 import { startRest } from '../test/fixtures/rest.js'
@@ -26,9 +27,13 @@ const rest = await startRest({ key: 'demo-rest-key' })
 const oauth = await startOAuthUpstream()
 // DEMO_SETUP_CODE: a brand-new instance nobody owns yet, claimed in the browser with this code
 const setupCode = process.env.DEMO_SETUP_CODE
+const owned = { current: !setupCode }
+const claim = () => {
+  owned.current = true
+}
 const app = await createApp({
   db: await testDb(),
-  ...(setupCode ? { unclaimed: { code: setupCode, claim: () => {} } } : {}),
+  ...(setupCode ? { unclaimed: { code: setupCode, claim } } : {}),
   env: {
     API_KEYS: setupCode ? '' : `owner:${hashApiKey(OWNER_KEY)}`,
     GATEWAY_MASTER_KEY: randomBytes(32).toString('base64'),
@@ -36,6 +41,12 @@ const app = await createApp({
     ...(process.env.WEB_DIR ? { WEB_DIR: process.env.WEB_DIR } : {}),
   },
 })
+// The report Settings shows, with nowhere to go: no job runs here, and a send would throw before leaving
+app.services.telemetry.current = createTelemetry(
+  app.services,
+  () => ({ claimed: owned.current, install: 'source', arch: process.arch, databaseBytes: 0 }),
+  () => Promise.reject(new Error('The demo never sends a usage report')),
+)
 
 const owner = async (path: string, init: { method?: string; body?: unknown } = {}) => {
   const response = await app.request(path, {

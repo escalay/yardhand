@@ -247,12 +247,12 @@ export const routes = {
     tags: [TAG],
     summary: 'Run a job now',
     description:
-      'Runs the hourly sync or the daily backup now and answers when it is done, with what it did; a run already going is joined (owner only).',
+      'Runs the hourly sync, the daily backup or the daily usage report now and answers when it is done, with what it did; a run already going is joined (owner only).',
     request: {
       params: z.object({
         name: z
           .enum(['sync', 'backup', 'usage'])
-          .openapi({ param: { name: 'name', in: 'path' }, description: 'The job: `sync` or `backup`.' }),
+          .openapi({ param: { name: 'name', in: 'path' }, description: 'The job: `sync`, `backup` or `usage`.' }),
       }),
     },
     responses: { 200: ok('The system.', SystemSchema), ...problemResponses(401, 403, 409) },
