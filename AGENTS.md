@@ -140,6 +140,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
     `version.ts`, the packages and the compose file), every published image is scanned, signed and attested, and a
     release is published only after its image is. Dependencies are at least a week old (`minimumReleaseAge`,
     Dependabot's cooldown).
+    What an owner must know before updating (a new default, a step by hand) is written in
+    `docs/releases/<version>.md` before the release pull request merges; the workflow puts it at the top of the notes.
 14. The usage report carries ranges and yes/no answers only, never anything an owner named or a call carried. A new
     field is a new schema number, in `ReportSchema`, the app's labels and `docs/telemetry.md`, and accepted by the
     collector before the release that sends it. It is switched off only in the environment, never in the app, and

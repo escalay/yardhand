@@ -7,7 +7,8 @@
 # release. Each release has a release.json naming its image by digest, its compose file by hash and the oldest version
 # that can update to it directly (deploy/release.json): the updater installs only what that file names
 # (docs/updates.md). The Helm chart of the release is pushed beside the image and signed the same way. The release's
-# files carry their own provenance (yardhand.intoto.jsonl); running this workflow by hand with a
+# notes open with docs/releases/<version>.md when that file exists: what someone must know before updating. The
+# release's files carry their own provenance (yardhand.intoto.jsonl); running this workflow by hand with a
 # tag writes it again for a release that is already out.
 name: Release
 
@@ -205,4 +206,12 @@ jobs:
             mv yardhand.intoto.jsonl release/
           fi
           gh release upload "$TAG" release/* --clobber
-          if [ "$CREATED" = "true" ]; then gh release edit "$TAG" --draft=false --latest; fi
+          if [ "$CREATED" = "true" ]; then
+            # What a person must know before the list of changes: docs/releases/<version>.md leads the notes
+            lead="docs/releases/${TAG#v}.md"
+            if [ -f "$lead" ]; then
+              { cat "$lead"; echo; gh release view "$TAG" --json body --jq .body; } > notes.md
+              gh release edit "$TAG" --notes-file notes.md
+            fi
+            gh release edit "$TAG" --draft=false --latest
+          fi
