@@ -137,9 +137,8 @@ it shows in the report, and holds the report to the field list above.
 
 ## What the collector adds
 
-The collector is a small Cloudflare Worker. On receiving a report it adds two things: the day, and the country the
-request came from, as Cloudflare names it. The sender's IP address is not stored. A report that carries any field
-outside its schema is refused whole.
+The collector is a small server with a SQLite file. On receiving a report it adds two things: the day, and the
+country the request came from. A report that carries any field outside its schema is refused whole.
 
 Its answer names the newest Yardhand release, which Settings shows as "A newer version is out" when it is newer than
 the one running. That is the only thing an instance takes from the collector.
