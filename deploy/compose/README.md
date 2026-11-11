@@ -80,6 +80,11 @@ After changing `.env`: `docker compose up -d`.
 
 Settings in the app shows which parts are on.
 
+Usage telemetry is the one part that is on by default: once a day, an anonymous report of ranges and yes/no answers,
+the first 24 hours after the first start. `GATEWAY_TELEMETRY=off` (or `DO_NOT_TRACK=1`) in `.env` switches it off, and
+`GATEWAY_TELEMETRY_URL` sends it to a collector of your own. Settings › Usage telemetry shows the exact report;
+[docs/telemetry.md](../../docs/telemetry.md) lists every field.
+
 ## Day to day
 
 | Task | How |

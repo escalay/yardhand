@@ -3,7 +3,7 @@
  * asked, and never goes when switched off. Its owner reads the exact report at GET /api/system/telemetry.
  */
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -191,5 +191,15 @@ describe('GET /api/system/telemetry', () => {
     const response = await get('/api/system/telemetry')
     expect(response.status).toBe(409)
     expect(((await response.json()) as any).detail).toMatch(/runs without usage telemetry/)
+  })
+})
+
+describe('docs/telemetry.md', () => {
+  it('lists every field of the report, and no field the report lacks', () => {
+    const doc = readFileSync(new URL('../../../docs/telemetry.md', import.meta.url), 'utf8')
+    const [, after = ''] = doc.split('### Schema 1')
+    const [fields = ''] = after.split('## What is never sent')
+    const listed = [...fields.matchAll(/^\| `(\w+)` \|/gm)]
+    expect(listed.map((match) => match[1])).toEqual(Object.keys(ReportSchema.shape))
   })
 })

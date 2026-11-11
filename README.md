@@ -31,7 +31,7 @@ REST APIs and gives every agent one address instead.
 - **Everything on the record.** Every call, by which agent, with what result and how long it took, live in the app
   and optionally traced to Langfuse.
 - **Packs.** Hand an agent a curated kit for one kind of work, in your own wording, with a key that expires.
-- **Yours to run.** One container, SQLite, daily backups, restore in two clicks, and no telemetry.
+- **Yours to run.** One container, SQLite, daily backups and restore in two clicks.
 
 ## Run it
 
@@ -83,6 +83,13 @@ flowchart LR
 ```
 
 [docs/architecture.md](docs/architecture.md) has the pipeline every call goes through, with diagrams.
+
+## Telemetry
+
+Once a day Yardhand sends one anonymous usage report: ranges and yes/no answers about how it is set up and used, with
+no names, addresses, queries or keys. The first goes 24 hours after the first start, and Settings shows the exact
+report before then. `GATEWAY_TELEMETRY=off` (or `DO_NOT_TRACK=1`) in `.env` switches it off.
+[docs/telemetry.md](docs/telemetry.md) lists every field, what the collector keeps and for how long.
 
 ## Develop
 

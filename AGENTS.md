@@ -39,6 +39,7 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 | `apps/gateway/src/features/<name>/` | anything with tables or routes: upstreams, tools, catalog, calls, clients, search, vault, connections, config |
 | `apps/gateway/src/features/instance/` | a new instance's own keys in `instance.json` beside the data (master key, OAuth signing key, the owner's hash), resolved at start before anything opens; never made over a database sealed with other keys. The setup code and the claim live in `features/session` |
 | `apps/gateway/src/features/backups/` | download a kept copy of the database; restore from a kept copy or an uploaded file (checked, today's data kept aside, staged, applied at the next start by `applyPending` in `server.ts`) |
+| `apps/gateway/src/features/telemetry/` | the daily usage report (`docs/telemetry.md`, decision 0004): `report.ts` builds it, `index.ts` sends it and shows it to the owner (`GET /api/system/telemetry`); switched off only in the environment |
 | `apps/gateway/src/adapters/` | talking to one kind of upstream (`mcp`, `http`, `composio`, `sample`); no tables, no routes |
 | `apps/gateway/src/mcp/` | what agents see: meta-tools, pinned tools, playbooks as prompts, manuals as skills, links, passthrough |
 | `apps/gateway/src/features/{events,searches,overview,session}/` | what the app stands on: live events (SSE), the search log behind "agents looked for", Home and Settings in one call each, owner sign-in by key where Access isn't in front |
@@ -136,3 +137,7 @@ Copy is plain and specific; every error says where, why and what to do (the prob
     `version.ts`, the packages and the compose file), every published image is scanned, signed and attested, and a
     release is published only after its image is. Dependencies are at least a week old (`minimumReleaseAge`,
     Dependabot's cooldown).
+14. The usage report carries ranges and yes/no answers only, never anything an owner named or a call carried. A new
+    field is a new schema number, in `ReportSchema`, the app's labels and `docs/telemetry.md`, and accepted by the
+    collector before the release that sends it. It is switched off only in the environment, never in the app, and
+    tests, the demo and the smoke test never send.
