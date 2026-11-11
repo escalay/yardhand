@@ -1,11 +1,12 @@
 apiVersion: v2
 name: yardhand
-description: "A self-hosted gateway: one MCP and REST endpoint for every tool your agents use."
+description: >-
+  A self-hosted gateway: one MCP and REST endpoint for every tool your agents
+  use.
 type: application
 home: https://github.com/escalay/yardhand
 sources:
   - https://github.com/escalay/yardhand
 license: AGPL-3.0-only
-# The chart and the app are released together and carry the same number
-version: 0.2.0 # x-release-please-version
-appVersion: "0.2.0" # x-release-please-version
+version: 0.3.0
+appVersion: 0.2.0
