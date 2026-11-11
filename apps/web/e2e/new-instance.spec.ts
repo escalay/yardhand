@@ -44,6 +44,15 @@ test('the guided setup has no tabs, and walks from the instance to an agent’s 
   // 1 · The instance: its address matches, its master key needs a copy
   await expect(page.getByRole('heading', { name: /Yardhand is running/ })).toBeVisible()
   await expect(page.getByText('Agents get the address you opened')).toBeVisible()
+  // Said before the first usage report goes: what it is, when, and how to stop it
+  const notice = page.getByText(/Yardhand sends one anonymous usage report a day/)
+  await expect(notice).toContainText('The first goes after 24 hours')
+  await expect(notice).toContainText('GATEWAY_TELEMETRY=off')
+  await expect(notice.getByRole('link', { name: 'Settings' })).toHaveAttribute(
+    'href',
+    /\/app\/settings#usage-telemetry$/,
+  )
+  await expect(notice.getByRole('link', { name: 'docs/telemetry.md' })).toHaveAttribute('href', /docs\/telemetry\.md$/)
   await page.getByRole('link', { name: 'Connect a server' }).click()
 
   // 2 · A server: the sample tools, in one click

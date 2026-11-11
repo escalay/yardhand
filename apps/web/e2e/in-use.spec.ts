@@ -241,6 +241,52 @@ test('Settings is its own place, and the scope sits only where it narrows', asyn
   await expect(page.getByRole('button', { name: 'Scope' })).toBeVisible()
 })
 
+test('the usage report is shown before it is ever sent, field by field, with how to switch it off', async ({
+  page,
+}) => {
+  await signIn(page, demo())
+  // Home says it once, before the first report goes
+  const notice = page.getByRole('complementary', { name: 'Usage telemetry' })
+  await expect(notice).toContainText('one anonymous usage report a day')
+  await notice.getByRole('link', { name: 'See the report' }).click()
+
+  const group = page.locator('#usage-telemetry')
+  await expect(group.getByRole('heading', { name: 'Usage telemetry' })).toBeVisible()
+  await expect(group.getByText(/Nothing has been sent yet\. The first report goes in \d+ h/)).toBeVisible()
+  await expect(group.getByText('https://pulse.escalay.space/v1/yardhand')).toBeVisible()
+  for (const heading of ['Sent with it', 'Where it runs', 'Setup', 'Use over 7 days', 'Optional parts'])
+    await expect(group.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+  const shownFor = (label: string) => group.getByText(label, { exact: true }).locator('..').locator('dd')
+  await expect(shownFor('Connections')).toHaveText('1-10')
+  await expect(shownFor('Has an owner')).toHaveText('yes')
+  await expect(shownFor('Composio is connected')).toHaveText('no')
+  await expect(shownFor('Calls')).toHaveText('11-100')
+
+  // How to switch it off: a line in .env, no switch in the app
+  await expect(group.getByText('GATEWAY_TELEMETRY=off', { exact: true })).toBeVisible()
+  await expect(group.getByText(/add this line to \.env and restart Yardhand/)).toBeVisible()
+  await expect(group.getByRole('switch')).toHaveCount(0)
+  await expect(group.getByRole('link', { name: 'docs/telemetry.md' })).toHaveAttribute(
+    'href',
+    'https://github.com/escalay/yardhand/blob/main/docs/telemetry.md',
+  )
+
+  // The same report as the JSON that is posted, names nowhere in it
+  await group.getByRole('button', { name: 'See it as the JSON that is posted' }).click()
+  const json = group.locator('pre').filter({ hasText: '"schema": 1' })
+  await expect(json).toContainText('"connections": "1-10"')
+  await expect(json).not.toContainText('Echo')
+  await expect(json).not.toContainText('localhost')
+
+  // Dismissed, the notice stays away
+  await page.goto('/app')
+  await page.getByRole('complementary', { name: 'Usage telemetry' }).getByRole('button', { name: 'Dismiss' }).click()
+  await expect(page.getByRole('complementary', { name: 'Usage telemetry' })).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Usage telemetry' })).toHaveCount(0)
+})
+
 test('every page fits the window, long names included', async ({ page }) => {
   await signIn(page, demo())
   await fitsTheWindow(page)

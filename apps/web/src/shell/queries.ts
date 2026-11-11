@@ -13,3 +13,8 @@ export const overviewQuery = queryOptions({
   staleTime: 15_000,
 })
 export const systemQuery = queryOptions({ queryKey: ['system'], queryFn: () => unwrap(api.GET('/api/system')) })
+export const telemetryQuery = queryOptions({
+  queryKey: ['telemetry'],
+  queryFn: () => unwrap(api.GET('/api/system/telemetry')),
+  staleTime: 60_000,
+})

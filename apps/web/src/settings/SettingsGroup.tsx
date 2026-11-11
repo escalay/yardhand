@@ -2,15 +2,20 @@
 import type { ReactNode } from 'react'
 
 export const SettingsGroup = ({
+  id,
   title,
   description,
   children,
 }: {
+  id?: string
   title: string
   description: ReactNode
   children: ReactNode
 }) => (
-  <section className="grid min-w-0 grid-cols-1 gap-4 border-t border-border pt-8 first:border-t-0 first:pt-0 lg:grid-cols-[16rem_minmax(0,1fr)] lg:gap-12">
+  <section
+    id={id}
+    className="grid min-w-0 scroll-mt-8 grid-cols-1 gap-4 border-t border-border pt-8 first:border-t-0 first:pt-0 lg:grid-cols-[16rem_minmax(0,1fr)] lg:gap-12"
+  >
     <div className="flex flex-col gap-1.5">
       <h2 className="text-sm font-medium">{title}</h2>
       <p className="text-sm text-pretty text-muted-foreground">{description}</p>

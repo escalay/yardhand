@@ -13,8 +13,11 @@ import { FirstCall } from '@/agents/FirstCall'
 import { Setup } from '@/agents/Setup'
 import { api, unwrap } from '@/api/client'
 import { upstreamsQuery } from '@/connections/queries'
-import { overviewQuery, systemQuery } from '@/shell/queries'
+import { TELEMETRY_ID } from '@/settings/Telemetry'
+import { DOC_URL, OFF_LINE, offVariable } from '@/settings/telemetry.rules'
+import { overviewQuery, systemQuery, telemetryQuery } from '@/shell/queries'
 import { Backdrop } from '@/ui/Backdrop'
+import { Mono } from '@/ui/Code'
 import { cn } from '@/ui/cn'
 import { Field } from '@/ui/Field'
 import { plural } from '@/ui/format'
@@ -88,6 +91,37 @@ const Next = ({
   </Button>
 )
 
+/** Said before the first usage report goes: what is sent, when, and how to stop it. */
+const TelemetryLine = () => {
+  const telemetry = useQuery(telemetryQuery)
+  if (!telemetry.data) return null
+  const report = (
+    <Link to="/settings" hash={TELEMETRY_ID} className="underline underline-offset-4">
+      Settings
+    </Link>
+  )
+  return (
+    <p className="text-sm text-pretty text-muted-foreground">
+      {telemetry.data.on ? (
+        <>
+          One more thing: Yardhand sends one anonymous usage report a day, made of ranges and yes/no answers, with no
+          names or addresses. The first goes after 24 hours. To stop it, put <Mono>{OFF_LINE}</Mono> in .env and
+          restart. {report} shows the exact report, and{' '}
+        </>
+      ) : (
+        <>
+          Usage telemetry is off here ({offVariable(telemetry.data.off)}), so no usage report is sent. {report} shows
+          what one would hold, and{' '}
+        </>
+      )}
+      <a href={DOC_URL} target="_blank" rel="noreferrer" className="underline underline-offset-4">
+        docs/telemetry.md
+      </a>{' '}
+      lists every field.
+    </p>
+  )
+}
+
 const Instance = () => {
   const system = useQuery(systemQuery)
   if (!system.data) return <Skeleton className="h-64 rounded-none" />
@@ -124,6 +158,7 @@ const Instance = () => {
           </li>
         ))}
       </ul>
+      <TelemetryLine />
       <div className="flex justify-end">
         <Next to="server" onClick={() => remember('instance')}>
           Connect a server

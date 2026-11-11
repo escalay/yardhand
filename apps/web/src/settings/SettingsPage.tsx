@@ -1,7 +1,7 @@
 /**
  * Settings: the gateway itself, as groups on two lines (what a group is for on the left, its card on the right): AI,
- * where agents and scripts find it, which optional parts are on (and how to turn one on), what runs, live sync,
- * backups, and the settings as one JSON file to export or bring back.
+ * where agents and scripts find it, which optional parts are on (and how to turn one on), what runs, the usage
+ * report, live sync, backups, and the settings as one JSON file to export or bring back.
  */
 import { IconDownload, IconUpload } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -20,6 +20,7 @@ import { Backups } from './Backups'
 import { Jobs } from './Jobs'
 import { versionLine } from './jobs.rules'
 import { SettingsCard, SettingsCells, SettingsGroup } from './SettingsGroup'
+import { Telemetry } from './Telemetry'
 
 const FEATURES = {
   meaningSearch: {
@@ -148,7 +149,7 @@ export const SettingsPage = () => {
           </SettingsGroup>
           <SettingsGroup
             title="Running"
-            description="This deploy, and the two jobs it runs by itself. Their runs are remembered across restarts."
+            description="This deploy, and the jobs it runs by itself. Their runs are remembered across restarts."
           >
             <SettingsCells className="grid-cols-2 sm:grid-cols-4">
               {[
@@ -165,6 +166,7 @@ export const SettingsPage = () => {
             </SettingsCells>
             <Jobs jobs={data.jobs} />
           </SettingsGroup>
+          <Telemetry />
           {data.liveSync.length ? (
             <SettingsGroup title="Live sync" description={liveLine(data.liveSync)}>
               <SettingsCells className="sm:grid-cols-2 xl:grid-cols-3">
