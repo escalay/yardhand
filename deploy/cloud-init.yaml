@@ -12,6 +12,7 @@ write_files:
     content: |
       # A name here (gateway.example.com) gets HTTPS by Caddy. Empty: this server only.
       PUBLIC_HOST=
+      GATEWAY_INSTALL=cloud-init
   - path: /opt/yardhand/start.sh
     permissions: "0755"
     content: |

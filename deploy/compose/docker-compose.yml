@@ -35,6 +35,8 @@ services:
     environment:
       # Its own address, for the links and OAuth redirects it hands out. From .env; else localhost on its port
       PUBLIC_HOST: ${PUBLIC_HOST:-http://localhost:${GATEWAY_PORT:-8080}}
+      # How it was installed, for the usage report (docs/telemetry.md)
+      GATEWAY_INSTALL: ${GATEWAY_INSTALL:-compose}
     ports:
       # This machine only by default; GATEWAY_BIND=0.0.0.0 opens it to the network
       - "${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_PORT:-8080}:80"

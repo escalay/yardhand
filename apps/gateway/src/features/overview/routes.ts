@@ -118,7 +118,7 @@ const SystemSchema = z
     jobs: z.array(
       z
         .object({
-          name: z.enum(['sync', 'backup']),
+          name: z.enum(['sync', 'backup', 'usage']),
           at: z.string().nullable().openapi({ description: 'When it last ran, across restarts; null if never.' }),
           ok: z.boolean().nullable(),
           detail: z.string().nullable().openapi({ description: 'What the run did, or what failed.' }),
@@ -251,7 +251,7 @@ export const routes = {
     request: {
       params: z.object({
         name: z
-          .enum(['sync', 'backup'])
+          .enum(['sync', 'backup', 'usage'])
           .openapi({ param: { name: 'name', in: 'path' }, description: 'The job: `sync` or `backup`.' }),
       }),
     },

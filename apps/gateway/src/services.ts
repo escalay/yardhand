@@ -16,6 +16,7 @@ import { createEvents } from './features/events/bus.js'
 import { createGrouping } from './features/groups/grouping.js'
 import { packsRepo } from './features/packs/repo.js'
 import { searchesRepo } from './features/searches/repo.js'
+import type { Telemetry } from './features/telemetry/index.js'
 import { contextOf, type MeaningSearch, openRouterMeaning } from './features/tools/meaning.js'
 import { toolsRepo } from './features/tools/repo.js'
 import { upstreamsRepo } from './features/upstreams/repo.js'
@@ -52,6 +53,12 @@ export type Env = {
   GATEWAY_AI_GROUPING_WRITER_MODEL?: string
   GATEWAY_AI_GROUPING_DECIDER_MODEL?: string
   GATEWAY_AI_GROUPING_DECIDER_PROTOCOL?: string
+  /** Usage telemetry (features/telemetry): `off`, the collector's address, and the shared off switch. */
+  GATEWAY_TELEMETRY?: string
+  GATEWAY_TELEMETRY_URL?: string
+  DO_NOT_TRACK?: string
+  /** How it was installed, set by the template that started it. */
+  GATEWAY_INSTALL?: string
   /** The built browser app (`apps/web/dist`); without one the gateway serves the API alone. */
   WEB_DIR?: string
 }
@@ -98,6 +105,8 @@ export const createServices = async ({
   const jobRuns = new Map<string, JobRun>()
   /** The scheduler, once the server starts it (tests and the demo run without one). */
   const jobs: { current: Jobs | null } = { current: null }
+  /** Usage telemetry, once the server starts it. */
+  const telemetry: { current: Telemetry | null } = { current: null }
   /** Ends the process so its supervisor starts it again, where the server runs under one. */
   const restart: { current: (() => void) | null } = { current: null }
   const calls: typeof log = {
@@ -259,6 +268,7 @@ export const createServices = async ({
     startedAt: new Date().toISOString(),
     jobRuns,
     jobs,
+    telemetry,
     restart,
     vault,
     clients,

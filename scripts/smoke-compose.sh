@@ -4,7 +4,7 @@
 # there. CI runs it on every change; run it locally with GATEWAY_IMAGE set to an image you built.
 set -euo pipefail
 cd "$(dirname "$0")/../deploy/compose"
-export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-yardhand-smoke}" GATEWAY_PORT="${GATEWAY_PORT:-8099}"
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-yardhand-smoke}" GATEWAY_PORT="${GATEWAY_PORT:-8099}" GATEWAY_TELEMETRY=off
 : "${GATEWAY_IMAGE:?set GATEWAY_IMAGE to the image to test}"
 base="http://localhost:${GATEWAY_PORT}"
 fail() { echo "smoke: $*" >&2; docker compose logs gateway >&2 || true; exit 1; }

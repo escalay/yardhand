@@ -1,5 +1,5 @@
 /** Starts Yardhand: opens the database, builds the app, listens on PORT. */
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { serve } from '@hono/node-server'
 import { createApp } from './app.js'
@@ -7,6 +7,7 @@ import { problemsOf } from './env.js'
 import { applyPending } from './features/backups/restore.js'
 import { resolveInstance, setupBanner, setupCode } from './features/instance/keys.js'
 import { prepareUpgrade } from './features/instance/upgrade.js'
+import { createTelemetry } from './features/telemetry/index.js'
 import { startJobs } from './jobs.js'
 import { openDb } from './kit/index.js'
 import type { Env } from './services.js'
@@ -39,8 +40,20 @@ if (problems.length) {
 if (upgrade.backup) console.log(`backed up the data before upgrading to ${VERSION}: ${upgrade.backup}`)
 const db = await openDb(`file:${databaseFile}`)
 const code = instance.open ? setupCode() : null
-const app = await createApp({ db, env, ...(code ? { unclaimed: { code, claim: instance.claim } } : {}) })
-startJobs(app.services, { stateDir, webhookUrl: process.env.DISCORD_WEBHOOK_URL })
+let claimed = !instance.open
+const claim: typeof instance.claim = (...given) => {
+  claimed = true
+  return instance.claim(...given)
+}
+const app = await createApp({ db, env, ...(code ? { unclaimed: { code, claim } } : {}) })
+const telemetry = createTelemetry(app.services, () => ({
+  claimed,
+  install: process.env.GATEWAY_INSTALL,
+  arch: process.arch,
+  databaseBytes: statSync(databaseFile, { throwIfNoEntry: false })?.size ?? 0,
+}))
+app.services.telemetry.current = telemetry
+startJobs(app.services, { stateDir, webhookUrl: process.env.DISCORD_WEBHOOK_URL, telemetry })
 // A restore ends the process; Docker (restart: unless-stopped) or the dev watcher starts it again
 app.services.restart.current = () => process.exit(0)
 // Live sync: listen to every upstream that announces its changes
@@ -50,4 +63,14 @@ serve({ fetch: app.fetch, hostname: '0.0.0.0', port }, (info) => {
   upgrade.stamp()
   console.log(`Yardhand → ${app.services.publicOrigin}/app (listening on ${info.port}; /docs, /llms.txt, /mcp)`)
   if (code) console.log(setupBanner(app.services.publicOrigin, code))
+  // Said at every start, and a day before the first report: what is sent and how to stop it
+  void telemetry
+    .view()
+    .then(({ off, firstAt }) =>
+      console.log(
+        off
+          ? `Usage telemetry is off (${off}).`
+          : `Usage telemetry: one anonymous report a day (ranges and yes/no answers, no names or addresses), ${new Date(firstAt) > new Date() ? `the first after ${firstAt}` : 'sent daily'}. GATEWAY_TELEMETRY=off stops it; Settings shows the report; docs/telemetry.md lists every field.`,
+      ),
+    )
 })

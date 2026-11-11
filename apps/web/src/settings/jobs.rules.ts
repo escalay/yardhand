@@ -3,6 +3,10 @@
 export const JOBS = {
   sync: { title: 'Sync every connection', does: 'Every hour: reads what each server offers now.' },
   backup: { title: 'Back up and clean up', does: 'Every day: copies the database, drops calls older than 90 days.' },
+  usage: {
+    title: 'Send the usage report',
+    does: 'Every day: an anonymous report, unless switched off (GATEWAY_TELEMETRY=off).',
+  },
 } as const
 
 const MINUTE = 60_000

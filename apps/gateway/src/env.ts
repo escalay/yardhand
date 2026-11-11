@@ -118,6 +118,23 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    title:
+      'Usage telemetry: once a day, an anonymous report of ranges and yes/no answers. docs/telemetry.md lists it all',
+    settings: [
+      {
+        name: 'GATEWAY_TELEMETRY',
+        about: ['`off` sends nothing. Settings shows the exact report either way.'],
+        fallback: 'on',
+      },
+      { name: 'DO_NOT_TRACK', about: ['`1` also switches it off, as in other tools.'] },
+      {
+        name: 'GATEWAY_TELEMETRY_URL',
+        about: ['Where reports go: your own collector, for a fork or a fleet.'],
+        fallback: 'https://pulse.escalay.space/v1/yardhand',
+      },
+    ],
+  },
+  {
     title: 'Sign-in by Cloudflare Access instead of the owner key (both, or neither)',
     settings: [
       { name: 'ACCESS_TEAM', about: ['Your Zero Trust team name.'] },
@@ -134,6 +151,8 @@ export const IMAGE_SETS = [
   'DATABASE_FILE',
   'GATEWAY_BUILD',
   'GATEWAY_SCRIPT',
+  // How it was installed (compose, cloud-init, render, fly), set by each template for the usage report
+  'GATEWAY_INSTALL',
   'NODE_ENV',
 ]
 
@@ -191,6 +210,8 @@ export const problemsOf = (env: Env) => {
   const protocol = env.GATEWAY_AI_GROUPING_DECIDER_PROTOCOL
   if (protocol && protocol !== 'typesafe' && protocol !== 'openai')
     problems.push(`GATEWAY_AI_GROUPING_DECIDER_PROTOCOL is ${protocol}: it is typesafe or openai.`)
+  if (env.GATEWAY_TELEMETRY_URL && !URL.canParse(env.GATEWAY_TELEMETRY_URL))
+    problems.push('GATEWAY_TELEMETRY_URL isn’t a URL: the address of a collector, or leave it empty.')
   if (env.DISCORD_WEBHOOK_URL && !URL.canParse(env.DISCORD_WEBHOOK_URL))
     problems.push('DISCORD_WEBHOOK_URL isn’t a URL: paste the webhook address Discord gives you, or leave it empty.')
   return problems

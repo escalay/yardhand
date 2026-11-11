@@ -77,6 +77,7 @@ describe('the schedule', () => {
         throw new Error('1 of 2 connections synced; failed: almanac')
       },
       backup: async () => `${++backups} MB backed up`,
+      usage: async () => 'Off: GATEWAY_TELEMETRY is off',
     }
     const first = createJobs(work, new Map(), kept)
     await first.load()
@@ -84,6 +85,7 @@ describe('the schedule', () => {
     expect(first.view()).toMatchObject([
       { name: 'sync', ok: false, detail: '1 of 2 connections synced; failed: almanac', running: false },
       { name: 'backup', ok: true, detail: '1 MB backed up' },
+      { name: 'usage', ok: true, detail: 'Off: GATEWAY_TELEMETRY is off' },
     ])
     // A restart: the backup isn't due again today, the failed sync is within the hour
     const second = createJobs(work, new Map(), kept)
