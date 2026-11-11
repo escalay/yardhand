@@ -63,12 +63,23 @@ Scripts use REST: `GET /api/tools?q=…` to find a tool, `POST /api/calls` to ru
 
 ## How it fits together
 
-```
-agents ──MCP /mcp──┐                       ┌── MCP servers
-scripts ──REST /api─┤  Yardhand          ├── REST APIs (OpenAPI)
-claude.ai ──OAuth───┘  search · keys ·     └── Composio apps
-                       switches · reviews ·
-                       log · packs
+```mermaid
+flowchart LR
+  agents["Agents"] -- "MCP · /mcp" --> yardhand
+  scripts["Scripts"] -- "REST · /api" --> yardhand
+  claude["claude.ai"] -- "OAuth" --> yardhand
+
+  subgraph yardhand["Yardhand"]
+    direction TB
+    find["Search across every tool"]
+    guard["Keys, switches and reviews"]
+    record["A log of every call"]
+    find ~~~ guard ~~~ record
+  end
+
+  yardhand --> mcp["MCP servers"]
+  yardhand --> rest["REST APIs (OpenAPI)"]
+  yardhand --> composio["Composio apps"]
 ```
 
 [docs/architecture.md](docs/architecture.md) has the pipeline every call goes through, with diagrams.
