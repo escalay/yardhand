@@ -19,8 +19,15 @@ import { PATH, routes, StatusSchema, TAG } from './routes.js'
 export const DEFAULT_URL = 'https://pulse.escalay.space/v1/yardhand/latest'
 const RELEASES = 'https://github.com/escalay/yardhand/releases'
 export const DOCS = 'https://github.com/escalay/yardhand/blob/main/docs/updates.md'
-/** What updates a Docker Compose install by hand: the new release's compose file, then its image. */
-export const MANUAL = `curl -fsSL -o docker-compose.yml ${RELEASES}/latest/download/docker-compose.yml\ndocker compose pull && docker compose up -d`
+export const CHART = 'oci://ghcr.io/escalay/charts/yardhand'
+/**
+ * What updates an install by hand. Docker Compose: the new release's compose file, then its image. Helm
+ * (`GATEWAY_INSTALL=helm`, set by the chart): the chart of that version, keeping the values it was installed with.
+ */
+export const manualFor = (install: string | undefined, version?: string) =>
+  install === 'helm'
+    ? `helm upgrade <release> ${CHART} --version ${version ?? '<version>'} --reuse-values`
+    : `curl -fsSL -o docker-compose.yml ${RELEASES}/latest/download/docker-compose.yml\ndocker compose pull && docker compose up -d`
 const CHECK_TIMEOUT_MS = 5000
 const HOOK_TIMEOUT_MS = 10_000
 const PRESENT_MS = 90_000
@@ -86,6 +93,7 @@ export const createUpdates = (
   stateDir: string,
   fetchImpl: typeof fetch = fetch,
   current: string = VERSION,
+  install: string | undefined = process.env.GATEWAY_INSTALL,
 ) => {
   const { vault } = services
   const env = services.env as UpdatesEnv
@@ -118,7 +126,7 @@ export const createUpdates = (
       updater: beside,
       hook: Boolean(hook),
       how: (beside.present ? 'updater' : hook ? 'hook' : 'manual') as 'updater' | 'hook' | 'manual',
-      manual: MANUAL,
+      manual: manualFor(install, latest?.version),
       docs: DOCS,
       status: status(),
       history: readHistory(join(dir, 'history.jsonl')).slice(0, SHOWN),
@@ -223,7 +231,7 @@ export const createUpdates = (
       if (updater(now).present) return void leave(version, now)
       if (hook) return callHook(hook)
       throw new ProblemError('conflict', {
-        detail: `Nothing here can carry out an update: no updater container runs beside this gateway and no deploy hook is set. Update by hand where it runs: ${MANUAL.replaceAll('\n', ' && ')} (${DOCS}).`,
+        detail: `Nothing here can carry out an update: no updater runs beside this gateway and no deploy hook is set. Update by hand where it runs: ${manualFor(install, version).replaceAll('\n', ' && ')} (${DOCS}).`,
       })
     },
   }

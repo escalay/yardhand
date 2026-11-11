@@ -48,7 +48,10 @@ const UpdatesSchema = z
       description:
         'What an update request does here: the `updater` carries it out, the platform’s deploy `hook` is called, or `manual`: run the commands in `manual`.',
     }),
-    manual: z.string().openapi({ description: 'The commands that update a Docker Compose install by hand.' }),
+    manual: z.string().openapi({
+      description:
+        'The commands that update this install by hand: Docker Compose’s, or `helm upgrade` on a Helm install.',
+    }),
     docs: z.string().openapi({ description: 'The page on updates.' }),
     // Described on the property's own wrapper: a description put on the nullable would make every UpdateRun nullable
     status: z.union([StatusSchema, z.null()]).openapi({ description: 'The update under way, or the last one.' }),

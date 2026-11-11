@@ -25,6 +25,7 @@
       "extra-files": [
         "apps/gateway/src/version.ts",
         "deploy/compose/docker-compose.yml",
+        "deploy/helm/yardhand/Chart.yaml",
         { "type": "json", "path": "apps/gateway/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "apps/web/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "packages/client/package.json", "jsonpath": "$.version" }

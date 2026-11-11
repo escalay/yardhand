@@ -1,0 +1,50 @@
+# Yardhand on Kubernetes: one pod with one volume. Nothing here is needed to start; the instance makes its own keys
+# and you claim it in the browser with the setup code from its log (the notes after install say how).
+
+image:
+  repository: ghcr.io/escalay/yardhand
+  # Empty: the release this chart came with
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# The address people and agents use, for the links and OAuth redirects the gateway hands out. A bare name means
+# HTTPS (gateway.example.com); write a plain-HTTP address whole (http://gateway.internal:8080).
+publicHost: ""
+
+# Settings as plain values: every name in deploy/compose/.env.example works here (GATEWAY_TELEMETRY: "off").
+env: {}
+# Settings that are secrets (GATEWAY_MASTER_KEY, OPENROUTER_API_KEY…): the name of a Secret you made, whose keys
+# are the setting names.
+existingSecret: ""
+
+# The database, its daily backups and the search index: everything worth keeping. It is kept when the release is
+# uninstalled; delete the claim yourself to delete the data.
+persistence:
+  size: 2Gi
+  # Empty: the cluster's default
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  # A claim you made yourself, used in place of the chart's
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  # The name of a TLS Secret for the host; empty leaves TLS to the ingress controller's default
+  tlsSecret: ""
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+
+# How long a start may take before the pod is restarted: a first start after an upgrade migrates the data
+startupSeconds: 300

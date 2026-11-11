@@ -6,7 +6,8 @@
 # release anyone can see is one that installs. If the image job fails, re-run the failed job and it finishes the
 # release. Each release has a release.json naming its image by digest, its compose file by hash and the oldest version
 # that can update to it directly (deploy/release.json): the updater installs only what that file names
-# (docs/updates.md). The release's files carry their own provenance (yardhand.intoto.jsonl); running this workflow by hand with a
+# (docs/updates.md). The Helm chart of the release is pushed beside the image and signed the same way. The release's
+# files carry their own provenance (yardhand.intoto.jsonl); running this workflow by hand with a
 # tag writes it again for a release that is already out.
 name: Release
 
@@ -135,6 +136,21 @@ jobs:
           cosign verify "${IMAGE}@${DIGEST}" \
             --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+
+      # The Helm chart of this release, beside the image: oci://ghcr.io/escalay/charts/yardhand, signed like the image
+      - name: Package the chart, push it and sign it
+        if: needs.release-please.outputs.created == 'true'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          helm package deploy/helm/yardhand --destination chart
+          echo "$TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          pushed=$(helm push "chart/yardhand-${VERSION}.tgz" oci://ghcr.io/escalay/charts 2>&1)
+          echo "$pushed"
+          digest=$(echo "$pushed" | sed -n 's/^Digest: //p')
+          case "$digest" in sha256:*) ;; *) echo "::error::helm push named no digest"; exit 1 ;; esac
+          cosign sign --yes "ghcr.io/escalay/charts/yardhand@${digest}"
 
       # GitHub renames an asset that starts with a dot, so the example goes up as env.example. A release that is
       # already out is signed as it was published.

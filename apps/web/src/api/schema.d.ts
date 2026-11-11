@@ -3237,7 +3237,7 @@ export interface components {
              * @enum {string}
              */
             how: "updater" | "hook" | "manual";
-            /** @description The commands that update a Docker Compose install by hand. */
+            /** @description The commands that update this install by hand: Docker Compose’s, or `helm upgrade` on a Helm install. */
             manual: string;
             /** @description The page on updates. */
             docs: string;

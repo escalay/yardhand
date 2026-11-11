@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
-import { createUpdates } from '../src/features/updates/index.js'
+import { createUpdates, manualFor } from '../src/features/updates/index.js'
 import { hashApiKey, openDb } from '../src/kit/index.js'
 
 const OWNER = 'owner-key-for-updates'
@@ -304,4 +304,12 @@ describe('the routes', () => {
     expect(response.status).toBe(409)
     expect((await response.json()).detail).toMatch(/runs without updates/)
   })
+})
+
+it('gives the commands of the install it is: Docker Compose’s, or Helm’s with the version to move to', () => {
+  expect(manualFor('compose')).toContain('docker compose pull && docker compose up -d')
+  expect(manualFor(undefined)).toContain('docker compose')
+  expect(manualFor('helm', '1.4.0')).toBe(
+    'helm upgrade <release> oci://ghcr.io/escalay/charts/yardhand --version 1.4.0 --reuse-values',
+  )
 })

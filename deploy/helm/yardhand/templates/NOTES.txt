@@ -1,0 +1,18 @@
+Yardhand {{ .Chart.AppVersion }} is starting as "{{ include "yardhand.name" . }}" in namespace {{ .Release.Namespace }}.
+
+1. Read the setup code from its log:
+
+     kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "yardhand.name" . }} | grep "Setup code"
+
+2. Open the app and claim the instance with that code:
+{{- if .Values.ingress.enabled }}
+
+     https://{{ .Values.ingress.host }}/app
+{{- else }}
+
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "yardhand.name" . }} 8080:{{ .Values.service.port }}
+     then http://localhost:8080/app
+{{- end }}
+
+To update: Settings › Updates says when a newer version is out and gives the command. If an upgrade doesn't come up,
+`helm rollback {{ .Release.Name }}` puts the old version back, and it takes the data from before the upgrade by itself.
