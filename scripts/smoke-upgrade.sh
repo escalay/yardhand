@@ -16,12 +16,16 @@ work="$(mktemp -d)"
 registry=yardhand-upgrade-registry
 repo=localhost:5598/yardhand
 export COMPOSE_PROJECT_NAME=yardhand-upgrade
-last=$(jq -r '."."' "$root/.release-please-manifest.json")
+# The releases that are out, oldest first: asked of the tags, since on a release's own pull request the version in
+# this tree is one that isn't published yet
+published=$(git ls-remote --tags --refs https://github.com/escalay/yardhand.git 'v*' | sed 's|.*refs/tags/v||' \
+  | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
+last=$(echo "$published" | tail -n 1)
+[ -n "$last" ] || { echo "upgrade: couldn't list the published releases" >&2; exit 1; }
 if [ -z "${UPGRADE_FROM:-}" ]; then
   least=$(jq -r .upgradeFrom "$root/deploy/release.json")
   # Every release from the oldest that updates in one step up to the one before the last; the last gets the full run
-  for older in $(git ls-remote --tags --refs https://github.com/escalay/yardhand.git 'v*' | sed 's|.*refs/tags/v||' \
-    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | awk -v least="$least" -v last="$last" '
+  for older in $(echo "$published" | awk -v least="$least" -v last="$last" '
         function key(v, p) { split(v, p, "."); return p[1] * 1000000 + p[2] * 1000 + p[3] }
         key($0) >= key(least) && key($0) < key(last)'); do
     UPGRADE_FROM="$older" UPGRADE_LEGS=first "$0"

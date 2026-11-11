@@ -11,7 +11,11 @@ ns=yardhand-smoke
 release=yh
 port="${GATEWAY_PORT:-8097}"
 base="http://localhost:$port"
-from="${UPGRADE_FROM:-$(jq -r '."."' "$root/.release-please-manifest.json")}"
+# The last release that is out: asked of the tags, since on a release's own pull request the version in this tree is
+# one that isn't published yet
+from="${UPGRADE_FROM:-$(git ls-remote --tags --refs https://github.com/escalay/yardhand.git 'v*' | sed 's|.*refs/tags/v||' \
+  | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)}"
+[ -n "$from" ] || { echo "helm: couldn't list the published releases" >&2; exit 1; }
 forward=
 cleanup() {
   [ -z "$forward" ] || kill "$forward" 2>/dev/null || true
