@@ -135,6 +135,45 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    title: 'Updates: once a day it asks for the newest version; the updater installs one when you say. docs/updates.md',
+    settings: [
+      {
+        name: 'GATEWAY_UPDATE_CHECK',
+        about: ['`off` starts with the daily check off. A starting value: Settings › Updates changes it afterwards.'],
+        fallback: 'on',
+      },
+      {
+        name: 'GATEWAY_AUTO_UPDATE',
+        about: ['`on` starts with automatic updates on. A starting value too; it needs the updater.'],
+        fallback: 'off',
+      },
+      {
+        name: 'GATEWAY_UPDATE_URL',
+        about: ['Where the newest version is asked: one plain request, no id and no report.'],
+        fallback: 'https://pulse.escalay.space/v1/yardhand/latest',
+      },
+      {
+        name: 'GATEWAY_UPDATER',
+        compose: true,
+        about: [
+          '`0` removes the updater container, which installs updates and so holds the Docker socket.',
+          'Without it Settings shows the commands to run instead.',
+        ],
+        fallback: '1',
+      },
+      {
+        name: 'GATEWAY_UPDATE_HOOK',
+        about: [
+          'Where no updater runs (Render, or any platform with a deploy hook): its deploy hook, called when you choose Update.',
+        ],
+      },
+      {
+        name: 'GATEWAY_UPDATE_HOOK_TOKEN',
+        about: ['Sent with the hook as `Authorization: Bearer`, when it needs one.'],
+      },
+    ],
+  },
+  {
     title: 'Sign-in by Cloudflare Access instead of the owner key (both, or neither)',
     settings: [
       { name: 'ACCESS_TEAM', about: ['Your Zero Trust team name.'] },
@@ -212,6 +251,10 @@ export const problemsOf = (env: Env) => {
     problems.push(`GATEWAY_AI_GROUPING_DECIDER_PROTOCOL is ${protocol}: it is typesafe or openai.`)
   if (env.GATEWAY_TELEMETRY_URL && !URL.canParse(env.GATEWAY_TELEMETRY_URL))
     problems.push('GATEWAY_TELEMETRY_URL isn’t a URL: the address of a collector, or leave it empty.')
+  if (env.GATEWAY_UPDATE_URL && !URL.canParse(env.GATEWAY_UPDATE_URL))
+    problems.push('GATEWAY_UPDATE_URL isn’t a URL: the address that names the newest version, or leave it empty.')
+  if (env.GATEWAY_UPDATE_HOOK && !URL.canParse(env.GATEWAY_UPDATE_HOOK))
+    problems.push('GATEWAY_UPDATE_HOOK isn’t a URL: paste the deploy hook your platform gives you, or leave it empty.')
   if (env.DISCORD_WEBHOOK_URL && !URL.canParse(env.DISCORD_WEBHOOK_URL))
     problems.push('DISCORD_WEBHOOK_URL isn’t a URL: paste the webhook address Discord gives you, or leave it empty.')
   return problems

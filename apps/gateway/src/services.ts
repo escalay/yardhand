@@ -19,6 +19,7 @@ import { searchesRepo } from './features/searches/repo.js'
 import type { Telemetry } from './features/telemetry/index.js'
 import { contextOf, type MeaningSearch, openRouterMeaning } from './features/tools/meaning.js'
 import { toolsRepo } from './features/tools/repo.js'
+import type { Updates } from './features/updates/index.js'
 import { upstreamsRepo } from './features/upstreams/repo.js'
 import { secretIdOf, type UpstreamRow } from './features/upstreams/schema.js'
 import { createSync, endpointOf } from './features/upstreams/sync.js'
@@ -57,6 +58,12 @@ export type Env = {
   GATEWAY_TELEMETRY?: string
   GATEWAY_TELEMETRY_URL?: string
   DO_NOT_TRACK?: string
+  /** Updates (features/updates): the switches' starting values, where the newest version is asked, the deploy hook. */
+  GATEWAY_UPDATE_CHECK?: string
+  GATEWAY_AUTO_UPDATE?: string
+  GATEWAY_UPDATE_URL?: string
+  GATEWAY_UPDATE_HOOK?: string
+  GATEWAY_UPDATE_HOOK_TOKEN?: string
   /** How it was installed, set by the template that started it. */
   GATEWAY_INSTALL?: string
   /** The built browser app (`apps/web/dist`); without one the gateway serves the API alone. */
@@ -107,6 +114,8 @@ export const createServices = async ({
   const jobs: { current: Jobs | null } = { current: null }
   /** Usage telemetry, once the server starts it. */
   const telemetry: { current: Telemetry | null } = { current: null }
+  /** Updates, once the server starts them. */
+  const updates: { current: Updates | null } = { current: null }
   /** Ends the process so its supervisor starts it again, where the server runs under one. */
   const restart: { current: (() => void) | null } = { current: null }
   const calls: typeof log = {
@@ -269,6 +278,7 @@ export const createServices = async ({
     jobRuns,
     jobs,
     telemetry,
+    updates,
     restart,
     vault,
     clients,

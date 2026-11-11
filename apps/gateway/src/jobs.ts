@@ -1,7 +1,8 @@
 /**
  * The gateway's own schedule: resync every enabled upstream each hour (so third-party changes reach review on their
  * own), and once a day drop calls older than 90 days and snapshot the database into `<state>/backups`, keeping 7,
- * and send the usage report unless it is switched off (features/telemetry).
+ * send the usage report unless it is switched off (features/telemetry), and ask for the newest version unless that
+ * is switched off (features/updates).
  * Each run is remembered across restarts (what it did, how long it took), so a job is due by when it last ran, not by
  * when the server started: a deploy syncs once, and never makes another backup the same day. A failing job logs and
  * tries again within the hour; it never stops the server.
@@ -10,6 +11,7 @@ import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { sql } from 'drizzle-orm'
 import type { Telemetry } from './features/telemetry/index.js'
+import type { Updates } from './features/updates/index.js'
 import type { Services } from './services.js'
 
 const HOUR = 60 * 60 * 1000
@@ -126,7 +128,7 @@ export const daily = async (services: Pick<Services, 'db' | 'calls' | 'searches'
 
 export type JobRun = { at: string; ok: boolean; detail: string | null; ms: number | null }
 
-export const JOBS = { sync: HOUR, backup: DAY, usage: DAY } as const
+export const JOBS = { sync: HOUR, backup: DAY, usage: DAY, updates: DAY } as const
 export type JobName = keyof typeof JOBS
 
 /** When a job is next due: a period after a good run, within the hour after a failed one, now if it never ran. */
@@ -198,7 +200,12 @@ export type Jobs = ReturnType<typeof createJobs>
 
 export const startJobs = (
   services: Services,
-  { stateDir, webhookUrl, telemetry }: { stateDir: string; webhookUrl?: string; telemetry: Telemetry },
+  {
+    stateDir,
+    webhookUrl,
+    telemetry,
+    updates,
+  }: { stateDir: string; webhookUrl?: string; telemetry: Telemetry; updates: Updates },
 ) => {
   const notify = reviewNotifier(discordPost(webhookUrl), {
     load: () => services.vault.get<string[]>('notices:reviews'),
@@ -213,6 +220,7 @@ export const startJobs = (
       },
       backup: () => daily(services, stateDir),
       usage: () => telemetry.send(),
+      updates: () => updates.daily(),
     },
     services.jobRuns,
     {

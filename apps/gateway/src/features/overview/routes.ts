@@ -118,7 +118,7 @@ const SystemSchema = z
     jobs: z.array(
       z
         .object({
-          name: z.enum(['sync', 'backup', 'usage']),
+          name: z.enum(['sync', 'backup', 'usage', 'updates']),
           at: z.string().nullable().openapi({ description: 'When it last ran, across restarts; null if never.' }),
           ok: z.boolean().nullable(),
           detail: z.string().nullable().openapi({ description: 'What the run did, or what failed.' }),
@@ -247,12 +247,13 @@ export const routes = {
     tags: [TAG],
     summary: 'Run a job now',
     description:
-      'Runs the hourly sync, the daily backup or the daily usage report now and answers when it is done, with what it did; a run already going is joined (owner only).',
+      'Runs the hourly sync, the daily backup, the daily usage report or the daily check for a newer version now and answers when it is done, with what it did; a run already going is joined (owner only).',
     request: {
       params: z.object({
-        name: z
-          .enum(['sync', 'backup', 'usage'])
-          .openapi({ param: { name: 'name', in: 'path' }, description: 'The job: `sync`, `backup` or `usage`.' }),
+        name: z.enum(['sync', 'backup', 'usage', 'updates']).openapi({
+          param: { name: 'name', in: 'path' },
+          description: 'The job: `sync`, `backup`, `usage` or `updates`.',
+        }),
       }),
     },
     responses: { 200: ok('The system.', SystemSchema), ...problemResponses(401, 403, 409) },

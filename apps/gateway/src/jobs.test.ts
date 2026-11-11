@@ -78,6 +78,7 @@ describe('the schedule', () => {
       },
       backup: async () => `${++backups} MB backed up`,
       usage: async () => 'Off: GATEWAY_TELEMETRY is off',
+      updates: async () => 'Up to date: 0.2.0 is the newest',
     }
     const first = createJobs(work, new Map(), kept)
     await first.load()
@@ -86,6 +87,7 @@ describe('the schedule', () => {
       { name: 'sync', ok: false, detail: '1 of 2 connections synced; failed: almanac', running: false },
       { name: 'backup', ok: true, detail: '1 MB backed up' },
       { name: 'usage', ok: true, detail: 'Off: GATEWAY_TELEMETRY is off' },
+      { name: 'updates', ok: true, detail: 'Up to date: 0.2.0 is the newest' },
     ])
     // A restart: the backup isn't due again today, the failed sync is within the hour
     const second = createJobs(work, new Map(), kept)

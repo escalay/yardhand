@@ -8,6 +8,7 @@ import { applyPending } from './features/backups/restore.js'
 import { resolveInstance, setupBanner, setupCode } from './features/instance/keys.js'
 import { prepareUpgrade } from './features/instance/upgrade.js'
 import { createTelemetry } from './features/telemetry/index.js'
+import { createUpdates } from './features/updates/index.js'
 import { startJobs } from './jobs.js'
 import { openDb } from './kit/index.js'
 import type { Env } from './services.js'
@@ -53,7 +54,9 @@ const telemetry = createTelemetry(app.services, () => ({
   databaseBytes: statSync(databaseFile, { throwIfNoEntry: false })?.size ?? 0,
 }))
 app.services.telemetry.current = telemetry
-startJobs(app.services, { stateDir, webhookUrl: process.env.DISCORD_WEBHOOK_URL, telemetry })
+const updates = createUpdates(app.services, stateDir)
+app.services.updates.current = updates
+startJobs(app.services, { stateDir, webhookUrl: process.env.DISCORD_WEBHOOK_URL, telemetry, updates })
 // A restore ends the process; Docker (restart: unless-stopped) or the dev watcher starts it again
 app.services.restart.current = () => process.exit(0)
 // Live sync: listen to every upstream that announces its changes
@@ -71,6 +74,16 @@ serve({ fetch: app.fetch, hostname: '0.0.0.0', port }, (info) => {
         off
           ? `Usage telemetry is off (${off}).`
           : `Usage telemetry: one anonymous report a day (ranges and yes/no answers, no names or addresses), ${new Date(firstAt) > new Date() ? `the first after ${firstAt}` : 'sent daily'}. GATEWAY_TELEMETRY=off stops it; Settings shows the report; docs/telemetry.md lists every field.`,
+      ),
+    )
+  // Said at every start: that it asks for the newest version, and how to stop it
+  void updates
+    .view()
+    .then(({ check, checkUrl }) =>
+      console.log(
+        check
+          ? `Update check: once a day it asks ${checkUrl} for the newest version (no id, no report). Settings › Updates switches it off; GATEWAY_UPDATE_CHECK=off starts a new instance with it off.`
+          : 'Update check is off (Settings › Updates switches it on).',
       ),
     )
 })

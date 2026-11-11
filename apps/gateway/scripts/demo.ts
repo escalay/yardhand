@@ -1,17 +1,20 @@
 /**
  * A gateway with fake upstreams, for working on the app and for its browser tests: an MCP server (echo, shout), a
  * REST API with an OpenAPI spec and an OAuth MCP server, all on local ports, and the built app at /app. Nothing leaves
- * this machine: the usage report is built for Settings to show and never sent. `--seed` also connects two of them, makes an agent and some calls, as after a week of use.
+ * this machine: the usage report is built for Settings to show and never sent, and it never asks for a newer version. `--seed` also connects two of them, makes an agent and some calls, as after a week of use.
  *
  * @example
  * pnpm --filter gateway demo            # empty: the first-run path
  * pnpm --filter gateway demo -- --seed  # with data
  */
 import { randomBytes } from 'node:crypto'
-import { writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { serve } from '@hono/node-server'
 import { createApp } from '../src/app.js'
 import { createTelemetry } from '../src/features/telemetry/index.js'
+import { createUpdates } from '../src/features/updates/index.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
 import { startOAuthUpstream } from '../test/fixtures/oauth-upstream.js'
 import { startRest } from '../test/fixtures/rest.js'
@@ -46,6 +49,12 @@ app.services.telemetry.current = createTelemetry(
   app.services,
   () => ({ claimed: owned.current, install: 'source', arch: process.arch, databaseBytes: 0 }),
   () => Promise.reject(new Error('The demo never sends a usage report')),
+)
+// Updates as Settings shows them, with the daily check off and nowhere to ask: no job runs here
+app.services.updates.current = createUpdates(
+  { env: { GATEWAY_UPDATE_CHECK: 'off' }, vault: app.services.vault },
+  mkdtempSync(join(tmpdir(), 'yardhand-demo-')),
+  () => Promise.reject(new Error('the demo never asks for a newer version')),
 )
 
 const owner = async (path: string, init: { method?: string; body?: unknown } = {}) => {

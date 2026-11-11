@@ -277,6 +277,7 @@ export const feature: Feature = {
         _links: linksOf(originOf(c), {
           self: SYSTEM_PATH,
           telemetry: `${SYSTEM_PATH}/telemetry`,
+          updates: `${SYSTEM_PATH}/updates`,
           config: '/api/config',
           overview: PATH,
         }),
