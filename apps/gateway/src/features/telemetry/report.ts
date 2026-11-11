@@ -14,7 +14,7 @@ export type Source = {
   catalog: { pending: () => Promise<unknown[]> }
   publicOrigin: string
   meaning: unknown
-  ai: { grouping: () => Promise<{ key: { value: string }; provider: { value: Provider } }> }
+  ai: { grouping: () => Promise<{ ready: boolean; provider: { value: Provider } }> }
   traces: unknown
   env: { DISCORD_WEBHOOK_URL?: string; ACCESS_TEAM?: string; ACCESS_AUD?: string }
 }
@@ -144,7 +144,7 @@ export const buildReport = async (
     searches: countRange(counts.searches),
     clients_active: countRange(counts.active),
     meaning_search: Boolean(meaning),
-    ai_grouping: grouping.key.value ? grouping.provider.value : ('off' as const),
+    ai_grouping: grouping.ready ? grouping.provider.value : ('off' as const),
     langfuse: Boolean(traces),
     discord: Boolean(env.DISCORD_WEBHOOK_URL),
     access_signin: Boolean(env.ACCESS_TEAM && env.ACCESS_AUD),
