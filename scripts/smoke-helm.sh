@@ -88,7 +88,7 @@ echo "$updates" | jq -r .manual | grep -q '^helm upgrade ' || fail "the commands
 connect later
 echo "helm: release $from → this build: its data migrated, and Settings gives the helm command to update"
 
-deploy yardhand-helm 98.1.0 90 && fail "a version that dies at start was reported as up"
+deploy yardhand-helm 98.1.0 40 && fail "a version that dies at start was reported as up"
 "$helm" rollback "$release" -n "$ns" --wait --timeout 180s >/dev/null 2>&1 || fail "helm rollback didn't bring the old version back"
 reach
 [ "$(version)" = 98.0.0 ] || fail "after the rollback it answers $(version)"
