@@ -101,6 +101,15 @@ jobs:
           build-args: GIT_SHA=${{ github.sha }}
           cache-from: type=gha
       - run: helm lint deploy/helm/yardhand
+      - name: The chart installs the version it is numbered as, and that is this tree's
+        run: |
+          chart=$(helm show chart deploy/helm/yardhand)
+          version=$(echo "$chart" | sed -n 's/^version: //p' | tr -d '"')
+          app=$(echo "$chart" | sed -n 's/^appVersion: //p' | tr -d '"')
+          tree=$(jq -r '."."' .release-please-manifest.json)
+          if [ "$version" != "$tree" ] || [ "$app" != "$tree" ]; then
+            echo "::error::the chart is numbered $version and installs $app, but this tree is $tree"; exit 1
+          fi
       - run: kind create cluster --wait 120s
       - run: scripts/smoke-helm.sh
         env:

@@ -145,13 +145,16 @@ jobs:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.release-please.outputs.version }}
         run: |
-          helm package deploy/helm/yardhand --destination chart
+          # Numbered here as well as in Chart.yaml: the chart's app version is the image it installs
+          helm package deploy/helm/yardhand --destination chart --version "$VERSION" --app-version "$VERSION"
           echo "$TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
           pushed=$(helm push "chart/yardhand-${VERSION}.tgz" oci://ghcr.io/escalay/charts 2>&1)
           echo "$pushed"
           digest=$(echo "$pushed" | sed -n 's/^Digest: //p')
           case "$digest" in sha256:*) ;; *) echo "::error::helm push named no digest"; exit 1 ;; esac
           cosign sign --yes "ghcr.io/escalay/charts/yardhand@${digest}"
+          installs=$(helm show chart oci://ghcr.io/escalay/charts/yardhand --version "$VERSION" | sed -n 's/^appVersion: //p' | tr -d '"')
+          if [ "$installs" != "$VERSION" ]; then echo "::error::chart $VERSION would install image $installs"; exit 1; fi
 
       # GitHub renames an asset that starts with a dot, so the example goes up as env.example. A release that is
       # already out is signed as it was published.
