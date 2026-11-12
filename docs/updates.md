@@ -87,7 +87,7 @@ the second with the release's and keeps the first.
 |---|---|
 | Docker Compose, and a server started from `deploy/cloud-init.yaml` | The updater, from Settings |
 | Kubernetes, from the Helm chart | By hand with `helm upgrade`; Settings gives the command. [deploy/helm/README.md](../deploy/helm/README.md) |
-| A platform that redeploys on a hook (Render and the like) | Set `GATEWAY_UPDATE_HOOK`; the platform must follow the `latest` image tag |
+| A platform that redeploys on a hook (Render and the like) | Set `GATEWAY_UPDATE_HOOK`. The platform must follow the `latest` image tag, and the hook must make it pull the image again: one that only restarts changes nothing |
 | Anything else | By hand, below |
 
 ## By hand

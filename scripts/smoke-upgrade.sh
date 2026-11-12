@@ -22,7 +22,8 @@ published=$(git ls-remote --tags --refs https://github.com/escalay/yardhand.git 
   | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
 last=$(echo "$published" | tail -n 1)
 [ -n "$last" ] || { echo "upgrade: couldn't list the published releases" >&2; exit 1; }
-if [ -z "${UPGRADE_FROM:-}" ]; then
+# UPGRADE_OLDER=skip leaves the older releases to someone else (CI runs each as its own job, side by side)
+if [ -z "${UPGRADE_FROM:-}" ] && [ "${UPGRADE_OLDER:-run}" = run ]; then
   least=$(jq -r .upgradeFrom "$root/deploy/release.json")
   # Every release from the oldest that updates in one step up to the one before the last; the last gets the full run
   for older in $(echo "$published" | awk -v least="$least" -v last="$last" '
