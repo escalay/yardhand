@@ -1,14 +1,20 @@
-# Every change (the slow jobs only when it touches more than prose): the gate (lint, types, unit tests), the browser tests against demo gateways, the image built and run
-# through the self-hosting path end to end and through an update and a rollback, the Helm chart installed, upgraded
-# and rolled back on a cluster, the workflows themselves linted, a
-# secrets scan, and on pull requests the title (it becomes the commit, and the changelog) and a review of new
-# dependencies.
+# Every change, tested by what it could break (scripts/ci-plan.sh decides, scripts/ci-plan.test.sh holds it to its
+# cases): the gate (lint, types, unit tests) always; the browser tests against demo gateways; the image run through
+# the self-hosting path end to end and through an update and a rollback; older releases updated to it; the Helm
+# chart installed, upgraded and rolled back on a cluster. Always too: the workflows and the chart linted, a secrets
+# scan, and on pull requests the title (it becomes the commit, and the changelog) and a review of new dependencies.
+# A push to main repeats nothing its pull request already passed on the same commit. Every night everything runs,
+# from every release. The release workflow starts this one for a release's pull request, which the bot opens and
+# which therefore starts nothing by itself.
 name: CI
 
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
 
 permissions:
   contents: read
@@ -18,43 +24,63 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # What this change needs: the slow jobs are skipped when it touches only prose, and the upgrade test gets one job
-  # per older release that can still update in one step, so they run side by side
+  # What this run needs (scripts/ci-plan.sh), and which older releases the upgrade test starts from
   plan:
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: read # the files a pull request changes
+      checks: read # whether this commit already passed in its pull request
     outputs:
-      heavy: ${{ steps.changed.outputs.heavy }}
+      e2e: ${{ steps.plan.outputs.e2e }}
+      compose: ${{ steps.plan.outputs.compose }}
+      kubernetes: ${{ steps.plan.outputs.kubernetes }}
       older: ${{ steps.releases.outputs.older }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - id: changed
+      - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          heavy=true
-          if [ -n "$NUMBER" ]; then
-            files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER/files" --paginate --jq '.[].filename')
-            # Prose only: Markdown anywhere, and nothing else
-            if [ -n "$files" ] && ! echo "$files" | grep -qvE '\.md$'; then heavy=false; fi
+          tested=false
+          if [ "$EVENT" = push ]; then
+            # The slow jobs of an earlier run on this very commit: passed, or skipped as not needed
+            passed=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs" --paginate \
+              --jq '.check_runs[] | select(.conclusion == "success" or .conclusion == "skipped") | .name' \
+              | grep -xE 'gate|e2e|self-hosting|kubernetes' | sort -u | wc -l)
+            [ "$passed" -lt 4 ] || tested=true
           fi
-          echo "heavy=$heavy" >> "$GITHUB_OUTPUT"
+          files=
+          if [ -n "$NUMBER" ]; then
+            # Each file, and whether its change adds a migration or a table
+            files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER/files" --paginate --jq '.[] | [.filename,
+              ((.patch // "") | test("(^|\\n)\\+[^\\n]*(migrations|(create|alter|drop) +(table|index))"; "i"))] | @tsv')
+          fi
+          printf '%s\n' "$files" | TESTED="$tested" scripts/ci-plan.sh | tee -a "$GITHUB_OUTPUT"
       - id: releases
+        env:
+          WHICH: ${{ steps.plan.outputs.older }}
         run: |
           least=$(jq -r .upgradeFrom deploy/release.json)
           published=$(git ls-remote --tags --refs https://github.com/escalay/yardhand.git 'v*' | sed 's|.*refs/tags/v||' \
             | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
           last=$(echo "$published" | tail -n 1)
+          # Older than the last one, which the self-hosting job starts from, and still able to update in one step
           older=$(echo "$published" | awk -v least="$least" -v last="$last" '
             function key(v, p) { split(v, p, "."); return p[1] * 1000000 + p[2] * 1000 + p[3] }
-            key($0) >= key(least) && key($0) < key(last)' | jq -R . | jq -sc .)
-          echo "older=$older" >> "$GITHUB_OUTPUT"
+            key($0) >= key(least) && key($0) < key(last)')
+          case "$WHICH" in
+            none) older= ;;
+            # The oldest and the newest of them: the longest jump and the most likely one
+            some) older=$(printf '%s\n' "$older" | sed -n '1p;$p' | sort -uV) ;;
+          esac
+          echo "older=$(printf '%s' "$older" | jq -R . | jq -sc 'map(select(length > 0))')" | tee -a "$GITHUB_OUTPUT"
 
   gate:
     runs-on: ubuntu-24.04
@@ -73,7 +99,7 @@ jobs:
 
   e2e:
     needs: plan
-    if: needs.plan.outputs.heavy == 'true'
+    if: needs.plan.outputs.e2e == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -86,7 +112,18 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @yardhand/web exec playwright install --with-deps chromium
+      # The browser is kept between runs, by the Playwright version that asks for it; its system packages are not
+      - id: playwright
+        run: echo "version=$(pnpm --filter @yardhand/web exec playwright --version | tr -dc '0-9.')" >> "$GITHUB_OUTPUT"
+      - id: browser
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - if: steps.browser.outputs.cache-hit != 'true'
+        run: pnpm --filter @yardhand/web exec playwright install --with-deps chromium
+      - if: steps.browser.outputs.cache-hit == 'true'
+        run: pnpm --filter @yardhand/web exec playwright install-deps chromium
       - run: pnpm e2e
       - if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -97,7 +134,7 @@ jobs:
 
   self-hosting:
     needs: plan
-    if: needs.plan.outputs.heavy == 'true'
+    if: needs.plan.outputs.compose == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -128,7 +165,7 @@ jobs:
   # Every older release that can still update in one step, with data in it, updated to this image
   upgrade-from:
     needs: plan
-    if: needs.plan.outputs.heavy == 'true' && needs.plan.outputs.older != '[]'
+    if: needs.plan.outputs.older != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
@@ -160,7 +197,7 @@ jobs:
   # after migrating and a `helm rollback`, after which the old version must have its data back
   kubernetes:
     needs: plan
-    if: needs.plan.outputs.heavy == 'true'
+    if: needs.plan.outputs.kubernetes == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -176,22 +213,13 @@ jobs:
           tags: yardhand:ci
           build-args: GIT_SHA=${{ github.sha }}
           cache-from: type=gha
-      - run: helm lint deploy/helm/yardhand
-      - name: The chart installs the version it is numbered as, and that is this tree's
-        run: |
-          chart=$(helm show chart deploy/helm/yardhand)
-          version=$(echo "$chart" | sed -n 's/^version: //p' | tr -d '"')
-          app=$(echo "$chart" | sed -n 's/^appVersion: //p' | tr -d '"')
-          tree=$(jq -r '."."' .release-please-manifest.json)
-          if [ "$version" != "$tree" ] || [ "$app" != "$tree" ]; then
-            echo "::error::the chart is numbered $version and installs $app, but this tree is $tree"; exit 1
-          fi
       - run: kind create cluster --wait 120s
       - run: scripts/smoke-helm.sh
         env:
           GATEWAY_IMAGE: yardhand:ci
 
-  # actionlint for mistakes, zizmor for the ways a workflow can be turned against its repository
+  # actionlint for mistakes, zizmor for the ways a workflow can be turned against its repository; then what never
+  # needs a slow job: the map of what runs for which change, and the chart's lint and numbers
   workflows:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -203,6 +231,18 @@ jobs:
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
       - name: zizmor
         run: pipx run zizmor==1.32.0 --offline .github
+      - name: What runs for which change
+        run: scripts/ci-plan.test.sh
+      - run: helm lint deploy/helm/yardhand
+      - name: The chart installs the version it is numbered as, and that is this tree's
+        run: |
+          chart=$(helm show chart deploy/helm/yardhand)
+          version=$(echo "$chart" | sed -n 's/^version: //p' | tr -d '"')
+          app=$(echo "$chart" | sed -n 's/^appVersion: //p' | tr -d '"')
+          tree=$(jq -r '."."' .release-please-manifest.json)
+          if [ "$version" != "$tree" ] || [ "$app" != "$tree" ]; then
+            echo "::error::the chart is numbered $version and installs $app, but this tree is $tree"; exit 1
+          fi
 
   secrets:
     runs-on: ubuntu-24.04

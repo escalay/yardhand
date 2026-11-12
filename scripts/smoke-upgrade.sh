@@ -89,8 +89,11 @@ release() {
 }
 docker tag "ghcr.io/escalay/yardhand:$from" "$repo:$from" && docker push -q "$repo:$from" >/dev/null
 release 98.0.0
-release 98.1.0
-release 98.2.0 "await db.run('create table left_by_a_failed_update (x)'); process.exit(1)"
+# The later versions only for the full run: a first leg stops before it needs them
+if [ "${UPGRADE_LEGS:-all}" = all ]; then
+  release 98.1.0
+  release 98.2.0 "await db.run('create table left_by_a_failed_update (x)'); process.exit(1)"
+fi
 
 compose_for "$from" > "$work/docker-compose.yml"
 # Every setting is in .env: the updater starts the new version from this folder, not from this shell
@@ -99,6 +102,10 @@ printf 'GATEWAY_PORT=%s\nGATEWAY_TELEMETRY=off\nGATEWAY_UPDATE_CHECK=off\n' "$po
 # The owner's own compose file beside the release's: the updater keeps it through an update
 cat > "$work/docker-compose.override.yml" <<YAML
 services:
+  # Health asked for every 5 seconds, not 30, so a version that never comes up is known in seconds
+  gateway:
+    healthcheck:
+      interval: 5s
   updater:
     image: yardhand-upgrade-updater
     environment:
@@ -181,6 +188,9 @@ echo "upgrade: 98.1.0 → a 98.2.0 that dies after migrating: rolled back ($(upd
 echo 'GATEWAY_UPDATER=0' >> .env
 docker compose "${profile[@]}" up -d >/dev/null 2>&1
 [ -z "$(docker compose ps -q updater)" ] || fail "GATEWAY_UPDATER=0 left the updater running"
+# The gateway counts an updater as gone 90 seconds after its last sign of life (a unit test holds that); taking the
+# sign away here saves the wait
+docker compose exec -T gateway rm -f /state/updates/updater.json
 for _ in $(seq 1 100); do [ "$(updates | jq -r .how)" = manual ] && break; sleep 1; done
 [ "$(updates | jq -r .how)" = manual ] || fail "without the updater the gateway still says $(updates | jq -r .how)"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$base/api/system/updates/requests" "${auth[@]}" -H 'content-type: application/json' -d '{"version":"98.2.0"}')" = 409 ] \

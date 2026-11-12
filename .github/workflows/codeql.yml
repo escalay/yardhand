@@ -1,4 +1,4 @@
-# Static analysis of the TypeScript and of these workflows, on every change to main and weekly for new queries. Code scanning needs a public
+# Static analysis of the TypeScript and of these workflows, on main, on pull requests that touch code or workflows, and weekly for new queries. Code scanning needs a public
 # repository on GitHub's free plan, so it runs once the repository is public.
 name: CodeQL
 
@@ -6,6 +6,12 @@ on:
   push:
     branches: [main]
   pull_request:
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "scripts/**"
+      - ".github/workflows/**"
+      - "!**/*.md"
   workflow_dispatch:
   schedule:
     - cron: "23 4 * * 1"

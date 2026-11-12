@@ -37,6 +37,7 @@ jobs:
     permissions:
       contents: write # the release commit, its tag and the draft release
       pull-requests: write # the release pull request
+      actions: write # starting CI for that pull request, which a bot's push doesn't
     outputs:
       created: ${{ steps.release.outputs.release_created }}
       tag: ${{ steps.release.outputs.tag_name }}
@@ -47,6 +48,13 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      # A pull request the bot opens or updates starts no workflow, so its required checks are started here
+      - name: Start the checks of the release pull request
+        if: steps.release.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ steps.release.outputs.pr }}
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$(echo "$PR" | jq -r .headBranchName)"
 
   image:
     needs: release-please
