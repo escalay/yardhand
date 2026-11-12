@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/escalay/yardhand/compare/v0.3.0...v0.3.1) (2026-11-12)
+
+
+### Fixes
+
+* **deploy:** make the chart install the release it is numbered as ([2722867](https://github.com/escalay/yardhand/commit/272286749226262c4342963989f4acd010cc7769))
+
 ## [0.3.0](https://github.com/escalay/yardhand/compare/v0.2.0...v0.3.0) (2026-11-11)
 
 

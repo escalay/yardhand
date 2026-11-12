@@ -8,5 +8,5 @@ home: https://github.com/escalay/yardhand
 sources:
   - https://github.com/escalay/yardhand
 license: AGPL-3.0-only
-version: 0.3.0
-appVersion: 0.3.0
+version: 0.3.1
+appVersion: 0.3.1
