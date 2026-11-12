@@ -139,9 +139,11 @@ status() { docker compose exec -T updater cat /state/updates/status.json 2>/dev/
 mine() { [ "$(ls -ln docker-compose.yml | awk '{print $3}')" = "$(id -u)" ] || fail "the compose file no longer belongs to its owner"; }
 
 # The last release has no Updates page, so its request is left the way a newer gateway leaves one
-docker compose exec -T updater sh -c "jq -n '{id: \"from-$from\", version: \"98.0.0\", at: \"now\"}' > /state/updates/request.json"
+# The updater keeps only letters, digits and dashes of a request's id
+id="from-${from//./-}"
+docker compose exec -T updater sh -c "jq -n '{id: \"$id\", version: \"98.0.0\", at: \"now\"}' > /state/updates/request.json"
 for _ in $(seq 1 180); do
-  case "$(status | jq -r '"\(.id) \(.state)"')" in "from-$from done" | "from-$from failed" | "from-$from refused") break ;; esac
+  case "$(status | jq -r '"\(.id) \(.state)"')" in "$id done" | "$id failed" | "$id refused") break ;; esac
   sleep 1
 done
 [ "$(status | jq -r .state)" = done ] || fail "release $from → this build ended as $(status | jq -c .)"
