@@ -3,6 +3,8 @@
 # the self-hosting path end to end and through an update and a rollback; older releases updated to it; the Helm
 # chart installed, upgraded and rolled back on a cluster. Always too: the workflows and the chart linted, a secrets
 # scan, and on pull requests the title (it becomes the commit, and the changelog) and a review of new dependencies.
+# The workflows, secrets and title jobs are escalay/.github's shared workflows, so their checks are named
+# "<job> / <its job>" (workflows / lint, secrets / gitleaks).
 # A push to main repeats nothing its pull request already passed on the same commit. Every night everything runs,
 # from every release. The release workflow starts this one for a release's pull request, which the bot opens and
 # which therefore starts nothing by itself; its last job then sets the required checks as commit statuses, the only
@@ -219,19 +221,18 @@ jobs:
         env:
           GATEWAY_IMAGE: yardhand:ci
 
-  # actionlint for mistakes, zizmor for the ways a workflow can be turned against its repository; then what never
-  # needs a slow job: the map of what runs for which change, and the chart's lint and numbers
+  # actionlint for mistakes, zizmor for the ways a workflow can be turned against its repository
   workflows:
+    uses: escalay/.github/.github/workflows/workflows.yml@77927b958181cff87d6fd903f7d9c32afc087617 # v1.0.1
+
+  # What never needs a slow job: the map of what runs for which change, and the chart's lint and numbers
+  tooling:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: actionlint
-        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
-      - name: zizmor
-        run: pipx run zizmor==1.32.0 --offline .github
       - name: What runs for which change
         run: scripts/ci-plan.test.sh
       - run: helm lint deploy/helm/yardhand
@@ -245,32 +246,14 @@ jobs:
             echo "::error::the chart is numbered $version and installs $app, but this tree is $tree"; exit 1
           fi
 
+  # gitleaks over the whole history, with .gitleaks.toml
   secrets:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: gitleaks
-        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.24.3 git /repo --no-banner --redact --config /repo/.gitleaks.toml
+    uses: escalay/.github/.github/workflows/secrets.yml@77927b958181cff87d6fd903f7d9c32afc087617 # v1.0.1
 
   # A pull request is squashed into one commit named after its title, and releases are cut from those names
   title:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    steps:
-      - name: The title is a Conventional Commit
-        env:
-          TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          pattern='^(feat|fix|perf|docs|refactor|chore|test|build|ci|revert)(\([a-z0-9./-]+\))?!?: [^ ].*$'
-          if ! printf '%s' "$TITLE" | grep -Eq "$pattern"; then
-            echo "::error::The title \"$TITLE\" isn't a Conventional Commit. Write it as type(scope): summary, for example \"fix(web): keep the menu open on a phone\". Types: feat, fix, perf, docs, refactor, chore, test, build, ci, revert."
-            exit 1
-          fi
+    uses: escalay/.github/.github/workflows/title.yml@77927b958181cff87d6fd903f7d9c32afc087617 # v1.0.1
 
   # Dependency review needs a public repository on GitHub's free plan
   dependencies:
@@ -291,23 +274,13 @@ jobs:
 
   # A run started by a dispatch (release.yml starts one for the release pull request) reports its checks on the commit,
   # but GitHub does not count them for a pull request, so the branch rules would wait forever. Commit statuses do count:
-  # once no job failed (a job the plan skipped is fine, as it is for a pull request), each required check is set as one
+  # once no job failed (a job the plan skipped is fine, as it is for a pull request), each check the rules for main
+  # require is set as one, by the names the rules hold at that moment
   dispatched:
-    needs: [plan, gate, e2e, self-hosting, upgrade-from, kubernetes, workflows, secrets]
+    needs: [plan, gate, e2e, self-hosting, upgrade-from, kubernetes, workflows, tooling, secrets]
     if: >-
       always() && github.event_name == 'workflow_dispatch' &&
       !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
     permissions:
       statuses: write
-    steps:
-      - env:
-          GH_TOKEN: ${{ github.token }}
-          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          # The checks the rules for main require
-          for check in gate e2e self-hosting workflows secrets; do
-            gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-              -f state=success -f context="$check" -f description="Passed in a dispatched run" -f target_url="$RUN" >/dev/null
-          done
+    uses: escalay/.github/.github/workflows/required-statuses.yml@77927b958181cff87d6fd903f7d9c32afc087617 # v1.0.1
