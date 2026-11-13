@@ -5,7 +5,8 @@
 # scan, and on pull requests the title (it becomes the commit, and the changelog) and a review of new dependencies.
 # A push to main repeats nothing its pull request already passed on the same commit. Every night everything runs,
 # from every release. The release workflow starts this one for a release's pull request, which the bot opens and
-# which therefore starts nothing by itself.
+# which therefore starts nothing by itself; its last job then sets the required checks as commit statuses, the only
+# kind GitHub counts for a pull request from a dispatched run.
 name: CI
 
 on:
@@ -287,3 +288,26 @@ jobs:
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
+
+  # A run started by a dispatch (release.yml starts one for the release pull request) reports its checks on the commit,
+  # but GitHub does not count them for a pull request, so the branch rules would wait forever. Commit statuses do count:
+  # once no job failed (a job the plan skipped is fine, as it is for a pull request), each required check is set as one
+  dispatched:
+    needs: [plan, gate, e2e, self-hosting, upgrade-from, kubernetes, workflows, secrets]
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' &&
+      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      statuses: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # The checks the rules for main require
+          for check in gate e2e self-hosting workflows secrets; do
+            gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+              -f state=success -f context="$check" -f description="Passed in a dispatched run" -f target_url="$RUN" >/dev/null
+          done

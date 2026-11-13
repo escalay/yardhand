@@ -33,7 +33,9 @@ self-hosting path, pushed to `ghcr.io/escalay/yardhand` and signed, the compose 
 the release published. If that job fails, the release stays a draft: re-run the failed job and it finishes.
 
 A pull request is squashed into one commit named after its title, so the title is the Conventional Commit (CI checks
-it). The release pull request is opened by a workflow, and GitHub holds its checks until a maintainer approves the run.
+it). The release pull request is opened by a workflow, which therefore starts no checks: the release workflow starts
+CI on it, and CI's last job reports the required checks back as commit statuses. A maintainer queues
+`gh pr merge --auto --squash <number>` on it, and the release goes out once the checks pass.
 
 ## Style
 
