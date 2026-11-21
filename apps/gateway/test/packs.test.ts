@@ -59,6 +59,20 @@ const at = async (key: string | null, path: string, init: Init & { headers?: Rec
   return { status: response.status, headers: response.headers, text, json }
 }
 const namesOf = (items: { name: string }[]) => items.map((item) => item.name)
+const META = [
+  'call_tool',
+  'describe_tool',
+  'get_playbook',
+  'get_result',
+  'list_upstreams',
+  'read_resource',
+  'search_tools',
+]
+/** What a tool answers over MCP, as the agent reads it. */
+const said = async (client: Client, name: string, args: Record<string, unknown> = {}) =>
+  ((await client.callTool({ name, arguments: args })).content as { text?: string }[])
+    .map((block) => block.text ?? '')
+    .join('\n')
 const mcp = async (key: string, path = '/mcp') => {
   const client = new Client({ name: 'test', version: '1.0.0' })
   await client.connect(
@@ -234,7 +248,14 @@ describe('a key locked to a pack', () => {
       'Says your words back. Use it to check the line.',
     )
     expect(listed.find((tool) => tool.name === 'fixture.shout')).toBeUndefined()
+    expect(namesOf(listed).sort()).toEqual([...META, 'fixture.echo'].sort())
+    expect(client.getServerVersion()).toMatchObject({ name: 'quiet', title: 'Quiet', description: 'Only echo.' })
     expect(client.getInstructions()).toMatch(/^Quiet: Only echo\./)
+    // Its one connection, counted as the pack holds it: one tool, and no manual
+    expect(client.getInstructions()).toMatch(/^- fixture: Fixture \(1 tool, 1 playbook\)$/m)
+    expect(await said(client, 'describe_tool', { name: 'fixture.echo' })).toContain(
+      'Says your words back. Use it to check the line.',
+    )
     const prompts = (await client.listPrompts()).prompts.map((prompt) => prompt.name)
     expect(prompts).toContain('fixture-warm-up')
     expect(prompts).not.toContain('fixture-say-it-back')
@@ -782,6 +803,65 @@ describe('a pack at its own address', () => {
     ])
   })
 
+  it('over MCP: the gateway’s shape, under the pack’s name and in its words', async () => {
+    const client = await mcp(key, '/p/loud/mcp')
+    expect(client.getServerVersion()).toMatchObject({
+      name: 'loud',
+      title: 'Loud',
+      description: 'Say things back, loudly.',
+      websiteUrl: `${app.services.publicOrigin}/p/loud/llms.txt`,
+    })
+    const listed = (await client.listTools()).tools
+    expect(namesOf(listed).sort()).toEqual([...META, 'fixture.echo', 'fixture.shout'].sort())
+    const instructions = client.getInstructions() ?? ''
+    expect(instructions).toMatch(/^Loud: Say things back, loudly\./)
+    expect(instructions).toContain('Every tool of this pack is listed here')
+    expect(instructions).toContain('search_tools')
+    expect(instructions).toMatch(/Front desk \(http:\/\/[^)]+\/p\/desk\/mcp\)/)
+    // The connection as the pack holds it: two tools and its manual
+    expect(instructions).toMatch(/^- fixture: Fixture \(2 tools, 1 playbook\) \[manual\]$/m)
+    expect(instructions).toContain('- fixture.shout:')
+    // Nothing a pack's agent reads speaks of the gateway (the gateway:// addresses stay)
+    const prompts = (await client.listPrompts()).prompts
+    const words = [
+      ...listed.filter((tool) => META.includes(tool.name)).map((tool) => `${tool.title} ${tool.description}`),
+      ...prompts.map((prompt) => `${prompt.title} ${prompt.description}`),
+      instructions,
+    ]
+    expect(words.filter((text) => /this gateway|behind the gateway|the gateway’s|Yardhand/.test(text))).toEqual([])
+    expect(listed.find((tool) => tool.name === 'search_tools')?.description).toContain('Finds tools in Loud')
+    expect(listed.find((tool) => tool.name === 'call_tool')?.description).toContain('Runs a tool of Loud')
+    expect(namesOf(prompts)).toEqual(['use_pack', 'fixture-say-it-back'])
+    expect(prompts[0]?.title).toBe('Do a task with Loud’s tools')
+    expect(await said(client, 'call_tool', { name: 'fixture.shout', arguments: { text: 'hey' } })).toBe('HEY')
+    expect(await said(client, 'search_tools', { query: 'shout' })).toContain('fixture.shout [changes things]')
+    expect(await said(client, 'search_tools', { query: 'zzqx' })).toContain('Nothing in Loud matches "zzqx".')
+    expect(await said(client, 'list_upstreams')).toContain('fixture: Fixture, 2 tools, 1 playbook')
+    await client.close()
+    expect((await api(key, '/p/loud/api/upstreams/fixture')).json).toMatchObject({
+      toolCount: 2,
+      offers: { playbooks: 1, manuals: 1, links: 0 },
+    })
+    // The same connection by the old address, and the key's default pack at plain /mcp
+    const legacy = await mcp(key, '/mcp/p/loud')
+    expect(legacy.getServerVersion()).toMatchObject({ name: 'loud', title: 'Loud' })
+    expect(namesOf((await legacy.listTools()).tools).sort()).toEqual([...META, 'fixture.echo', 'fixture.shout'].sort())
+    await legacy.close()
+    const plain = await mcp(key, '/mcp')
+    expect(plain.getServerVersion()).toMatchObject({ name: 'desk', title: 'Front desk' })
+    expect(plain.getInstructions()).toMatch(/Loud \(http:\/\/[^)]+\/p\/loud\/mcp\)/)
+    await plain.close()
+    // The owner there is served the pack too; at the root, the gateway as before
+    const mine = await mcp(OWNER, '/p/loud/mcp')
+    expect(mine.getServerVersion()).toMatchObject({ name: 'loud' })
+    expect(namesOf((await mine.listTools()).tools).sort()).toEqual([...META, 'fixture.echo', 'fixture.shout'].sort())
+    await mine.close()
+    const root = await mcp(OWNER)
+    expect(root.getServerVersion()).toMatchObject({ name: 'yardhand', title: 'Yardhand' })
+    expect(namesOf((await root.listPrompts()).prompts)).toContain('use_gateway')
+    await root.close()
+  })
+
   it('introduces itself as the pack at /api, and offers the owner a look as one of its keys', async () => {
     const home = (await api(key, '/p/loud/api')).json
     expect(home).toMatchObject({ name: 'Loud', upstreams: 1 })
@@ -826,15 +906,6 @@ describe('a pack at its own address', () => {
 })
 
 describe('pins inside a pack', () => {
-  const META = [
-    'call_tool',
-    'describe_tool',
-    'get_playbook',
-    'get_result',
-    'list_upstreams',
-    'read_resource',
-    'search_tools',
-  ]
   const DESK = ['greet_from_desk', 'fixture.greet', 'fixture.echo']
   const pinsOf = async (key: string, path = '/api/me') => namesOf((await api(key, path)).json.pins)
   const listedAt = async (key: string, path = '/mcp') => {
@@ -842,6 +913,12 @@ describe('pins inside a pack', () => {
     const names = namesOf((await client.listTools()).tools)
     await client.close()
     return names
+  }
+  const instructionsAt = async (key: string, path = '/mcp') => {
+    const client = await mcp(key, path)
+    const told = client.getInstructions() ?? ''
+    await client.close()
+    return told
   }
   const pin = (id: string, body: Record<string, unknown>) => owner(`/api/clients/${id}`, { method: 'PATCH', body })
   let desk = { id: '', key: '' }
@@ -855,6 +932,7 @@ describe('pins inside a pack', () => {
     expect(await pinsOf(desk.key)).toEqual(DESK)
     expect((await api(desk.key, '/api/me')).json.pack.ownPins).toBe(false)
     expect((await listedAt(desk.key)).sort()).toEqual([...META, ...DESK].sort())
+    expect(await instructionsAt(desk.key)).toContain('Every tool of this pack is listed here')
     const cards = (await api(desk.key, '/api/tools')).json._embedded.tools
     expect(cards.map((card: { pinned: boolean }) => card.pinned)).toEqual([true, true, true])
   })
@@ -868,6 +946,11 @@ describe('pins inside a pack', () => {
     expect(me.pack.ownPins).toBe(true)
     expect(Object.keys(me.pins[0].inputSchema.properties)).toEqual(['to'])
     expect((await listedAt(desk.key)).sort()).toEqual([...META, 'greet_from_desk'].sort())
+    const told = await instructionsAt(desk.key)
+    expect(told).toContain('Your pinned tools are listed here')
+    expect(told).toContain('- greet_from_desk:')
+    expect(told).not.toContain('- fixture.echo:')
+    expect(told).toMatch(/^- fixture: Fixture \(3 tools\)$/m)
     const cards = (await api(desk.key, '/api/tools')).json._embedded.tools
     expect(
       Object.fromEntries(cards.map((card: { name: string; pinned: boolean }) => [card.name, card.pinned])),
@@ -925,6 +1008,7 @@ describe('pins inside a pack', () => {
     expect((await pin(two.id, { pins: ['greet_from_desk'] })).status).toBe(200)
     expect(await pinsOf(two.key, '/p/loud/api/me')).toEqual([])
     expect((await listedAt(two.key, '/p/loud/mcp')).sort()).toEqual(META)
+    expect(await instructionsAt(two.key, '/p/loud/mcp')).toContain('No tool of this pack is listed here')
     // Pins sent with new packs are checked against the packs the key is left with
     const moved = await pin(two.id, { packs: ['loud'], pins: ['greet_from_desk'] })
     expect(moved.status).toBe(400)

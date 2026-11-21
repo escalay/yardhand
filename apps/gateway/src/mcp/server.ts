@@ -1,7 +1,8 @@
 /**
  * What agents see at `/mcp`. The kit's factory builds the meta-tools, resources and prompt over the routes; per
  * request this adds `call_tool` and the client's pinned tools (which return the upstream's own result blocks), and
- * names the upstreams this client may use in the server instructions.
+ * names the upstreams this client may use in the server instructions. A pack connection has the same shape under the
+ * pack's own name: the meta-tools over the pack, and every tool of the pack listed (or only its key's own pins).
  */
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
@@ -21,11 +22,19 @@ import { VIA_HEADER } from '../features/calls/handlers.js'
 import { progressSink } from '../features/calls/progress.js'
 import type { Principal } from '../features/clients/principals.js'
 import { pathWith } from '../kit/index.js'
-import { type AgentMcpFactory, type CallApi, mcpServerFactory, mountMcp } from '../kit/mcp/index.js'
+import {
+  type AgentMcpFactory,
+  type CallApi,
+  type McpPrompt,
+  type McpServerInfo,
+  type McpTool,
+  mcpServerFactory,
+  mountMcp,
+} from '../kit/mcp/index.js'
 import type { Services } from '../services.js'
 import { VERSION } from '../version.js'
 import { manualSkills } from './skills.js'
-import { countOf, META_TOOLS, PROMPTS, RESOURCES } from './tools.js'
+import { countOf, META_TOOLS, metaToolsFor, PROMPTS, promptsFor, RESOURCES } from './tools.js'
 
 const INFO = {
   name: 'yardhand',
@@ -181,18 +190,44 @@ const runTool = async (
   }
 }
 
-/** A pack key's instructions: the pack's own words, then what it holds. Its tools are listed directly. */
+const ON_DEMAND = [
+  '1. search_tools with what you want to do.',
+  '2. describe_tool on the best match to read its full description and input schema.',
+  '3. call_tool with that name and arguments matching the schema.',
+]
+
+/** How a pack connection is worked: every tool of the pack is listed, or only the key's own pins, or none of them. */
+const howToWork = (pack: NonNullable<Me['pack']>, pins: Pin[]) =>
+  !pack.ownPins
+    ? [
+        'Every tool of this pack is listed here: call one as it is. search_tools finds one by what you want to do,',
+        'describe_tool shows its full description and input schema, and call_tool runs any of them by name.',
+      ]
+    : [
+        pins.length
+          ? 'Your pinned tools are listed here: call them as they are. The rest of the pack is found on demand:'
+          : 'No tool of this pack is listed here. Each is found on demand:',
+        ...ON_DEMAND,
+      ]
+
+/**
+ * A pack connection's instructions: the pack's own words, how to work it, then what it holds. `connections` are its
+ * upstreams as `GET /api/upstreams` counts them for the pack; `pins` are the tools listed directly.
+ */
 export const packInstructions = (
   pack: NonNullable<Me['pack']>,
-  pins: Pin[],
-  readOnly: boolean,
-  others: Me['packs'] = [],
+  {
+    pins,
+    readOnly,
+    others = [],
+    connections = [],
+  }: { pins: Pin[]; readOnly: boolean; others?: Me['packs']; connections?: string[] },
 ) =>
   [
     `${pack.title}: ${pack.description}`.trim(),
     '',
-    `This connection is the pack ${pack.title}: the tools listed here are all it reaches. Call them as they are;`,
-    'search_tools and describe_tool look inside the pack only.',
+    ...howToWork(pack, pins),
+    'A cut result says how to page it with get_result. Tools marked [changes things] need write scope.',
     ...(others.length
       ? [
           `The same key opens other packs, each its own connection: ${others.map((other) => `${other.title} (${other.mcpUrl})`).join(', ')}.`,
@@ -211,28 +246,37 @@ export const packInstructions = (
           `Manuals (read once, before the tools, with read_resource): ${pack.manuals.map((name) => `gateway://u/${name.split('.')[0]}/manual`).join(', ')}.`,
         ]
       : []),
-    '',
-    'Tools:',
-    ...pins.map((pin) => `- ${pin.name}: ${pin.description.split(/\n\s*\n/)[0]?.slice(0, 200) ?? ''}`),
+    ...(connections.length ? ['', 'In this pack:', ...connections] : []),
+    ...(pins.length
+      ? [
+          '',
+          'Listed here:',
+          ...pins.map((pin) => `- ${pin.name}: ${pin.description.split(/\n\s*\n/)[0]?.slice(0, 200) ?? ''}`),
+        ]
+      : []),
   ].join('\n')
 
-/** The instructions plus the upstreams this caller may use, so an agent knows what is here before it searches. */
-const instructionsFor = async (callApi: CallApi, auth: Auth, scope: string | undefined) => {
+/** One line per upstream this caller may use, as `GET /api/upstreams` counts them for it (a pack key: its pack's). */
+const upstreamLines = async (callApi: CallApi, auth: Auth) => {
   const response = await callApi({ path: '/api/upstreams' }, auth).catch(() => null)
-  const readOnly =
-    scope === 'read'
-      ? '\n\nThis key is read-only: tools that change things are hidden (search_tools says how many matched).'
-      : ''
-  if (!response?.ok) return `${INSTRUCTIONS}${readOnly}`
+  if (!response?.ok) return []
   const { _embedded } = (await response.json()) as {
     _embedded: {
       upstreams: { id: string; title: string; toolCount: number; offers: { manuals: number; playbooks: number } }[]
     }
   }
-  const lines = _embedded.upstreams.map(
+  return _embedded.upstreams.map(
     (row) =>
       `- ${row.id}: ${row.title} (${countOf(row.toolCount, 'tool')}${row.offers.playbooks ? `, ${countOf(row.offers.playbooks, 'playbook')}` : ''})${row.offers.manuals ? ' [manual]' : ''}`,
   )
+}
+
+/** The instructions plus the upstreams this caller may use, so an agent knows what is here before it searches. */
+const instructionsFor = (lines: string[], scope: string | undefined) => {
+  const readOnly =
+    scope === 'read'
+      ? '\n\nThis key is read-only: tools that change things are hidden (search_tools says how many matched).'
+      : ''
   return lines.length
     ? `${INSTRUCTIONS}${readOnly}\n\nConnected for you:\n${lines.join('\n')}`
     : `${INSTRUCTIONS}${readOnly}`
@@ -246,7 +290,14 @@ type Me = {
   upstreams: 'all' | string[]
   resultCap: number
   pins: Pin[]
-  pack: { name: string; title: string; description: string; playbooks: string[]; manuals: string[] } | null
+  pack: {
+    name: string
+    title: string
+    description: string
+    playbooks: string[]
+    manuals: string[]
+    ownPins: boolean
+  } | null
   packs: { name: string; title: string; mcpUrl: string; default: boolean }[]
 }
 type PlaybookCard = {
@@ -359,37 +410,54 @@ type Pin = {
 
 export const gatewayMcpFactory = (app: OpenAPIHono, services: Services): AgentMcpFactory => {
   const callApi = viaMcp(app)
-  const build = (instructions: string) =>
-    mcpServerFactory({
-      info: { ...INFO, websiteUrl: `${services.publicOrigin}/llms.txt` },
-      instructions,
-      tools: META_TOOLS,
-      resources: RESOURCES,
-      prompts: PROMPTS,
-      callApi,
-    })
-  const base = build(INSTRUCTIONS)
+  type Served = { info: McpServerInfo; instructions: string; tools: McpTool[]; prompts: McpPrompt[] }
+  const build = ({ info, instructions, tools, prompts }: Served) =>
+    mcpServerFactory({ info, instructions, tools, resources: RESOURCES, prompts, callApi })
+  const gateway = {
+    info: { ...INFO, websiteUrl: `${services.publicOrigin}/llms.txt` },
+    tools: META_TOOLS,
+    prompts: PROMPTS,
+  }
+  /** A pack connection names itself after the pack: its name, its title and the first words of what it is for. */
+  const packServed = (pack: NonNullable<Me['pack']>) => ({
+    info: {
+      name: pack.name,
+      title: pack.title,
+      version: VERSION,
+      description: pack.description.trim().split(/\n\s*\n/)[0] || `The ${pack.title} pack.`,
+      websiteUrl: `${services.publicOrigin}/p/${pack.name}/llms.txt`,
+    },
+    tools: metaToolsFor(pack),
+    prompts: promptsFor(pack),
+  })
+  const base = build({ ...gateway, instructions: INSTRUCTIONS })
   const factory = async (ctx: McpRequestContext) => {
     const auth = ctx.authInfo
     const me = await callApi({ path: '/api/me' }, auth)
     const caller = me.ok ? ((await me.json()) as Me) : null
-    const instructions = caller?.pack
-      ? packInstructions(
-          caller.pack,
-          caller.pins,
-          caller.scope === 'read',
-          caller.packs.filter((other) => other.name !== caller.pack?.name),
-        )
-      : await instructionsFor(callApi, auth, caller?.scope)
-    const server = (await build(instructions)(ctx)) as McpServer
+    const pack = caller?.pack ?? null
+    const connections = await upstreamLines(callApi, auth)
+    const instructions =
+      caller && pack
+        ? packInstructions(pack, {
+            pins: caller.pins,
+            readOnly: caller.scope === 'read',
+            others: caller.packs.filter((other) => other.name !== pack.name),
+            connections,
+          })
+        : instructionsFor(connections, caller?.scope)
+    const server = (await build({ ...(pack ? packServed(pack) : gateway), instructions })(ctx)) as McpServer
     server.registerTool(
       'call_tool',
       {
         title: 'Run a tool',
-        description:
-          'Runs any tool behind the gateway by name and returns its own result (its readable text; the typed JSON is on REST `POST /api/calls`). Find it with search_tools and read its schema with describe_tool first.',
+        description: `${pack ? `Runs a tool of ${pack.title} by name` : 'Runs any tool behind the gateway by name'} and returns its own result (its readable text; the typed JSON is on REST \`POST /api/calls\`). Find it with search_tools and read its schema with describe_tool first.`,
         inputSchema: z.object({
-          name: z.string().min(3).max(160).describe('The tool name, `<upstream>.<tool>`.'),
+          name: z
+            .string()
+            .min(3)
+            .max(160)
+            .describe(pack ? 'The tool name as search_tools gives it.' : 'The tool name, `<upstream>.<tool>`.'),
           arguments: z
             .record(z.string(), z.unknown())
             .optional()
