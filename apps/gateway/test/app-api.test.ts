@@ -560,6 +560,41 @@ describe('what the pack page stands on', () => {
       findings: [],
     })
   })
+
+  it('renames a pack as its Edit dialog does, and frees the old name', async () => {
+    const made = await owner('/api/packs', { method: 'POST', body: { name: 'draft', title: 'Draft' } })
+    expect([made.status, made.json.formerNames]).toEqual([201, []])
+    await owner('/api/packs/draft', { method: 'PATCH', body: { add: { tools: [{ name: 'fixture.echo' }] } } })
+    const key = (await owner('/api/clients', { method: 'POST', body: { name: 'draft-reader', pack: 'draft' } })).json
+    // The dialog sends the name with whatever else changed, and the page moves to what comes back
+    const saved = await owner('/api/packs/draft', { method: 'PATCH', body: { name: 'drafts', title: 'Drafts' } })
+    expect(saved.status).toBe(200)
+    expect(saved.json).toMatchObject({
+      name: 'drafts',
+      title: 'Drafts',
+      keys: 1,
+      formerNames: [{ name: 'draft', people: 0 }],
+      _links: { self: { href: 'http://localhost/api/packs/drafts' } },
+    })
+    expect((await owner('/api/packs/drafts')).json.formerNames).toEqual([
+      { name: 'draft', until: expect.any(String), people: 0 },
+    ])
+    expect((await owner('/api/packs/drafts/setup')).json.baseUrl).toBe('http://localhost/p/drafts')
+    const old = await owner('/api/packs/draft')
+    expect([old.status, old.json.detail]).toEqual([
+      404,
+      'No pack draft: it was renamed to drafts. GET /api/packs/drafts.',
+    ])
+    // The scope the app keeps by name still filters, by the new one
+    expect((await owner('/api/calls?pack=drafts')).status).toBe(200)
+    expect((await api(key.key, '/p/draft/api/me')).json.pack.name).toBe('drafts')
+    expect((await owner('/api/packs/drafts')).json.formerNames[0].people).toBe(1)
+    expect((await owner('/api/packs/drafts/names/draft', { method: 'DELETE' })).status).toBe(204)
+    expect((await owner('/api/packs/drafts')).json.formerNames).toEqual([])
+    expect((await api(key.key, '/p/draft/api/me')).status).toBe(403)
+    expect((await owner(`/api/clients/${key.id}`, { method: 'DELETE' })).status).toBe(204)
+    expect((await owner('/api/packs/drafts', { method: 'DELETE' })).status).toBe(204)
+  })
 })
 
 describe('the gateway itself', () => {

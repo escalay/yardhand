@@ -183,6 +183,18 @@ export const PackSchema = PackCardSchema.extend({
     description:
       'The newest call in the log (90 days) by any key that opens the pack, or null. A key with several packs counts for each of them.',
   }),
+  formerNames: z
+    .array(
+      z.object({
+        name: z.string(),
+        until: z.string().openapi({ description: 'When it stopped being the pack’s name.' }),
+        people: z.number().int().openapi({ description: 'Live keys that last connected at this name.' }),
+      }),
+    )
+    .openapi({
+      description:
+        'Names it used to have that still lead to it, newest first, each with how many of its people last connected there. `DELETE /api/packs/{name}/names/{former}` frees one.',
+    }),
 }).openapi('Pack', { description: 'A pack with everything in it, in order.' })
 
 const PackSetupSchema = z
@@ -235,6 +247,10 @@ const AddToolSchema = z.object({
 })
 const PackPatchSchema = z
   .object({
+    name: PackName.optional().openapi({
+      description:
+        'A new name: the pack’s address becomes `/p/<name>/`. If it has a key that is not revoked when it is renamed, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack.',
+    }),
     title: z.string().min(1).max(80).optional(),
     description: z.string().max(4000).optional(),
     add: z
@@ -420,9 +436,9 @@ export const routes = {
     tags: [TAG],
     summary: 'Change a pack',
     description:
-      'Renames it, rewrites what it is for, adds or removes tools, playbooks and manuals. A tool can go in with fixed inputs and defaults: they are checked against its live input schema, and a problem the pack already had elsewhere never blocks the change.',
+      'Changes its name, its title, what it is for, and adds or removes tools, playbooks and manuals. A new name moves its address; if the pack has a key that is not revoked then, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack. A name another pack has, or that still leads to one, is a 409. A tool can go in with fixed inputs and defaults: they are checked against its live input schema, and a problem the pack already had elsewhere never blocks the change. A change that is refused leaves the pack, and its name, as they were.',
     request: { params: z.object({ name }), body: json(PackPatchSchema) },
-    responses: { 200: ok('The pack.', PackSchema), ...problemResponses(400, 401, 403, 404) },
+    responses: { 200: ok('The pack.', PackSchema), ...problemResponses(400, 401, 403, 404, 409) },
   }),
   remove: createRoute({
     method: 'delete',
@@ -433,6 +449,25 @@ export const routes = {
     description: 'Removes a pack with no live keys (revoke them first).',
     request: { params: z.object({ name }) },
     responses: { 204: { description: 'Removed.' }, ...problemResponses(401, 403, 404, 409) },
+  }),
+  freeName: createRoute({
+    method: 'delete',
+    path: `${PATH}/{name}/names/{former}`,
+    operationId: 'freePackName',
+    tags: [TAG],
+    summary: 'Stop an old name leading here',
+    description:
+      'Frees a name the pack used to have: anyone still connecting at `/p/<former>/` is refused from now on, and another pack can take the name.',
+    request: {
+      params: z.object({
+        name,
+        former: PackName.openapi({
+          param: { name: 'former', in: 'path' },
+          description: 'The old name, as the pack’s `formerNames` lists it.',
+        }),
+      }),
+    },
+    responses: { 204: { description: 'Freed.' }, ...problemResponses(401, 403, 404) },
   }),
   wording: createRoute({
     method: 'put',

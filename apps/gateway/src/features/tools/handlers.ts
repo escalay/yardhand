@@ -20,7 +20,8 @@ import {
   seenBy,
   shownAs,
 } from '../clients/principals.js'
-import { fuse, KEYWORD_MIN_Z } from './meaning.js'
+import { noPack } from '../packs/names.js'
+import { fuse } from './meaning.js'
 
 /** Meaning counts a bit more than words: generic words like "app" match too much to lead. */
 const MEANING_WEIGHT = [1, 1.5]
@@ -64,13 +65,15 @@ export const toolsHandlers = ({
   const principalOf = (c: Context) => principals.require(callerOf(c))
   /**
    * The caller, or what the owner previews: with `as`, that client (its reach, scope, pack and pins); with `pack`, the
-   * pack as its keys see it; with both, that client in that pack. At a pack's own address the pack is the address's.
+   * pack as its keys see it; with both, that client in that pack. At a pack's own address the pack is the address's,
+   * also when `pack` says the old name the address was asked by.
    */
-  const viewerOf = async (c: Context, { as, pack }: { as?: string | undefined; pack?: string | undefined }) => {
-    if (!as && !pack) return { principal: await principalOf(c), preview: false }
+  const viewerOf = async (c: Context, { as, pack: asked }: { as?: string | undefined; pack?: string | undefined }) => {
+    if (!as && !asked) return { principal: await principalOf(c), preview: false }
     const caller = callerOf(c)
     if (!isOwner(caller))
       throw new ProblemError('forbidden', { detail: 'Only the owner can look as another client or as a pack.' })
+    const pack = asked && asked === caller?.cameBy ? caller.pack : asked
     if (pack && caller?.pack && pack !== caller.pack)
       throw new ProblemError('bad_request', {
         detail: `This request is for the pack ${caller.pack}: look at ${pack} from the root, GET ${PATH}?pack=${pack}.`,
@@ -82,6 +85,8 @@ export const toolsHandlers = ({
       // A client that can call but doesn't open this pack: said to the owner, who is looking, not to its holder
       const outside = inPack ? await principals.ofClient(as) : target
       if (typeof outside === 'string') throw new ProblemError('conflict', { detail: target })
+      if (inPack && (await packs.currentNameOf(inPack)))
+        throw new ProblemError('not_found', { detail: await noPack(packs, inPack) })
       const opens = outside.packs.map((opened) => opened.name)
       throw new ProblemError('conflict', {
         detail: opens.length
@@ -242,11 +247,7 @@ export const toolsHandlers = ({
       const stood = await meaning.standouts(words, { limit: 100, keep: inReach })
       if (!stood || typed) return stood && [hits, stood]
       // The question is embedded once: the second look reads it from the embedder's cache
-      const near = await meaning.standouts(words, {
-        limit: 100,
-        keep: (name) => hits.includes(name),
-        minZ: KEYWORD_MIN_Z,
-      })
+      const near = await meaning.standouts(words, { limit: 100, keep: (name) => hits.includes(name), found: true })
       // A hit with no vector yet (synced or approved since the last refresh) can't be scored: it is kept
       return near && [hits.filter((name) => near.includes(name) || !meaning.has(name)), stood]
     }

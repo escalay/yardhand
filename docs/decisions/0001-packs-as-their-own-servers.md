@@ -43,17 +43,20 @@ using a pack key day to day showed where it stops feeling like a server of its o
   connections. Never compute the bar over the pack alone: scored against the pack's own tools, right answers and
   off-topic questions score alike (medians about z 2.0 to 2.4), while against the whole catalog the same right answers
   score about 4.9 to 6.2. `names()` stays as it is for smart inclusion, which wants an answer every time. The bar is
-  the kit's own, which rises with the catalog (3.5 at the size replayed), with no `minZ` or `minScore` set: logged
-  searches (the search log behind "agents looked for") were replayed before release, since it changes every key's
-  search.
-- **A keyword hit must be near too.** A tool the words found counts only when it scores z 2.0 or more against the
-  whole catalog. Asking for every word instead cost right answers in the replay; this floor cost none. A tool with
-  no score yet (new since the last embedding run) is kept. The owner's own search boxes in the app are the exception:
+  the kit's own from 150 tools up (3.5 at the size replayed, and rising), with no `minScore` set, and z 3.0 below
+  that: in a small catalog a right answer stands less far out. Logged searches (the search log behind "agents looked
+  for") were replayed before release, since it changes every key's search.
+- **A keyword hit must be near too.** A tool the words found counts only from a floor that rises with the catalog:
+  z 1.0 under 150 tools, 1.5 under 1,000 and 2.0 from there. One floor for every size did not hold: replayed on
+  catalogs cut from the logged one, z 2.0 lost about a third of the right answers at 50 to 100 tools and almost
+  none over 1,000, and a low floor lets more keyword hits through by chance the larger the catalog. Asking for
+  every word instead cost right answers at every size. A tool with no score yet (new since the last embedding run)
+  is kept. The owner's own search boxes in the app are the exception:
   they filter on half-typed words and connection ids, which no meaning scores, so there every keyword hit counts.
 - **Small catalogs search as before.** Under 50 tools there is no bar to hold a tool to: search answers with the
   nearest tools and every keyword hit, kept to the caller's own tools. The same goes without search by meaning.
-- **An empty search helps.** `count: 0` and, for a pack, "Nothing in Career matches 'taxes'. This pack covers: job
-  search, inbox, notes." (from the groups of the pack's tools), not "try list_upstreams".
+- **An empty search helps.** `count: 0` and, for a pack, "Nothing in Hiring matches 'taxes'. This pack covers: job
+  boards, inbox, notes." (from the groups of the pack's tools), not "try list_upstreams".
 - **Building is checked as you go.** The pack page's Overview carries a four-step checklist (describe it, add tools,
   try it, connect), a **Try it** panel that searches exactly as a pack key does, and an **Address** card with setup
   per app. The owner at a pack address is offered "See it as Sam would" instead of a refusal.
@@ -97,7 +100,7 @@ using a pack key day to day showed where it stops feeling like a server of its o
   or later.
 - **Pack playbooks**: markdown with front matter declaring arguments, served as MCP prompts, `get_playbook`,
   `/p/<pack>/api/playbooks`, and suggested by search.
-- **One skill per pack** (`SKILL.md`, "Working with Career") in six sections: what it is for, which tool for which
+- **One skill per pack** (`SKILL.md`, "Working with Hiring") in six sections: what it is for, which tool for which
   job, values already set, playbooks, gotchas (from the upstream manuals, cut to the pack's tools), and what it can't
   do. Served as `skill://<pack>/SKILL.md`, through `read_resource`, and at the top of the pack's `llms.txt`.
 - **Checks on every save**: every tool named is in the pack, every `{{…}}` resolves (in a tool input an undeclared
@@ -120,32 +123,32 @@ using a pack key day to day showed where it stops feeling like a server of its o
 The owner's side, in order of a first pack.
 
 ```
-┌─ Packs / Career ─────────────────────────────────── [ Try it ] [ Share ]
+┌─ Packs / Hiring ─────────────────────────────────── [ Try it ] [ Share ]
 │  Overview   Tools 20   Playbooks & manuals 3   People 2   Activity
 │ ─────────────────────────────────────────────────────────────────────
-│  Set up Career                                              3 of 4
+│  Set up Hiring                                              3 of 4
 │   ✓ Describe it   ✓ Add tools   ✓ Try it as the pack   ○ Connect an app
 │
 │  ┌─ Address ────────────────────────────────────────────────────────
-│  │  gw.example.com/p/career                               [ Copy ]
-│  │  MCP /p/career/mcp  ·  REST /p/career/api  ·  Docs /p/career/docs
+│  │  gw.example.com/p/hiring                               [ Copy ]
+│  │  MCP /p/hiring/mcp  ·  REST /p/hiring/api  ·  Docs /p/hiring/docs
 │  └──────────────────────────────────────────────────────────────────
 ```
 
 ```
-┌─ Try Career as an agent ─────────────────────────────── See it as: [ Me ▾ ]
+┌─ Try Hiring as an agent ─────────────────────────────── See it as: [ Me ▾ ]
 │  [ find a remote product design role                          ] [ Search ]
 │  1  jobs.search_postings        Search job postings by role, place…
 │  2  mail.search_threads         Find email threads by words or sender
 │     2 tools stood out · 18 others didn't match
 │
 │  [ taxes                                                       ] [ Search ]
-│  Nothing in Career matches "taxes".
-│  This pack covers: job search, inbox, notes.            [ Add tools ]
+│  Nothing in Hiring matches "taxes".
+│  This pack covers: job boards, inbox, notes.            [ Add tools ]
 ```
 
 ```
-┌─ Share Career ───────────────────────────────────────────────────────
+┌─ Share Hiring ───────────────────────────────────────────────────────
 │  Who            [ Sam                                   ]
 │  Where          ( ) Claude Code, Cursor, Codex   (•) claude.ai or ChatGPT
 │                 ( ) Not sure
@@ -156,7 +159,7 @@ The owner's side, in order of a first pack.
 ```
 
 ```
-┌─ Packs / Career › People ────────────────────────────────────────────
+┌─ Packs / Hiring › People ────────────────────────────────────────────
 │  ┌─ Waiting to join ────────────────────────────────────────────────
 │  │  Lena (ChatGPT) · code 482 913 · 2 min ago   [ Refuse ] [ Approve… ]
 │  └──────────────────────────────────────────────────────────────────
@@ -168,7 +171,7 @@ The owner's side, in order of a first pack.
 ```
 
 ```
-┌─ Career › Tools › jobs.search_postings › Inputs ─────────────────────
+┌─ Hiring › Tools › jobs.search_postings › Inputs ─────────────────────
 │  query        ( ) Fixed  ( ) Default  (•) Agent decides  ( ) Per person
 │  location     ( ) Fixed  ( ) Default  ( ) Agent decides  (•) Per person  {{city}}
 │  posted_since ( ) Fixed  (•) Default  ( ) Agent decides  ( ) Per person  {{since_days}}
@@ -177,11 +180,11 @@ The owner's side, in order of a first pack.
 ```
 
 ```
-┌─ Proposal for Career ──────────────────────────────── [ Accept all ] [ Discard ]
+┌─ Proposal for Hiring ──────────────────────────────── [ Accept all ] [ Discard ]
 │  Tools 9        ✓ jobs.search_postings   ✓ mail.search_threads   ✗ mail.send (changes things)
 │  Variables 3    city · account · since_days
 │  Playbooks 3    Find roles · Reply to a recruiter · Interview prep
-│  Skill 1        "Working with Career", 6 sections
+│  Skill 1        "Working with Hiring", 6 sections
 │  Rehearsal      Find roles: 2 calls, 14 postings · Reply: draft written, send skipped
 │  Cost           $0.31 of $1.00
 ```
@@ -189,19 +192,19 @@ The owner's side, in order of a first pack.
 The other person's side.
 
 ```
-┌─ gw.example.com/p/career/join/K7Q-4MD ───────────────────────────────
-│   Career
-│   Job search: find postings, read replies, prep with notes.
+┌─ gw.example.com/p/hiring/join/K7Q-4MD ───────────────────────────────
+│   Hiring
+│   Hiring: track postings, read replies, prep with notes.
 │   Ada invited Sam · read only · until 21 Dec · city: Lisbon [ change ]
 │   Add it to:  claude.ai │ ChatGPT │ Claude Code │ Cursor
 │   1  Settings › Connectors › Add custom connector
-│   2  Paste  gw.example.com/p/career/mcp                    [ Copy ]
+│   2  Paste  gw.example.com/p/hiring/mcp                    [ Copy ]
 │   3  Press Connect, then Approve.
 ```
 
 ```
-┌─ Connect Claude to Career ─────────────────┐  ┌─ Connect to Career ──────────────────────
-│  claude.ai wants to use Career for Sam.    │  │  Have an invite code? [ K7Q-4MD ] [ Continue ]
+┌─ Connect Claude to Hiring ─────────────────┐  ┌─ Connect to Hiring ──────────────────────
+│  claude.ai wants to use Hiring for Sam.    │  │  Have an invite code? [ K7Q-4MD ] [ Continue ]
 │  Read only · until 21 Dec · invited by Ada │  │  ─── or ───
 │                    [ Cancel ]  [ Approve ] │  │  Your name [ Lena ] [ Ask Ada to let you in ]
 └────────────────────────────────────────────┘  └──────────────────────────────────────────
@@ -210,13 +213,13 @@ The other person's side.
 What the agent sees:
 
 ```
-Server: Career
+Server: Hiring
 > search_tools "taxes"
-  Nothing in Career matches "taxes". This pack covers: job search, inbox, notes.
+  Nothing in Hiring matches "taxes". This pack covers: job boards, inbox, notes.
 > list_upstreams
   jobs: Jobs board, 6 tools · mail: Mail, 4 tools · notes: Notes, 10 tools
 > call_tool …   (after 21 Dec)
-  Your access to Career ended on 21 Dec. Ask Ada for a new invite.
+  Your access to Hiring ended on 21 Dec. Ask Ada for a new invite.
 ```
 
 ## Alternatives not taken

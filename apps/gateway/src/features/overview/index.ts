@@ -11,6 +11,7 @@ import { SERVER_NAME } from '../clients/setup.js'
 import type { Feature } from '../index.js'
 import { readInstance } from '../instance/keys.js'
 import { packFlags } from '../packs/flags.js'
+import { noPack } from '../packs/names.js'
 import { findability, unansweredSearches } from '../searches/demand.js'
 import { PATH, routes, STATS_PATH, SYSTEM_PATH, TAG } from './routes.js'
 import { bucketsOf, nudgesOf, setupOf } from './rules.js'
@@ -181,8 +182,7 @@ export const feature: Feature = {
       requireOwner(c)
       const { range, via, client, pack: packName } = c.req.valid('query')
       const pack = packName ? await packs.get(packName) : undefined
-      if (packName && !pack)
-        throw new ProblemError('not_found', { detail: `No pack ${packName}. GET /api/packs lists them.` })
+      if (packName && !pack) throw new ProblemError('not_found', { detail: await noPack(packs, packName) })
       const clientIds = pack
         ? (await clients.list()).filter((row) => row.packId === pack.id).map((row) => row.id)
         : client

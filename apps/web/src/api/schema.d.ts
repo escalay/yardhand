@@ -111,7 +111,7 @@ export interface paths {
         head?: never;
         /**
          * Change a client
-         * @description Changes a client’s name, scope, upstreams, pins, result cap or laptop-tool access (owner only).
+         * @description Changes a client’s name, scope, upstreams, pins, result cap, laptop-tool access or how long it works (owner only).
          */
         patch: operations["updateClient"];
         trace?: never;
@@ -839,7 +839,7 @@ export interface paths {
         head?: never;
         /**
          * Change a pack
-         * @description Renames it, rewrites what it is for, adds or removes tools, playbooks and manuals. A tool can go in with fixed inputs and defaults: they are checked against its live input schema, and a problem the pack already had elsewhere never blocks the change.
+         * @description Changes its name, its title, what it is for, and adds or removes tools, playbooks and manuals. A new name moves its address; if the pack has a key that is not revoked then, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack. A name another pack has, or that still leads to one, is a 409. A tool can go in with fixed inputs and defaults: they are checked against its live input schema, and a problem the pack already had elsewhere never blocks the change. A change that is refused leaves the pack, and its name, as they were.
          */
         patch: operations["updatePack"];
         trace?: never;
@@ -859,6 +859,26 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/names/{former}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop an old name leading here
+         * @description Frees a name the pack used to have: anyone still connecting at `/p/<former>/` is refused from now on, and another pack can take the name.
+         */
+        delete: operations["freePackName"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1583,6 +1603,11 @@ export interface components {
             packs: string[];
             /** @description When the key stops working, or null for never. */
             expiresAt: string | null;
+            /**
+             * @description Where it runs, as the owner said when making it; null when not said.
+             * @enum {string|null}
+             */
+            app: "claude-code" | "cursor" | "codex" | "claude-ai" | "curl" | "typescript" | null;
             createdAt: string;
             revokedAt: string | null;
             usage: components["schemas"]["ClientUsage"];
@@ -1647,10 +1672,15 @@ export interface components {
              */
             packs?: string[];
             /**
-             * @description How long the key works: 8 hours, a day, a week, or until revoked (the default).
+             * @description How long the key works: 8 hours, a day, a week, 30 days, or until revoked (the default).
              * @enum {string}
              */
-            expiresIn?: "8h" | "1d" | "7d" | "never";
+            expiresIn?: "8h" | "1d" | "7d" | "30d" | "never";
+            /**
+             * @description The app the key will be pasted into. claude.ai is not one: it signs in and takes no key.
+             * @enum {string}
+             */
+            app?: "claude-code" | "cursor" | "codex" | "curl" | "typescript";
         };
         /** @description Fields to change. */
         ClientPatch: {
@@ -1684,6 +1714,11 @@ export interface components {
             packs?: string[];
             /** @description For a pack key: its default pack, one of the packs it opens. */
             pack?: string;
+            /**
+             * @description Extend: how long it works from now, 7 days, 30 days or until revoked (it replaces when it ends). An ended key works again with the same key; a revoked one does not. A request that was refused with an `Idempotency-Key` while the key had ended keeps answering that refusal for a day: its holder sends it again with a new `Idempotency-Key`.
+             * @enum {string}
+             */
+            expiresIn?: "7d" | "30d" | "never";
         };
         /** @description Paste-ready setup for every place this client can run. Never holds the key. */
         ClientSetup: {
@@ -2629,6 +2664,14 @@ export interface components {
             triedAt: string | null;
             /** @description The newest call in the log (90 days) by any key that opens the pack, or null. A key with several packs counts for each of them. */
             lastCallAt: string | null;
+            /** @description Names it used to have that still lead to it, newest first, each with how many of its people last connected there. `DELETE /api/packs/{name}/names/{former}` frees one. */
+            formerNames: {
+                name: string;
+                /** @description When it stopped being the pack’s name. */
+                until: string;
+                /** @description Live keys that last connected at this name. */
+                people: number;
+            }[];
         };
         /** @description One tool in a pack. */
         PackTool: {
@@ -2829,6 +2872,11 @@ export interface components {
         };
         /** @description Changes to a pack. */
         PackPatch: {
+            /**
+             * @description A new name: the pack’s address becomes `/p/<name>/`. If it has a key that is not revoked when it is renamed, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack.
+             * @example design
+             */
+            name?: string;
             title?: string;
             description?: string;
             /** @description What to add, at the end; anything already in stays as it is. A tool goes in under its alias when it has one, so the same tool can go in again under another alias (with other fixed inputs or defaults). An alias can’t be the name of one of a connection’s own tools (`search_tools`, `call_tool` and the rest). */
@@ -6727,6 +6775,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getPackSetup: {
@@ -6752,6 +6809,62 @@ export interface operations {
                 content: {
                     "application/hal+json": components["schemas"]["PackSetup"];
                 };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    freePackName: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+                /**
+                 * @description The old name, as the pack’s `formerNames` lists it.
+                 * @example design
+                 */
+                former: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Freed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
             401: {

@@ -93,14 +93,34 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Pack**: a curated kit for one kind of work (`features/packs`): tools from any upstreams, each with an optional
   pack wording, alias, fixed inputs and defaults, the pack's variables, plus playbooks and manuals. Starting from a playbook brings in the tools it names or calls by route
   (a server publishes a tool's route in `_meta` under a `<vendor>/route` key, the kit as `agent-api-kit/route`; stored on the tool row, never versioned).
-- **Pack key**: a key locked to one or more packs, optionally expiring (8 h, 1 day, 7 days). Each pack is its own
+- **Pack key**: a key locked to one or more packs, optionally expiring (8 h, 1 day, 7 days, 30 days). Each pack is its own
   server at `/p/<pack>/`: MCP at `/p/<pack>/mcp` and REST under `/p/<pack>/api` (rewritten to `/mcp` and `/api` up
   front, the choice carried in `features/clients/pack-choice.ts`), with its own guide, OpenAPI document and docs page
   beside them (`features/packs/docs.ts`). `/mcp/p/<pack>` and the `x-gateway-pack` header (on REST and on `/mcp`)
-  still work; plain `/mcp` and REST serve the key's default pack. A request sees and runs only its one pack. A pack
-  connection has the gateway's shape under the pack's name: the meta-tools over the pack, and every tool of the pack
-  listed directly, or only the key's own pins. The owner asking for a pack (its address or the header) is answered as
-  a write key of that pack and refused the routes that manage the gateway (`requireOwner`).
+  still work, and each also takes a name the pack used to have (**Old name**); plain `/mcp` and REST serve the key's
+  default pack. A request sees and runs only its one pack. A pack connection has the gateway's shape under the pack's
+  name: the meta-tools over the pack, and every tool of the pack listed directly, or only the key's own pins. The
+  owner asking for a pack (its address or the header) is answered as a write key of that pack and refused the routes
+  that manage the gateway (`requireOwner`).
+- **Old name**: a name a pack had when it was renamed (`PATCH /api/packs/{name}` with `name`) while it had a key that
+  was not revoked, kept in `pack_names`. It is read as the name the pack has now in `packChoice`, after
+  authentication, at `/p/<old>/`, `/mcp/p/<old>` and `x-gateway-pack`: MCP and REST are served in place, the pack's
+  own pages answer 308 to the new address. A key that does not open the pack is refused by the name it asked for
+  (`packFor`), so an old name tells it nothing of the name now; only the owner is told where a pack went (`noPack`).
+  No pack can take an old name until the owner frees it (`DELETE /api/packs/{name}/names/{former}`) or removes the
+  pack. Each key's link to the pack notes the old name it last came by (`client_packs.came_by`), which a pack's
+  `formerNames` count.
+- **Extend**: sets a key's end anew, counted from today (`PATCH /api/clients/{id}` with `expiresIn`: 7 days, 30 days
+  or never), also for a key that has ended: it works again with the same key. A revoked key does not come back.
+  The kit's `Idempotency-Key` store knows nothing of it: a request refused while the key had ended is answered that
+  refusal for a day, until it is sent with a new `Idempotency-Key`.
+- **Ended**: a key past its end. Every route a pack serves (`PACK_PATHS` and the pack's pages) refuses it with a 403
+  that names its pack, the day and whom to ask (`refusalOf`), but for a request repeated with an `Idempotency-Key`
+  it sent while it worked: the kit answers that with what the key was already given, before any route, and nothing
+  runs. Owner-only routes refuse it as any client key, and the gateway's own `/llms.txt`, `/openapi.json` and `/docs`
+  still answer it. Over MCP it still connects, to read the refusal as the instructions and from every tool
+  (`principals.ended` at the `/mcp` door): safe only while every route resolves its caller through `principals` or
+  `requireOwner`. The owner looking as an ended client reads `endedNote` instead.
 - **Alias**: a pack's own name for one of its tools (`team_inbox_search`); the same tool can be in a pack under
   several aliases. A pack tool is keyed by that name; `entryOf` resolves it to the tool. A new alias can't be a name
   a connection's own tools hold (`OWN_NAMES`: the meta-tools and `call_tool`); one stored before that rule keeps

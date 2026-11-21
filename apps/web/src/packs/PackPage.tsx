@@ -10,6 +10,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { EntityActivity } from '@/activity/EntityActivity'
 import { api, type Schemas, unwrap } from '@/api/client'
+import { useScope } from '@/shell/scope'
 import { Mono } from '@/ui/Code'
 import { Empty } from '@/ui/Empty'
 import { EntityHeader, EntityTabs } from '@/ui/Entity'
@@ -37,8 +38,8 @@ import { AddressCard } from './AddressCard'
 import { Checklist } from './Checklist'
 import { UpstreamChips } from './PacksPage'
 import { PackTools } from './PackTools'
-import { expiryOf, holdsLine } from './packs.rules'
-import { packQuery } from './queries'
+import { expiryOf, holdsLine, isPackName, nameProblem, renameNote } from './packs.rules'
+import { packQuery, packsQuery } from './queries'
 import { TRY_ID, TryIt } from './TryIt'
 
 type Pack = Schemas['Pack']
@@ -94,19 +95,25 @@ const EditPack = ({
   onOpenChange: (open: boolean) => void
   onSave: (body: Schemas['PackPatch']) => Promise<unknown>
 }) => {
+  const [name, setName] = useState(pack.name)
   const [title, setTitle] = useState(pack.title)
   const [description, setDescription] = useState(pack.description)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  // Opened again, by whichever button: it starts from the pack, not from what was typed or refused last time
+  const [shown, setShown] = useState(open)
+  if (open !== shown) {
+    setShown(open)
+    if (open) {
+      setName(pack.name)
+      setTitle(pack.title)
+      setDescription(pack.description)
+      setProblem(null)
+    }
+  }
+  const renamed = name !== pack.name
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (next) {
-          setTitle(pack.title)
-          setDescription(pack.description)
-        }
-        onOpenChange(next)
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{pack.title}</DialogTitle>
@@ -116,9 +123,36 @@ const EditPack = ({
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault()
-            void onSave({ title: title.trim(), description: description.trim() }).then(() => onOpenChange(false))
+            setProblem(null)
+            setSaving(true)
+            void onSave({ ...(renamed ? { name } : {}), title: title.trim(), description: description.trim() })
+              .then(
+                () => onOpenChange(false),
+                (error: Error) => setProblem(error.message),
+              )
+              .finally(() => setSaving(false))
           }}
         >
+          <Field
+            label="Name"
+            hint={
+              <>
+                Its address is <Mono>/p/{name || '…'}</Mono>.{renamed ? ` ${renameNote(pack.keys, pack.name)}` : null}
+              </>
+            }
+            error={nameProblem(name)}
+          >
+            {(id) => (
+              <Input
+                id={id}
+                required
+                className="font-mono"
+                maxLength={40}
+                value={name}
+                onChange={(e) => setName(e.target.value.toLowerCase())}
+              />
+            )}
+          </Field>
           <Field label="Title">
             {(id) => <Input id={id} required maxLength={80} value={title} onChange={(e) => setTitle(e.target.value)} />}
           </Field>
@@ -133,12 +167,17 @@ const EditPack = ({
               />
             )}
           </Field>
+          {problem ? (
+            <p role="alert" className="text-sm text-error">
+              {problem}
+            </p>
+          ) : null}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" disabled={!title.trim()}>
-              Save
+            <Button type="submit" variant="primary" disabled={!title.trim() || !isPackName(name) || saving}>
+              {saving ? 'Saving…' : 'Save'}
             </Button>
           </div>
         </form>
@@ -225,13 +264,39 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
   const queries = useQueryClient()
   const navigate = useNavigate()
   const pack = useQuery(packQuery(name))
+  const { scope, setScope } = useScope()
   const [editing, setEditing] = useState(false)
   const [addingPlaybook, setAddingPlaybook] = useState(false)
   const patch = useMutation({
     mutationFn: (body: Schemas['PackPatch']) =>
       unwrap(api.PATCH('/api/packs/{name}', { params: { path: { name } }, body })),
-    onSuccess: (data) => {
-      queries.setQueryData(packQuery(name).queryKey, data)
+    onSuccess: async (data) => {
+      queries.setQueryData(packQuery(data.name).queryKey, data)
+      if (data.name !== name) {
+        // The saved scope is kept by name and dropped when no pack has it: the scope and the list it is checked
+        // against take the new name together
+        queries.setQueryData(
+          packsQuery.queryKey,
+          (list) =>
+            list && {
+              ...list,
+              _embedded: {
+                packs: list._embedded.packs.map((card) =>
+                  card.name === name ? { ...card, name: data.name, title: data.title } : card,
+                ),
+              },
+            },
+        )
+        if (scope.kind === 'pack' && scope.name === name) setScope({ kind: 'pack', name: data.name, title: data.title })
+        // The page moves first: asked again under its old name, the pack is a 404
+        await navigate({
+          to: '/packs/$name',
+          params: { name: data.name },
+          search: tab === 'tools' ? {} : { tab },
+          replace: true,
+        })
+        queries.removeQueries({ queryKey: ['pack', name] })
+      }
       void queries.invalidateQueries({ queryKey: ['packs'] })
     },
   })
@@ -325,7 +390,7 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
           { id: 'activity', label: 'Activity' },
         ]}
       />
-      {patch.error ? <p className="text-sm text-error">{patch.error.message}</p> : null}
+      {patch.error && !editing ? <p className="text-sm text-error">{patch.error.message}</p> : null}
 
       {tab === 'overview' ? (
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -441,7 +506,16 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
         <EntityActivity filter={{ pack: data.name }} clientIds={data.keyList.map((key) => key.id)} />
       )}
 
-      <EditPack pack={data} open={editing} onOpenChange={setEditing} onSave={save} />
+      <EditPack
+        pack={data}
+        open={editing}
+        onOpenChange={(open) => {
+          // A save the dialog refused was said in the dialog: it is not left on the page behind it
+          if (!open) patch.reset()
+          setEditing(open)
+        }}
+        onSave={save}
+      />
       <AddPlaybook pack={data} open={addingPlaybook} onOpenChange={setAddingPlaybook} onAdd={save} />
     </Page>
   )

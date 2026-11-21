@@ -424,8 +424,8 @@ type Pin = {
 type Served = { info: McpServerInfo; instructions: string; tools: McpTool[]; prompts: McpPrompt[] }
 
 /**
- * A pack's name and instructions for the kit's own answer to `initialize`, which reads them off the factory and not
- * off a server built for the request.
+ * A pack's name and instructions, or the refusal an ended caller reads, for the kit's own answer to `initialize`,
+ * which reads them off the factory and not off a server built for the request.
  */
 const packGreeting = new AsyncLocalStorage<Pick<Served, 'info' | 'instructions'>>()
 
@@ -451,9 +451,17 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
     prompts: promptsFor(pack),
   })
   const base = build({ ...gateway, instructions: INSTRUCTIONS })
-  /** What this caller is served: the gateway, or its pack under the pack's own name. */
+  /**
+   * What this caller is served: the gateway, or its pack under the pack's own name. A caller the gateway refuses (its
+   * access ended) is served the gateway's own tools with the refusal as the instructions; every tool answers it too.
+   */
   const servedFor = async (auth: Auth) => {
     const me = await callApi({ path: '/api/me' }, auth)
+    if (me.status === 403) {
+      const problem = (await me.json().catch(() => null)) as Problem | null
+      const instructions = problem?.detail ?? INSTRUCTIONS
+      return { caller: null, pins: [], pack: null, refused: true, served: { ...gateway, instructions } }
+    }
     const caller = me.ok ? ((await me.json()) as Me) : null
     const pack = caller?.pack ?? null
     const connections = await upstreamLines(callApi, auth)
@@ -469,7 +477,7 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
             shadowed: caller.pins.filter((pin) => OWN_NAMES.has(pin.name)).map((pin) => pin.name),
           })
         : instructionsFor(connections, caller?.scope)
-    return { caller, pins, pack, served: { ...(pack ? packServed(pack) : gateway), instructions } }
+    return { caller, pins, pack, refused: false, served: { ...(pack ? packServed(pack) : gateway), instructions } }
   }
   const factory = async (ctx: McpRequestContext) => {
     const auth = ctx.authInfo
@@ -574,7 +582,7 @@ export const mountGatewayMcp = (
 ) => {
   const { factory, servedFor } = gatewayMcp(app, services)
   // A 2026-07-28 client that still opens with `initialize` is greeted by the kit from the factory: as the pack, when
-  // the caller is served one. Only that one request pays for the look.
+  // the caller is served one, and with the refusal when its access ended. Only that one request pays for the look.
   app.use('/mcp', async (c, next) => {
     if (c.req.method !== 'POST' || c.req.header('mcp-protocol-version') !== MODERN_PROTOCOL_VERSION) return next()
     const message = (await c.req.raw
@@ -592,8 +600,8 @@ export const mountGatewayMcp = (
       'x-forwarded-proto': origin.protocol.slice(0, -1),
       'x-forwarded-host': origin.host,
     }
-    const { pack, served } = await servedFor({ extra: { headers } } as unknown as Auth)
-    return pack ? packGreeting.run({ info: served.info, instructions: served.instructions }, next) : next()
+    const { pack, refused, served } = await servedFor({ extra: { headers } } as unknown as Auth)
+    return pack || refused ? packGreeting.run({ info: served.info, instructions: served.instructions }, next) : next()
   })
   return mountMcp(app, { factory, allowedHostnames })
 }

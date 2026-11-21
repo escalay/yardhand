@@ -360,7 +360,9 @@ describe('a key locked to a pack', () => {
     )
     const refused = await api(quiet, '/api/me')
     expect(refused.status).toBe(403)
-    expect(refused.json.detail).toContain('expired')
+    expect(refused.json.detail).toMatch(
+      /^Your access to Quiet ended on \d{1,2} \w{3} \d{4}\. Ask the owner for a new invite\.$/,
+    )
     expect((await owner('/api/packs/quiet')).json.keys).toBe(0)
     expect((await owner('/api/packs/quiet', { method: 'DELETE' })).status).toBe(204)
   })
