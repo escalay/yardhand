@@ -39,6 +39,35 @@ const api = async (key: string, path: string, init: Init = {}) => {
   return { status: response.status, json: (await response.json().catch(() => null)) as any }
 }
 const owner = (path: string, init?: Init) => api(OWNER, path, init)
+const META = [
+  'call_tool',
+  'describe_tool',
+  'get_playbook',
+  'get_result',
+  'list_upstreams',
+  'read_resource',
+  'search_tools',
+]
+/** What a tool answers over MCP, as the agent reads it. */
+const said = async (client: Client, name: string, args: Record<string, unknown> = {}) =>
+  ((await client.callTool({ name, arguments: args })).content as { text?: string }[])
+    .map((block) => block.text ?? '')
+    .join('\n')
+/** What a 2026-07-28 client that still opens with `initialize` is greeted with. */
+const greeted = async (key: string, path: string) => {
+  const answer = await api(key, path, {
+    method: 'POST',
+    headers: { accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2026-07-28' },
+    body: {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 't', version: '1' } },
+    },
+  })
+  expect(answer.status).toBe(200)
+  return answer.json.result as { serverInfo: { name: string }; instructions: string }
+}
 const mcp = async (key: string, path = '/mcp') => {
   const client = new Client({ name: 'test', version: '1.0.0' })
   await client.connect(
@@ -300,5 +329,75 @@ describe('the owner looking as someone whose access ended', () => {
       409,
       `a script's key expired on ${dayOf(new Date().toISOString())}, so there is nothing to see as a script: extend it with PATCH /api/clients/${script.id} {"expiresIn":"30d"}.`,
     ])
+  })
+})
+
+describe('a key that has ended, over MCP', () => {
+  it('still connects at a pack’s address and is told why it can do nothing', async () => {
+    const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '30d' })
+    await end(sam.id)
+    for (const path of ['/p/loud/mcp', '/mcp/p/loud']) {
+      const client = await mcp(sam.key, path)
+      expect([path, client.getInstructions()]).toEqual([path, endedIn('Loud')])
+      // Nothing of the pack: not its name, not its tools
+      expect(client.getServerVersion()).toMatchObject({ name: 'yardhand' })
+      expect((await client.listTools()).tools.map((tool) => tool.name).sort()).toEqual(META)
+      expect(await said(client, 'search_tools', { query: 'echo' })).toContain(endedIn('Loud'))
+      expect(await said(client, 'call_tool', { name: 'fixture.echo', arguments: { text: 'x' } })).toBe(endedIn('Loud'))
+      await client.close()
+    }
+    const modern = await greeted(sam.key, '/p/loud/mcp')
+    expect(modern.serverInfo.name).toBe('yardhand')
+    expect(modern.instructions).toMatch(new RegExp(`^${endedIn('Loud').replaceAll('.', '\\.')}`))
+  })
+
+  it('reads the same at plain /mcp', async () => {
+    const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '30d' })
+    const script = await keyFor({ name: 'a script', upstreams: 'all', expiresIn: '1d' })
+    const whileItWorks = { pack: '', script: '' }
+    for (const [name, key] of [
+      ['pack', sam.key],
+      ['script', script.key],
+    ] as const) {
+      const client = await mcp(key)
+      whileItWorks[name] = client.getInstructions() ?? ''
+      await client.close()
+    }
+    expect(whileItWorks.pack).toMatch(/^Loud: Say things back\./)
+    expect(whileItWorks.script).toMatch(/^Yardhand: one MCP server in front of many\./)
+    await end(sam.id)
+    await end(script.id)
+    const packClient = await mcp(sam.key)
+    expect(packClient.getInstructions()).toBe(endedIn('Loud'))
+    await packClient.close()
+    const scriptClient = await mcp(script.key)
+    expect(scriptClient.getInstructions()).toBe(expiredToday())
+    expect(await said(scriptClient, 'call_tool', { name: 'fixture.echo', arguments: { text: 'x' } })).toBe(
+      expiredToday(),
+    )
+    await scriptClient.close()
+    expect((await greeted(script.key, '/mcp')).instructions).toMatch(/^This key expired on /)
+    // Extended, it is served its pack again
+    await extend(sam.id, '7d')
+    const back = await mcp(sam.key, '/p/loud/mcp')
+    expect(back.getInstructions()).toBe(whileItWorks.pack)
+    await back.close()
+  })
+
+  it('is told of its own pack at the address of one it never opened, and a key that works is refused there', async () => {
+    const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '30d' })
+    const refused = await api(sam.key, '/p/desk/mcp', {
+      method: 'POST',
+      headers: { accept: 'application/json, text/event-stream' },
+      body: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    })
+    expect([refused.status, refused.json.detail]).toEqual([
+      403,
+      "This key doesn't open the pack desk. It opens loud (/p/loud/mcp).",
+    ])
+    await end(sam.id)
+    const client = await mcp(sam.key, '/p/desk/mcp')
+    expect(client.getInstructions()).toBe(endedIn('Loud'))
+    await client.close()
   })
 })

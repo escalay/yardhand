@@ -332,6 +332,12 @@ export const createPrincipals = ({
       const chosen = await packFor(row, pack)
       return endedNote(row, titled(chosen)) ?? chosen.refusal ?? fromRow(row, undefined, chosen)
     },
+    /** Why this caller's access has ended, or null: the one refusal the MCP door lets in, to be said in words. */
+    ended: async (caller: ReturnType<typeof callerOf>): Promise<string | null> => {
+      if (!caller || isOwner(caller)) return null
+      const { row } = await rowOf(caller)
+      return row && endingOf(row) ? refusalOf(row, titled(await packFor(row, caller.pack))) : null
+    },
     /** The principal behind a request; a 403 saying why when it has none. */
     require: async (caller: ReturnType<typeof callerOf>): Promise<Principal> => {
       const found = await resolve(caller)

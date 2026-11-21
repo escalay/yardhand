@@ -123,10 +123,11 @@ export const createApp = async ({
   })
   // The pack a request asks for (its address `/p/<pack>/…` or `x-gateway-pack`), on the caller before any route reads it
   app.use('*', packChoice)
-  // A pack address the key doesn't open is refused at the door, saying which packs it does open
+  // A pack address the key doesn't open is refused at the door, saying which packs it does open. A key whose access
+  // has ended goes on: it connects and is told why, in the instructions and by every tool
   app.use('/mcp', async (c, next) => {
     const caller = callerOf(c)
-    if (caller?.pack) await services.principals.require(caller)
+    if (caller?.pack && !(await services.principals.ended(caller))) await services.principals.require(caller)
     await next()
   })
   // Per caller: runs reach paid and rate-limited upstreams, so a runaway agent stops here first
