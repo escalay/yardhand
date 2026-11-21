@@ -7,17 +7,28 @@ import { randomBytes } from 'node:crypto'
 import type { OAuthClientProvider } from '@modelcontextprotocol/client'
 import type { Vault } from '../vault/repo.js'
 
+/**
+ * How the owner comes back from approving: `gateway` to this gateway's callback, `loopback` to an address on the
+ * owner's own computer that never loads, whose address the owner pastes back. Some servers only let known apps and
+ * apps on your computer sign in, and refuse any other callback.
+ */
+export type SignInVia = 'gateway' | 'loopback'
+
 type Stored = {
   client?: Awaited<ReturnType<NonNullable<OAuthClientProvider['clientInformation']>>>
   tokens?: Awaited<ReturnType<OAuthClientProvider['tokens']>>
   verifier?: string
   state?: string
+  via?: SignInVia
 }
 
 export const connectionSecretOf = (upstreamId: string) => `oauth:${upstreamId}`
 
 /** Where an upstream's authorization server sends the owner back: behind Access, like every approval page. */
 export const callbackPath = '/app/connect/callback'
+
+/** The callback a `loopback` sign-in registers: nothing listens there, the owner pastes the address it ends on. */
+export const loopbackRedirect = 'http://localhost:8765/callback'
 
 export const vaultOAuthProvider = ({
   vault,
@@ -74,3 +85,27 @@ export const vaultOAuthProvider = ({
 /** The state this upstream's last connect started with, to check a callback against. */
 export const expectedState = async (vault: Vault, upstreamId: string) =>
   (await vault.get<Stored>(connectionSecretOf(upstreamId)))?.state
+
+/** Ends an approval once its code is used, so the same address can't be sent twice. */
+export const forgetState = async (vault: Vault, upstreamId: string) => {
+  const id = connectionSecretOf(upstreamId)
+  const { state: _used, ...rest } = (await vault.get<Stored>(id)) ?? {}
+  await vault.put(id, rest)
+}
+
+/** How this upstream's last connect signed in; `gateway` until a connect chose otherwise. */
+export const signInViaOf = async (vault: Vault, upstreamId: string): Promise<SignInVia> =>
+  (await vault.get<Stored>(connectionSecretOf(upstreamId)))?.via ?? 'gateway'
+
+/**
+ * Keeps how this upstream signs in. A registration made for another callback is dropped with its tokens (they
+ * refresh only under the client they were issued to), so the next connect registers again with the callback in use.
+ */
+export const chooseSignInVia = async (vault: Vault, upstreamId: string, via: SignInVia, redirectUrl: string) => {
+  const id = connectionSecretOf(upstreamId)
+  const stored = (await vault.get<Stored>(id)) ?? {}
+  const registeredFor = (stored.client as { redirect_uris?: string[] } | undefined)?.redirect_uris
+  const { client, tokens, ...rest } = stored
+  const keep = client && (!registeredFor || registeredFor.includes(redirectUrl))
+  await vault.put(id, { ...rest, ...(keep ? { client, tokens } : {}), via })
+}

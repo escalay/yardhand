@@ -11,7 +11,7 @@ import { createTraceSender, traceContext } from './features/calls/traces.js'
 import { catalogRepo } from './features/catalog/repo.js'
 import { createPrincipals } from './features/clients/principals.js'
 import { clientsRepo } from './features/clients/repo.js'
-import { callbackPath, vaultOAuthProvider } from './features/connections/provider.js'
+import { callbackPath, loopbackRedirect, type SignInVia, vaultOAuthProvider } from './features/connections/provider.js'
 import { createEvents } from './features/events/bus.js'
 import { createGrouping } from './features/groups/grouping.js'
 import { packsRepo } from './features/packs/repo.js'
@@ -155,8 +155,10 @@ export const createServices = async ({
   }
   /** Where this gateway is reached; OAuth upstreams send the owner back here. */
   const publicOrigin = publicOriginOf(env.PUBLIC_HOST)
-  const oauthProviderFor = (upstreamId: string, onRedirect?: (url: URL) => void) =>
-    vaultOAuthProvider({ vault, upstreamId, redirectUrl: `${publicOrigin}${callbackPath}`, onRedirect })
+  const redirectUrlOf = (via: SignInVia) => (via === 'loopback' ? loopbackRedirect : `${publicOrigin}${callbackPath}`)
+  /** Refreshes never send a callback, so background connections take the default; connects pass how they sign in. */
+  const oauthProviderFor = (upstreamId: string, onRedirect?: (url: URL) => void, via: SignInVia = 'gateway') =>
+    vaultOAuthProvider({ vault, upstreamId, redirectUrl: redirectUrlOf(via), onRedirect })
   const adapters = createAdapters(
     { name: 'yardhand', version: VERSION },
     (upstreamId) => oauthProviderFor(upstreamId),
@@ -290,6 +292,7 @@ export const createServices = async ({
     events,
     adapters,
     oauthProviderFor,
+    redirectUrlOf,
     publicOrigin,
     principals,
     packs,

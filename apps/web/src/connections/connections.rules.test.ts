@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Probe } from '@/api/client'
-import { draftOf, ID_PATTERN, offersLine, parseConnectionTab, shortTitleOf, stageOf } from './connections.rules'
+import {
+  draftOf,
+  finishProblemOf,
+  ID_PATTERN,
+  offersLine,
+  parseConnectionTab,
+  pastedApprovalOf,
+  shortTitleOf,
+  stageOf,
+} from './connections.rules'
 
 const base: Probe = {
   url: 'https://mcp.example.test/mcp',
@@ -79,5 +88,28 @@ describe('what a connection offers besides tools', () => {
     expect(parseConnectionTab({ tab: 'accounts' })).toEqual({ tab: 'accounts' })
     expect(parseConnectionTab({ tab: 'tools' })).toEqual({})
     expect(parseConnectionTab({ tab: 'nope' })).toEqual({})
+  })
+})
+
+describe('finishing a sign-in on this computer', () => {
+  it('takes the address the approval ended on, as pasted', () => {
+    const landed = 'http://localhost:8765/callback?code=abc&state=ui8.xyz&iss=https%3A%2F%2Fmcp.example.test'
+    expect(pastedApprovalOf(`  ${landed}\n`)).toEqual({ ready: true, url: landed })
+  })
+
+  it('says what to do when the paste is not the approval', () => {
+    expect(pastedApprovalOf('   ')).toEqual({ ready: false, problem: null })
+    expect(pastedApprovalOf('abc123')).toMatchObject({ ready: false, problem: expect.stringMatching(/address bar/) })
+    expect(pastedApprovalOf('http://localhost:8765/callback?state=x')).toMatchObject({
+      problem: expect.stringMatching(/after you click Allow/),
+    })
+    expect(
+      pastedApprovalOf('http://localhost:8765/callback?error=access_denied&error_description=The%20owner%20said%20no'),
+    ).toMatchObject({ problem: expect.stringMatching(/refused \(The owner said no\)/) })
+  })
+
+  it('turns an expired approval into the next step', () => {
+    expect(finishProblemOf('Expired: This approval doesn’t match the last connect.')).toMatch(/Open the sign-in again/)
+    expect(finishProblemOf('Not connected: ui8 said: nope')).toBe('Not connected: ui8 said: nope')
   })
 })

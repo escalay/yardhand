@@ -693,6 +693,13 @@ describe('OAuth upstreams', () => {
       expect((await api(OWNER, '/api/upstreams/secure')).json.status).toBe('live')
       const run = await api(OWNER, '/api/calls', { method: 'POST', body: { tool: 'secure.ping', arguments: {} } })
       expect(run.json.result.content[0].text).toBe('pong')
+      // Asking for another way to sign in leaves a sign-in that works as it is
+      expect((await api(OWNER, '/api/upstreams/secure/connect?via=loopback', { method: 'POST' })).json).toMatchObject({
+        connected: true,
+        via: 'gateway',
+      })
+      const still = await api(OWNER, '/api/calls', { method: 'POST', body: { tool: 'secure.ping', arguments: {} } })
+      expect(still.json.result.content[0].text).toBe('pong')
       // Links and the passthrough reach it with the stored OAuth token too
       const linked = await app.request('/u/secure/r/api/ping', { headers: { authorization: `Bearer ${OWNER}` } })
       expect(await linked.json()).toEqual({ pong: true })
@@ -700,6 +707,65 @@ describe('OAuth upstreams', () => {
       expect(sealed).not.toMatch(/access_token|refresh_token/)
       expect((await api(OWNER, '/api/upstreams/secure', { method: 'DELETE' })).status).toBe(204)
       expect(await db.all("select id from secrets where id = 'oauth:secure'")).toEqual([])
+    } finally {
+      await secure.close()
+    }
+  })
+
+  it('connects a server that only signs in apps on your computer, from the address the approval ends on', async () => {
+    const secure = await startOAuthUpstream()
+    try {
+      await api(OWNER, '/api/upstreams', {
+        method: 'POST',
+        body: { id: 'local', url: secure.url, auth: { type: 'oauth' }, trust: 'trusted' },
+      })
+      // A first connect registers for the gateway's callback; choosing loopback registers again for localhost
+      const first = await api(OWNER, '/api/upstreams/local/connect', { method: 'POST' })
+      expect(first.json.via).toBe('gateway')
+      const started = await api(OWNER, '/api/upstreams/local/connect?via=loopback', { method: 'POST' })
+      expect(started.json).toMatchObject({ connected: false, via: 'loopback' })
+      expect(started.json._links.complete.href).toMatch(/\/api\/upstreams\/local\/connect\/complete$/)
+      const authorize = new URL(started.json.authorizeUrl)
+      expect(authorize.searchParams.get('redirect_uri')).toBe('http://localhost:8765/callback')
+
+      const consent = await fetch(authorize, { headers: { 'x-test-owner': 'owner@example.com' } })
+      const ticket = (await consent.text()).match(/name="ticket" value="([^"]+)"/)?.[1]
+      const approved = await fetch(new URL('/oauth/authorize', secure.url), {
+        method: 'POST',
+        headers: { 'x-test-owner': 'owner@example.com', 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ ticket: ticket!, decision: 'allow' }),
+        redirect: 'manual',
+      })
+      const landedAt = approved.headers.get('location')!
+      expect(landedAt).toMatch(/^http:\/\/localhost:8765\/callback\?code=/)
+
+      const wrong = await api(OWNER, '/api/upstreams/local/connect/complete', {
+        method: 'POST',
+        body: { url: 'http://localhost:8765/callback?state=x' },
+      })
+      expect(wrong.status).toBe(400)
+      expect(wrong.json.detail).toMatch(/no code/)
+
+      const done = await api(OWNER, '/api/upstreams/local/connect/complete', {
+        method: 'POST',
+        body: { url: ` ${landedAt} ` },
+      })
+      expect(done.status).toBe(200)
+      expect(done.json).toMatchObject({ upstream: 'local', connected: true, tools: 1 })
+      expect((await api(OWNER, '/api/upstreams/local')).json.status).toBe('live')
+      const run = await api(OWNER, '/api/calls', { method: 'POST', body: { tool: 'local.ping', arguments: {} } })
+      expect(run.json.result.content[0].text).toBe('pong')
+
+      // The same address works once; a reconnect keeps signing in through loopback
+      const again = await api(OWNER, '/api/upstreams/local/connect/complete', {
+        method: 'POST',
+        body: { url: landedAt },
+      })
+      expect(again.status).toBe(400)
+      expect((await api(OWNER, '/api/upstreams/local/connect', { method: 'POST' })).json).toMatchObject({
+        connected: true,
+        via: 'loopback',
+      })
     } finally {
       await secure.close()
     }

@@ -38,6 +38,7 @@ import { AccountsTab } from './AccountsTab'
 import { type ConnectionTab, kindLabel, offersLine, shortTitleOf } from './connections.rules'
 import { GroupsView } from './GroupsView'
 import { LinksTab } from './LinksTab'
+import { LoopbackSignIn } from './LoopbackSignIn'
 import { ManualTab } from './ManualTab'
 import { PlaybooksTab } from './PlaybooksTab'
 import { upstreamQuery, upstreamToolsQuery } from './queries'
@@ -122,6 +123,8 @@ export const ConnectionPage = ({ id, tab = 'tools' }: { id: string; tab?: Connec
   const tools = useQuery(upstreamToolsQuery(id))
   const overview = useQuery(overviewQuery)
   const [editingKey, setEditingKey] = useState(false)
+  // A connect that signs in through loopback goes straight to pasting the address it ends on
+  const [loopbackStarted, setLoopbackStarted] = useState(false)
   const refresh = () => {
     void queries.invalidateQueries({ queryKey: ['upstream', id] })
     void queries.invalidateQueries({ queryKey: ['upstreams'] })
@@ -161,7 +164,10 @@ export const ConnectionPage = ({ id, tab = 'tools' }: { id: string; tab?: Connec
     mutationFn: () => unwrap(api.POST('/api/upstreams/{id}/connect', { params: { path: { id } } })),
     onSuccess: (result) => {
       if (result.connected) toast.success('Already connected: its sign-in still works.')
-      else if (result.authorizeUrl) window.open(result.authorizeUrl, '_blank', 'noopener')
+      else if (result.authorizeUrl) {
+        window.open(result.authorizeUrl, '_blank', 'noopener')
+        if (result.via === 'loopback') setLoopbackStarted(true)
+      }
     },
     onError: (error) => toast.error(error.message),
   })
@@ -389,6 +395,18 @@ export const ConnectionPage = ({ id, tab = 'tools' }: { id: string; tab?: Connec
               Synced <span className="whitespace-nowrap">{ago(row.syncedAt)}</span>.
             </Row>
             {editingKey ? <KeyEditor id={id} onDone={() => setEditingKey(false)} /> : null}
+            {row.auth === 'oauth' && (row.status !== 'live' || loopbackStarted) ? (
+              <LoopbackSignIn
+                key={String(loopbackStarted)}
+                id={id}
+                title={row.title}
+                open={loopbackStarted}
+                onConnected={() => {
+                  setLoopbackStarted(false)
+                  refresh()
+                }}
+              />
+            ) : null}
             <Row
               title="Open its links"
               action={
