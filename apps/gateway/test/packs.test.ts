@@ -730,6 +730,16 @@ describe('a pack at its own address', () => {
   it('leaves health and sign-in at the root, and counts calls against the same limit', async () => {
     expect((await at(key, '/p/loud/api/health')).status).toBe(404)
     expect((await at(key, '/p/loud/api/session')).status).toBe(404)
+    // However the path is spelt: a percent-encoded letter is the same path to the router
+    for (const path of ['/api/%68ealth', '/api/%73ession', '/api/%73ession/claim', '/%61pi/health']) {
+      expect([path, (await at(key, `/p/loud${path}`)).status]).toEqual([path, 404])
+      expect([path, (await at(null, `/p/nope${path}`)).status]).toEqual([path, 401])
+    }
+    const signIn = await at(null, '/p/loud/api/%73ession', { method: 'POST', body: { key: OWNER } })
+    expect(signIn.status).toBe(401)
+    expect(signIn.headers.get('set-cookie')).toBeNull()
+    // An encoded path that is neither still reaches the pack
+    expect((await at(key, '/p/loud/api/%6de')).json.pack.name).toBe('loud')
     expect((await at(key, '/p/loud/u/fixture/mcp', { method: 'POST', body: {} })).status).toBe(404)
     const ran = await at(key, '/p/loud/api/calls', {
       method: 'POST',

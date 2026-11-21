@@ -9,6 +9,7 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MiddlewareHandler } from 'hono'
+import { tryDecodeURI } from 'hono/utils/url'
 import { originOf } from '../../kit/index.js'
 
 export const PACK_HEADER = 'x-gateway-pack'
@@ -22,6 +23,8 @@ const chosen = new AsyncLocalStorage<Choice>()
 
 type Fetch = (request: Request, ...rest: never[]) => Response | Promise<Response>
 
+/** A path as the router reads it, percent-encoded letters decoded: what is served is decided on this one. */
+const routed = (path: string) => tryDecodeURI(path.includes('%25') ? path.replace(/%25/g, '%2525') : path)
 /** Health and sign-in belong to the gateway, not to a pack. */
 const AT_ROOT_ONLY = /^\/api\/(health|session)(\/|$)/
 /** Served under a pack's address as they are at the root: MCP and the API. */
@@ -67,12 +70,13 @@ export const withPackAddresses = <F extends Fetch>(fetch: F): F =>
     if (!match?.[1]) return fetch(request, ...rest)
     const choice = { name: match[1], base: `/p/${match[1]}` }
     const path = match[2] ?? ''
-    if (rewritten(path)) {
+    const seen = routed(path)
+    if (rewritten(seen)) {
       url.pathname = path
       return withoutRootPointers(await chosen.run(choice, () => fetch(readdressed(request, url), ...rest)))
     }
     return withoutRootPointers(
-      await (KEPT.has(path) ? chosen.run(choice, () => fetch(request, ...rest)) : fetch(request, ...rest)),
+      await (KEPT.has(seen) ? chosen.run(choice, () => fetch(request, ...rest)) : fetch(request, ...rest)),
     )
   }) as F
 
