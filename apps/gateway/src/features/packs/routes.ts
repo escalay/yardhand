@@ -54,7 +54,7 @@ const FindingSchema = z
     }),
     code: z.string().openapi({
       description:
-        '`unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `unused_variable`, `not_live`.',
+        '`unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`.',
       example: 'bad_value',
     }),
     path: z.string().openapi({
@@ -79,6 +79,10 @@ const ToolInputSchema = z
     }),
     note: z.string().nullable().openapi({
       description: 'Worth a look, or null: a `{{word}}` that is no variable of the pack is sent as written.',
+    }),
+    unchecked: z.boolean().openapi({
+      description:
+        'The pack sets a value here that was not checked: the gateway can’t read this input’s schema, so only a call checks it.',
     }),
   })
   .openapi('PackToolInput', { description: 'One input of a pack tool and who fills it.' })

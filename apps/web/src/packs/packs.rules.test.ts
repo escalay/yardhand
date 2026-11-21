@@ -34,6 +34,7 @@ import {
   stoodOutLine,
   suggestionsFor,
   toolkitOf,
+  uncheckedLine,
   usedLine,
   variableProblem,
   variableValueOf,
@@ -361,18 +362,37 @@ describe('what a pack sets on a tool’s inputs', () => {
         tool: 'fixture.greet',
         lostInputs: ['from', 'colour'],
         inputs: [
-          { name: 'to', mode: 'agent', required: true, problem: null, note: null },
+          { name: 'to', mode: 'agent', required: true, problem: null, note: null, unchecked: false },
           {
             name: 'tone',
             mode: 'default',
             required: false,
             problem: 'tone must be equal to one of the allowed values',
             note: null,
+            unchecked: false,
           },
         ],
       }),
     ).toEqual(['fixture.greet no longer takes from, colour', 'tone must be equal to one of the allowed values'])
     expect(problemLines({ tool: 'fixture.greet', lostInputs: [], inputs: [] })).toEqual([])
+  })
+
+  it('names the values the gateway could not check, so no fit is claimed for them', () => {
+    const input = (name: string, unchecked: boolean) => ({
+      name,
+      mode: 'fixed' as const,
+      required: false,
+      problem: null,
+      note: null,
+      unchecked,
+    })
+    expect(uncheckedLine({ inputs: [input('to', false), input('tone', true)] })).toBe(
+      'tone was not checked: the gateway can’t read its schema, so only a call checks it.',
+    )
+    expect(uncheckedLine({ inputs: [input('to', true), input('tone', true)] })).toBe(
+      'to, tone were not checked: the gateway can’t read their schema, so only a call checks them.',
+    )
+    expect(uncheckedLine({ inputs: [input('to', false)] })).toBeNull()
   })
 })
 

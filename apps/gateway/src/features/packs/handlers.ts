@@ -100,6 +100,7 @@ export const packsHandlers = ({
               required: required.includes(input),
               problem: saidOf(input, 'error'),
               note: saidOf(input, 'warning'),
+              unchecked: problems.some((problem) => problem.input === input && problem.code === 'not_checked'),
             }
           }),
           lostInputs: tool ? lostInputs(tool.inputSchema, { ...fixed, ...defaults }) : [],

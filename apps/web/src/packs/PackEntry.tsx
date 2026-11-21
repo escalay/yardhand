@@ -32,6 +32,7 @@ import {
   isAlias,
   modeOf,
   refusedInputs,
+  uncheckedLine,
   withVariable,
   writesVariable,
 } from './packs.rules'
@@ -214,6 +215,7 @@ export const EntryEditor = ({
     modes[input] !== modeOf(tool, input) || JSON.stringify(sets[input]) !== JSON.stringify(stored[input])
   const storedProblems = tool.lostInputs.length + tool.inputs.filter((input) => input.problem).length
   const dirty = fields.some((field) => changed(field.name))
+  const unchecked = uncheckedLine(tool)
 
   const name = alias.trim()
   const aliasProblem =
@@ -339,6 +341,8 @@ export const EntryEditor = ({
         </p>
       ) : dirty ? (
         <p className="text-sm text-muted-foreground">Each value is checked against the tool’s schema when you save.</p>
+      ) : unchecked ? (
+        <p className="text-sm text-muted-foreground">{unchecked}</p>
       ) : (
         <p className="text-sm text-muted-foreground">✓ Every value fits the tool’s current schema</p>
       )}

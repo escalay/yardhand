@@ -84,7 +84,14 @@ const ajv = new Ajv({ allErrors: true, strict: false, validateFormats: false })
 type Check = ((value: unknown) => boolean) & { errors?: { message?: string }[] | null }
 const checks = new Map<string, Check | null>()
 
-/** A validator per input schema, compiled once; one ajv can't compile is not checked here (the call still is). */
+/** One input's schema with the definitions the tool keeps beside its inputs, so a `$ref` to one of them resolves. */
+const inputSchemaOf = (tool: Record<string, unknown>, property: Record<string, unknown>) => ({
+  ...property,
+  ...(tool.$defs === undefined ? {} : { $defs: tool.$defs }),
+  ...(tool.definitions === undefined ? {} : { definitions: tool.definitions }),
+})
+
+/** A validator per input schema, compiled once; null for one ajv can't compile, which is said and never passed. */
 const checkOf = (schema: Record<string, unknown>) => {
   const key = JSON.stringify(schema)
   if (!checks.has(key)) {
@@ -102,14 +109,15 @@ export type InputProblem = {
   input: string
   mode: InputMode
   level: 'error' | 'warning'
-  code: 'two_modes' | 'unknown_input' | 'bad_value' | 'not_a_variable'
+  code: 'two_modes' | 'unknown_input' | 'bad_value' | 'not_a_variable' | 'not_checked'
   message: string
 }
 
 /**
  * What is wrong with the values a pack sets for this tool, as stored (`{{name}}` not yet filled in). Errors: an
  * input in both modes, an input the tool doesn't take, a value its schema refuses once the variables are filled in.
- * A warning: a `{{word}}` that is no variable of the pack, which is sent as written. Empty when fine.
+ * Warnings: a `{{word}}` that is no variable of the pack, which is sent as written, and a value whose input has a
+ * schema that can't be read here, which is not checked. Empty when fine.
  */
 export const inputProblems = (
   tool: { name: string; inputSchema: Record<string, unknown> },
@@ -133,7 +141,7 @@ export const inputProblems = (
       if (!schema)
         return [{ input, mode, level: 'error', code: 'unknown_input', message: `${tool.name} has no input ${input}` }]
       const resolved = resolveValue(value, variables)
-      const check = checkOf(schema)
+      const check = checkOf(inputSchemaOf(tool.inputSchema, schema))
       return [
         ...resolved.undeclared.map((word) => ({
           input,
@@ -142,17 +150,27 @@ export const inputProblems = (
           code: 'not_a_variable' as const,
           message: `no variable ${word}: sent as written`,
         })),
-        ...(check && !check(resolved.value)
+        ...(!check
           ? [
               {
                 input,
                 mode,
-                level: 'error' as const,
-                code: 'bad_value' as const,
-                message: `${input} ${check.errors?.[0]?.message ?? 'is invalid'}`,
+                level: 'warning' as const,
+                code: 'not_checked' as const,
+                message: `${input} is not checked: its schema can't be read here, so only a call checks it`,
               },
             ]
-          : []),
+          : check(resolved.value)
+            ? []
+            : [
+                {
+                  input,
+                  mode,
+                  level: 'error' as const,
+                  code: 'bad_value' as const,
+                  message: `${input} ${check.errors?.[0]?.message ?? 'is invalid'}`,
+                },
+              ]),
       ]
     })
   return [...of('fixed', raw.fixed), ...of('default', raw.defaults)]

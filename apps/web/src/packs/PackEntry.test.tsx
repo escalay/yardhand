@@ -42,8 +42,26 @@ const toolOf = (over: Partial<PackTool> = {}): PackTool => ({
   fixed: {},
   defaults: { limit: '{{page_size}}' },
   inputs: [
-    { name: 'id', mode: 'agent', value: null, resolved: null, required: true, problem: null, note: null },
-    { name: 'verbose', mode: 'agent', value: null, resolved: null, required: false, problem: null, note: null },
+    {
+      name: 'id',
+      mode: 'agent',
+      value: null,
+      resolved: null,
+      required: true,
+      problem: null,
+      note: null,
+      unchecked: false,
+    },
+    {
+      name: 'verbose',
+      mode: 'agent',
+      value: null,
+      resolved: null,
+      required: false,
+      problem: null,
+      note: null,
+      unchecked: false,
+    },
     {
       name: 'limit',
       mode: 'default',
@@ -52,6 +70,7 @@ const toolOf = (over: Partial<PackTool> = {}): PackTool => ({
       required: true,
       problem: null,
       note: null,
+      unchecked: false,
     },
   ],
   lostInputs: [],
@@ -151,6 +170,23 @@ describe('the inputs of a pack tool', () => {
     expect(screen.getByText('limit must be integer. Calls fail until you change the value.')).toBeTruthy()
     expect(screen.getByText(/items\.get_item no longer takes it\. Saving drops it from this pack\./)).toBeTruthy()
     expect(screen.getByText('2 values don’t fit the tool’s current schema: change them and save.')).toBeTruthy()
+    expect(screen.queryByText(/Every value fits/)).toBeNull()
+  })
+
+  it('says a value was not checked, where the gateway could not read the input’s schema, and claims no fit', async () => {
+    show(
+      toolOf({
+        inputs: toolOf().inputs.map((input) =>
+          input.name === 'limit'
+            ? { ...input, note: 'limit is not checked: its schema can’t be read here', unchecked: true }
+            : input,
+        ),
+      }),
+    )
+    await modesOf('limit')
+    expect(
+      screen.getByText('limit was not checked: the gateway can’t read its schema, so only a call checks it.'),
+    ).toBeTruthy()
     expect(screen.queryByText(/Every value fits/)).toBeNull()
   })
 

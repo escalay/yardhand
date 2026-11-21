@@ -217,6 +217,15 @@ export const problemLines = (tool: Pick<PackTool, 'tool' | 'lostInputs' | 'input
   ...tool.inputs.flatMap((input) => (input.problem ? [input.problem] : [])),
 ]
 
+/** "limit was not checked: …" for the values the gateway could not check against the tool's schema, or null. */
+export const uncheckedLine = (tool: Pick<PackTool, 'inputs'>) => {
+  const names = tool.inputs.filter((input) => input.unchecked).map((input) => input.name)
+  const one = names.length === 1
+  return names.length
+    ? `${names.join(', ')} ${one ? 'was' : 'were'} not checked: the gateway can’t read ${one ? 'its' : 'their'} schema, so only a call checks ${one ? 'it' : 'them'}.`
+    : null
+}
+
 /** A variable's name as the gateway takes it. */
 const VARIABLE = /^[a-z][a-z0-9_]{0,39}$/
 

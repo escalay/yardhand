@@ -2698,6 +2698,8 @@ export interface components {
             problem: string | null;
             /** @description Worth a look, or null: a `{{word}}` that is no variable of the pack is sent as written. */
             note: string | null;
+            /** @description The pack sets a value here that was not checked: the gateway can’t read this input’s schema, so only a call checks it. */
+            unchecked: boolean;
         };
         /** @description The upstream rewrote a tool this pack words: keep or rewrite the wording. */
         WordingFlag: {
@@ -2731,7 +2733,7 @@ export interface components {
              */
             level: "error" | "warning";
             /**
-             * @description `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `unused_variable`, `not_live`.
+             * @description `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`.
              * @example bad_value
              */
             code: string;

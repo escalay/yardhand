@@ -61,7 +61,7 @@ const greeted = async (key: string, tool: string, args: Record<string, unknown>)
   return ran.status === 200 ? (ran.json.result.content[0].text as string) : ran
 }
 /** The fixture changes `greet`, and the owner approves the change: its upstream is reviewed. */
-const greetTakes = async (from: true | false | 'enum') => {
+const greetTakes = async (from: true | false | 'enum' | 'ref') => {
   upstream.state.greetFrom = from
   await owner('/api/upstreams/fixture/sync', { method: 'POST' })
   const pending = (await owner('/api/reviews')).json._embedded.reviews.find(
@@ -121,7 +121,16 @@ describe('the three modes of an input', () => {
       [
         'greet_fixed',
         [
-          { name: 'to', mode: 'agent', value: null, resolved: null, required: true, problem: null, note: null },
+          {
+            name: 'to',
+            mode: 'agent',
+            value: null,
+            resolved: null,
+            required: true,
+            problem: null,
+            note: null,
+            unchecked: false,
+          },
           {
             name: 'from',
             mode: 'fixed',
@@ -130,6 +139,7 @@ describe('the three modes of an input', () => {
             required: true,
             problem: null,
             note: null,
+            unchecked: false,
           },
         ],
       ],
@@ -531,6 +541,32 @@ describe('a value that stops fitting its tool', () => {
     })
     expect(inputOf(fixed.json, 'from')).toMatchObject({ value: 'the boss', problem: null })
     expect((await owner('/api/packs/hall')).json).toMatchObject({ flags: 0, findings: [] })
+  })
+
+  it('is checked the same when the tool keeps the input’s choices beside its inputs, as a $ref', async () => {
+    await greetTakes('ref')
+    const schema = (await owner('/api/tools/fixture.greet')).json.inputSchema
+    expect(schema.properties.from).toEqual({ $ref: '#/$defs/Greeter' })
+    expect((await owner('/api/packs/hall')).json).toMatchObject({ flags: 0, findings: [] })
+    const refused = await owner('/api/packs/hall/tools/greet_default', {
+      method: 'PATCH',
+      body: { defaults: { from: 'the porter' } },
+    })
+    expect([refused.status, refused.json.errors]).toEqual([
+      400,
+      [
+        {
+          in: 'body',
+          path: 'tools.greet_default.defaults.from',
+          message: 'from must be equal to one of the allowed values',
+        },
+      ],
+    ])
+    const kept = await owner('/api/packs/hall/tools/greet_default', {
+      method: 'PATCH',
+      body: { defaults: { from: 'the desk' } },
+    })
+    expect(inputOf(kept.json, 'from')).toMatchObject({ value: 'the desk', problem: null, unchecked: false })
   })
 })
 

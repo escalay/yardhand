@@ -113,7 +113,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   value and filled in when the pack lock is built (`packScopeFrom`). A value that is one variable and nothing else
   takes its type. Only a name the pack declares is a variable: any other `{{word}}` is sent as written.
 - **Finding**: what `checkPack` says about a pack as it stands (`findings` on `GET /api/packs/{name}`): an error (an
-  input the tool doesn't take, a value its schema refuses once the variables are filled in) or a warning.
+  input the tool doesn't take, a value its schema refuses once the variables are filled in) or a warning (a
+  `{{word}}` that is no variable, an unused variable, a value not checked because its input's schema can't be read).
 - **Flag**: pack wording written against a tool version whose description has since changed, or a fixed or default
   value the live tool no longer takes (its input is gone, or no longer takes the value); agents keep the wording and
   calls that use the value fail until the owner changes it (pack page, Reviews, Home nudge). A flag never blocks a

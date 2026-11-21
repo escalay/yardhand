@@ -101,6 +101,61 @@ describe('inputProblems', () => {
     ])
   })
 
+  it('checks an input whose schema is kept beside the inputs, under $defs or definitions', () => {
+    const colours = { enum: ['red', 'blue'] }
+    for (const [keyword, ref] of [
+      ['$defs', '#/$defs/Colour'],
+      ['definitions', '#/definitions/Colour'],
+    ] as const) {
+      const paint = {
+        name: 'fixture.paint',
+        inputSchema: {
+          type: 'object',
+          properties: { colour: { $ref: ref }, coats: { type: 'array', items: { $ref: ref } } },
+          [keyword]: { Colour: colours },
+        },
+      }
+      expect(inputProblems(paint, { fixed: { colour: 'red' }, defaults: { coats: ['blue', 'red'] } }, {})).toEqual([])
+      expect(inputProblems(paint, { fixed: { colour: 'purple' }, defaults: { coats: ['blue', 'green'] } }, {})).toEqual(
+        [
+          {
+            input: 'colour',
+            mode: 'fixed',
+            level: 'error',
+            code: 'bad_value',
+            message: 'colour must be equal to one of the allowed values',
+          },
+          {
+            input: 'coats',
+            mode: 'default',
+            level: 'error',
+            code: 'bad_value',
+            message: 'coats must be equal to one of the allowed values',
+          },
+        ],
+      )
+    }
+  })
+
+  it('says a value was not checked where the input’s schema can’t be read, instead of passing it', () => {
+    const paint = {
+      name: 'fixture.paint',
+      inputSchema: {
+        type: 'object',
+        properties: { colour: { enum: ['red', 'blue'] }, trim: { $ref: '#/properties/colour' } },
+      },
+    }
+    expect(inputProblems(paint, { fixed: { trim: 'purple' }, defaults: {} }, {})).toEqual([
+      {
+        input: 'trim',
+        mode: 'fixed',
+        level: 'warning',
+        code: 'not_checked',
+        message: "trim is not checked: its schema can't be read here, so only a call checks it",
+      },
+    ])
+  })
+
   it('refuses one input in two modes', () => {
     expect(inputProblems(greet, { fixed: { from: 'the desk' }, defaults: { from: 'the boss' } }, {})).toEqual([
       {
