@@ -19,7 +19,7 @@ export const STEP_COPY: Record<string, { body: string; action: string }> = {
     action: 'Watch for it',
   },
   pin: {
-    body: 'Pinned tools show up in every agent’s tool list directly, no search needed. Pick the ones used most.',
+    body: 'Pinned tools show up directly in the tool list of every agent outside a pack, no search needed. Pick the ones used most.',
     action: 'Pin tools',
   },
 }

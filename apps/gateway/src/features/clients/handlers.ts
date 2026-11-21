@@ -4,7 +4,7 @@ import { linksOf, mintApiKey, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { findability } from '../searches/demand.js'
 import { needsWrite } from '../tools/repo.js'
-import { callerOf, requireOwner, shownAs } from './principals.js'
+import { callerOf, describe, entryOf, pinnedBy, requireOwner } from './principals.js'
 import { ME_PATH, PATH, PINS_PATH, type routes } from './routes.js'
 import type { ClientRow } from './schema.js'
 import { KEY_PLACEHOLDER, surfacesOf } from './setup.js'
@@ -99,6 +99,25 @@ export const clientsHandlers = ({
       list: PATH,
     }),
   })
+  /** Throws 400 naming the pins a pack key's packs don't hold: a pin there is the pack's name for a tool. */
+  const checkPackPins = async (names: string[] | null | undefined, packIds: string[]) => {
+    if (!names?.length) return
+    const held = new Set(
+      (
+        await Promise.all(
+          packIds.map(async (id) => {
+            const pack = await packs.byId(id)
+            return pack ? (await packs.contentsOf(pack)).tools.map((tool) => tool.name) : []
+          }),
+        )
+      ).flat(),
+    )
+    const missing = names.filter((name) => !held.has(name))
+    if (missing.length)
+      throw new ProblemError('bad_request', {
+        detail: `Not a name in this key's packs: ${missing.join(', ')}. GET /api/packs/{name} lists a pack's names.`,
+      })
+  }
   const checkTools = async (names: string[] | null | undefined) => {
     if (!names?.length) return
     const found = new Set((await tools.liveMany(names)).map((tool) => tool.name))
@@ -109,21 +128,36 @@ export const clientsHandlers = ({
       })
   }
 
+  /** The packs and default a change asks for; 409 for a key that isn't locked to packs. */
+  const repackedOf = async (row: ClientRow, packNamesIn: string[] | undefined, packName: string | undefined) => {
+    if (!row.packId)
+      throw new ProblemError('conflict', {
+        detail: `${row.name} isn't locked to packs, so it can't take one: make a pack key instead.`,
+      })
+    const current = await packNames()
+    const names = packNamesIn ?? (await clients.packsOf(row)).flatMap((packId) => current.get(packId) ?? [])
+    return packsNamed(names, packName ?? (packNamesIn ? undefined : current.get(row.packId)))
+  }
+
   const me: RouteHandler<Routes['me']> = async (c) => {
     const principal = await principals.require(callerOf(c))
     const { pack } = principal
-    // A pack key's pins are its pack, each under the pack's name for it; a read-only one doesn't list what it can't run
-    const wanted = pack ? [...new Set([...pack.tools.values()].map((entry) => entry.tool))] : null
-    const pinned = await tools.liveMany(wanted ?? principal.pins ?? (await clients.globalPins()))
-    const usable = pinned.filter(
-      (tool) =>
+    // Each pin is a name the caller calls (in a pack, the pack's own), shown as it reads the tool behind it
+    const pinned = [...new Set(pinnedBy(principal, await clients.globalPins()))].flatMap((name) => {
+      const entry = entryOf(principal, name)
+      return entry ? [{ name, tool: entry.tool }] : []
+    })
+    const live = new Map((await tools.liveMany(pinned.map((pin) => pin.tool))).map((tool) => [tool.name, tool]))
+    // A read-only pack key doesn't list what it can't run
+    const allowed = pinned.flatMap(({ name, tool: toolName }) => {
+      const tool = live.get(toolName)
+      const usable =
+        tool &&
         tool.access !== 'off' &&
         (principal.upstreams === 'all' || principal.upstreams.includes(tool.upstreamId)) &&
-        !(pack && principal.scope === 'read' && needsWrite(tool)),
-    )
-    const shown = usable.flatMap((tool) => shownAs(principal, tool))
-    const order = pack ? [...pack.tools.keys()] : []
-    const allowed = pack ? shown.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name)) : shown
+        !(pack && principal.scope === 'read' && needsWrite(tool))
+      return usable ? [describe(principal, tool, name)] : []
+    })
     return c.json(
       {
         id: principal.id,
@@ -141,7 +175,7 @@ export const clientsHandlers = ({
         resultCap: principal.resultCap,
         packs: principal.packs.map((opened, index) => ({
           ...opened,
-          mcpUrl: `${originOf(c)}/mcp/p/${opened.name}`,
+          mcpUrl: `${originOf(c)}/p/${opened.name}/mcp`,
           default: index === 0,
         })),
         pack: pack
@@ -151,6 +185,7 @@ export const clientsHandlers = ({
               description: pack.description,
               playbooks: [...pack.playbooks],
               manuals: [...pack.manuals],
+              ownPins: principal.pins !== null,
             }
           : null,
         _links: linksOf(originOf(c), { self: ME_PATH, tools: '/api/tools', upstreams: '/api/upstreams' }),
@@ -185,12 +220,11 @@ export const clientsHandlers = ({
       throw new ProblemError('bad_request', {
         detail: 'Say which upstreams it reaches (`all` or ids), or give a pack.',
       })
-    await checkTools(input.pins)
+    await (chosen ? checkPackPins(input.pins, chosen.ids) : checkTools(input.pins))
     const { key, hash } = mintApiKey('gw')
     const id = await clients.create({
       ...input,
       upstreams: chosen ? [] : (input.upstreams ?? []),
-      pins: chosen ? null : input.pins,
       kind: 'key',
       keyHash: hash,
       packIds: chosen?.ids ?? [],
@@ -207,17 +241,12 @@ export const clientsHandlers = ({
     const row = await rowOf(id)
     if (row.revokedAt) throw new ProblemError('gone', { detail: `Client ${id} was revoked; make a new one.` })
     const { packs: packNamesIn, pack: packName, ...change } = c.req.valid('json')
-    await checkTools(change.pins)
-    if (packNamesIn || packName) {
-      if (!row.packId)
-        throw new ProblemError('conflict', {
-          detail: `${row.name} isn't locked to packs, so it can't take one: make a pack key instead.`,
-        })
-      const current = await packNames()
-      const names = packNamesIn ?? (await clients.packsOf(row)).flatMap((packId) => current.get(packId) ?? [])
-      const chosen = await packsNamed(names, packName ?? (packNamesIn ? undefined : current.get(row.packId)))
-      if (chosen) await clients.setPacks(id, chosen.ids, chosen.defaultId)
-    }
+    const repacked = packNamesIn || packName ? await repackedOf(row, packNamesIn, packName) : null
+    // A pack key's pins are checked against the packs this change leaves it with
+    await (row.packId
+      ? checkPackPins(change.pins, repacked?.ids ?? (await clients.packsOf(row)))
+      : checkTools(change.pins))
+    if (repacked) await clients.setPacks(id, repacked.ids, repacked.defaultId)
     await clients.update(id, change)
     // Its allowlist, scope or pins change what it sees
     listsChanged()

@@ -16,7 +16,8 @@ const Pins = z
   .max(40)
   .nullable()
   .openapi({
-    description: 'Tool names shown directly in MCP, or null to use the global default.',
+    description:
+      'Names shown directly in MCP. Null uses the global pins; for a pack key, where global pins never apply, null lists every tool of the pack. A pack key’s pins are its packs’ own names for the tools (an alias, else the tool’s name): each of its pack connections lists the ones that pack holds, and a name in none of its packs is refused.',
     example: ['cookbook.research_recipes'],
   })
 
@@ -35,7 +36,7 @@ export const ClientSchema = z
         'The key’s default pack (plain /mcp and REST serve it), or null for a key that reaches its allowlist.',
     }),
     packs: z.array(z.string()).openapi({
-      description: 'Every pack the key opens, the default first; each is its own connection at /mcp/p/<name>.',
+      description: 'Every pack the key opens, the default first; each is its own connection at /p/<name>/mcp.',
     }),
     expiresAt: z.string().nullable().openapi({ description: 'When the key stops working, or null for never.' }),
     createdAt: z.string(),
@@ -79,6 +80,11 @@ const clientFields = {
 const ClientInputSchema = z.object(clientFields).openapi('ClientInput', { description: 'A new API-key client.' })
 const ClientPatchSchema = ClientInputSchema.partial()
   .extend({
+    // Without a new key's default: a change that leaves the scope out keeps it
+    scope: z
+      .enum(['read', 'write'])
+      .optional()
+      .openapi({ description: '`write` lets it call tools that change things. Left out, it stays as it is.' }),
     packs: z.array(z.string().min(1).max(60)).min(1).max(20).optional().openapi({
       description: 'For a pack key: the packs it opens from now on (replaces the list).',
     }),
@@ -106,7 +112,7 @@ const ClientCreateSchema = z
       .optional()
       .openapi({
         description:
-          'Lock the key to these packs: each is its own connection at /mcp/p/<name>, and `pack` (else the first) is the default.',
+          'Lock the key to these packs: each is its own connection at /p/<name>/mcp, and `pack` (else the first) is the default.',
         example: ['acme', 'support'],
       }),
     expiresIn: z
@@ -115,7 +121,7 @@ const ClientCreateSchema = z
       .openapi({ description: 'How long the key works: 8 hours, a day, a week, or until revoked (the default).' }),
   })
   .openapi('ClientCreate', { description: 'A new API-key client, optionally locked to a pack and expiring.' })
-const SurfaceSchema = z
+export const SurfaceSchema = z
   .object({
     id: z.enum(['claude-code', 'cursor', 'codex', 'claude-ai', 'curl', 'typescript']),
     title: z.string(),
@@ -139,7 +145,10 @@ const SetupSchema = z
   })
 const GlobalPinsSchema = z
   .object({ tools: z.array(z.string().min(1).max(160)).max(40), _links: LinksSchema })
-  .openapi('GlobalPins', { description: 'Tools every client without its own pins sees directly in MCP.' })
+  .openapi('GlobalPins', {
+    description:
+      'Tools every client without its own pins sees directly in MCP. They never apply inside a pack: a pack connection lists its pack, or its key’s own pins.',
+  })
 const GlobalPinsInputSchema = z
   .object({ tools: z.array(z.string().min(1).max(160)).max(40) })
   .openapi('GlobalPinsInput', { description: 'The new global pins, in order.' })
@@ -168,18 +177,24 @@ const MeSchema = z
         description: z.string(),
         playbooks: z.array(z.string()),
         manuals: z.array(z.string()),
+        ownPins: z.boolean().openapi({
+          description:
+            'True when the key has pins of its own: `pins` is then only those this pack holds. False: `pins` is every tool of the pack.',
+        }),
       })
       .nullable()
       .openapi({
         description:
-          'The pack this request is locked to (its address names it, else the key’s default): its pins are the pack’s tools, in its wording.',
+          'The pack this request is locked to (its address names it, else the key’s default). `pins` is then every tool of the pack this key can run, in the pack’s wording, or only the key’s own pins when it has some.',
       }),
     packs: z
       .array(
         z.object({
           name: z.string(),
           title: z.string(),
-          mcpUrl: z.string().openapi({ description: 'Where to connect to this pack alone.' }),
+          mcpUrl: z.string().openapi({
+            description: 'Where to connect to this pack alone: `/p/<name>/mcp`, with REST, docs and guide beside it.',
+          }),
           default: z.boolean().openapi({ description: 'Served at plain /mcp and to REST without x-gateway-pack.' }),
         }),
       )
@@ -273,7 +288,8 @@ export const routes = {
     operationId: 'getGlobalPins',
     tags: [TAG],
     summary: 'Global pins',
-    description: 'The tools every client without its own pins sees directly in MCP (owner only).',
+    description:
+      'The tools every client without its own pins sees directly in MCP (owner only). Pack keys are outside them: a pack connection lists its pack, or its key’s own pins.',
     responses: { 200: ok('The global pins.', GlobalPinsSchema), ...problemResponses(401, 403) },
   }),
   setPins: createRoute({

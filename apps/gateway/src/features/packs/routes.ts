@@ -1,6 +1,7 @@
 /** Pack routes (owner only): curate packs, word their tools, see what a playbook uses, and the wording to recheck. */
 import { createRoute, z } from '@hono/zod-openapi'
 import { HAL_JSON, LinksSchema, problemResponses } from '../../kit/index.js'
+import { SurfaceSchema } from '../clients/routes.js'
 import { ALIAS } from './entries.js'
 import { PACK_REASONS } from './schema.js'
 
@@ -101,7 +102,36 @@ export const PackSchema = PackCardSchema.extend({
   manuals: z.array(PackItemSchema),
   keyList: z.array(PackKeySchema),
   createdAt: z.string(),
+  triedAt: z.string().nullable().openapi({
+    description:
+      'When the owner first searched as the pack (`GET /api/tools?pack=<name>&q=…`) while it listed a tool, or null.',
+  }),
+  lastCallAt: z.string().nullable().openapi({
+    description:
+      'The newest call in the log (90 days) by any key that opens the pack, or null. A key with several packs counts for each of them.',
+  }),
 }).openapi('Pack', { description: 'A pack with everything in it, in order.' })
+
+const PackSetupSchema = z
+  .object({
+    pack: z.string(),
+    title: z.string(),
+    baseUrl: z.string().openapi({
+      description: 'The pack’s own address: everything of it is under here.',
+      example: 'https://gw.example.com/p/design',
+    }),
+    mcpUrl: z.string(),
+    apiUrl: z.string(),
+    docsUrl: z.string(),
+    guideUrl: z.string().openapi({ description: 'The pack’s guide for agents (`llms.txt`).' }),
+    keyPlaceholder: z.string().openapi({ description: 'What stands in for the key in every snippet.' }),
+    surfaces: z.array(SurfaceSchema),
+    _links: LinksSchema,
+  })
+  .openapi('PackSetup', {
+    description:
+      'Where a pack is reached and paste-ready setup for every place a key of it can run. Never holds a key.',
+  })
 
 const PackListSchema = z
   .object({ count: z.number().int(), _links: LinksSchema, _embedded: z.object({ packs: z.array(PackCardSchema) }) })
@@ -112,7 +142,8 @@ const PackInputSchema = z
     name: PackName,
     title: z.string().min(1).max(80).openapi({ example: 'Design' }),
     description: z.string().max(4000).default('').openapi({
-      description: 'What the pack is for, as agents read it: it becomes the server instructions for its keys.',
+      description:
+        'What the pack is for, as agents read it: it opens the instructions, guide and docs of the pack’s own connection.',
     }),
     playbook: ItemName.optional().openapi({
       description: 'Start from this playbook: it, the tools it names or calls, and its server’s manual go in.',
@@ -266,6 +297,17 @@ export const routes = {
     description: 'A pack with its tools (wording, why each is in, flags), playbooks, manuals and keys.',
     request: { params: z.object({ name }) },
     responses: { 200: ok('The pack.', PackSchema), ...problemResponses(401, 403, 404) },
+  }),
+  setup: createRoute({
+    method: 'get',
+    path: `${PATH}/{name}/setup`,
+    operationId: 'getPackSetup',
+    tags: [TAG],
+    summary: 'How to connect to a pack',
+    description:
+      'The pack’s own address (`/p/<name>/`: MCP, REST, docs and guide under it) and paste-ready setup for Claude Code, Cursor, Codex, curl and TypeScript, with `<YOUR_KEY>` where a key of the pack goes (owner only). A pack’s address takes keys only, so there is no claude.ai setup.',
+    request: { params: z.object({ name }) },
+    responses: { 200: ok('The setup.', PackSetupSchema), ...problemResponses(401, 403, 404) },
   }),
   update: createRoute({
     method: 'patch',

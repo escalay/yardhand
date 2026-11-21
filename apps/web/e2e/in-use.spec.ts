@@ -143,6 +143,69 @@ test('a pack takes a playbook with the tools it uses, and issues a key that expi
   await expect(page.getByText(/Expires in 24 h\. It sees only the loud pack\./)).toBeVisible()
 })
 
+test('a pack’s Overview checks it as it is built: its steps, a search as its keys get it, and its own address', async ({
+  page,
+}) => {
+  await signIn(page, demo())
+  await page.goto('/app/packs/loud?tab=overview')
+  const part = (name: string | RegExp) => page.locator('section', { has: page.getByRole('heading', { name }) })
+  // Described and holding tools; nobody tried it and none of its keys called
+  const steps = part('Set up Loud')
+  await expect(steps).toContainText('2 of 4')
+  // A step still to do shows where the keyboard is
+  const todo = steps.getByRole('link', { name: 'Try it as the pack' })
+  await page.keyboard.press('Shift')
+  await todo.focus()
+  await expect(todo).not.toHaveCSS('box-shadow', 'none')
+
+  const tryIt = part('Try Loud as an agent')
+  const ask = async (words: string) => {
+    await tryIt.getByLabel('What an agent would ask').fill(words)
+    await tryIt.getByRole('button', { name: 'Search' }).click()
+  }
+  await ask('echo')
+  await expect(tryIt.getByText('echo.echo', { exact: true })).toBeVisible()
+  await expect(tryIt.getByText(/stood out/)).toBeVisible()
+  await ask('brand')
+  await expect(tryIt.getByText(/Nothing in Loud matches/)).toBeVisible()
+  await expect(tryIt.getByRole('link', { name: 'Add tools' })).toBeVisible()
+  await expect(steps).toContainText('3 of 4')
+
+  const address = part('Address')
+  await expect(address.getByText(/^[\w.:]+\/p\/loud$/)).toBeVisible()
+  await address.getByRole('tab', { name: 'Claude Code' }).click()
+  await expect(address.getByRole('tabpanel')).toContainText('/p/loud/mcp')
+  await expect(address.getByRole('tabpanel')).toContainText('<YOUR_KEY>')
+
+  // The signed-in owner is answered at the pack's address as the pack, with links that stay inside it
+  const home = await page.request.get('/p/loud/api')
+  expect(home.status()).toBe(200)
+  const body = await home.json()
+  expect(body.name).toBe('Loud')
+  expect(new URL(body._links.tools.href).pathname).toBe('/p/loud/api/tools')
+
+  // Nothing found: Add tools opens the pack's tools with the dialog to add some
+  await tryIt.getByRole('link', { name: 'Add tools' }).click()
+  await expect(page.getByRole('dialog').getByLabel('Search tools by what they do')).toBeVisible()
+
+  // A new pack opens on its Overview, at the first of its steps; a search of nothing is not a try
+  await page.goto('/app/packs')
+  await page.getByRole('button', { name: 'New pack' }).first().click()
+  await page.getByRole('dialog').getByLabel('Title').fill('Trial')
+  await page.getByRole('button', { name: 'Make the pack' }).click()
+  await expect(page).toHaveURL(/\/packs\/trial\?tab=overview/)
+  const trial = part('Set up Trial')
+  await expect(trial).toContainText('0 of 4')
+  const tryTrial = part('Try Trial as an agent')
+  await tryTrial.getByLabel('What an agent would ask').fill('echo')
+  await tryTrial.getByRole('button', { name: 'Search' }).click()
+  await expect(tryTrial.getByText('This pack holds no tools this key can use.')).toBeVisible()
+  await expect(trial).toContainText('0 of 4')
+  await page.getByRole('button', { name: 'Remove Trial' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click()
+  await expect(page).toHaveURL(/\/app\/packs$/)
+})
+
 test('the frame: a window and a scope narrow the numbers, searches show what came of them, tools as a key sees them', async ({
   page,
 }) => {

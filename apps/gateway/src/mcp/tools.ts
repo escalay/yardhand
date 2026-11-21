@@ -1,4 +1,7 @@
-/** The meta-tools, resources and prompt: thin calls to the gateway's routes, so MCP and REST always answer the same. */
+/**
+ * The meta-tools, resources and prompt: thin calls to the gateway's routes, so MCP and REST always answer the same.
+ * A pack connection gets the same ones in the pack's words: it is a server of its own, and never speaks of the gateway.
+ */
 import { z } from '@hono/zod-openapi'
 import { type McpPrompt, type McpResource, type McpTool, mcpResource, mcpTool } from '../kit/mcp/index.js'
 
@@ -46,12 +49,17 @@ const coversLine = ({ covers, more }: Covers) =>
     ? `This pack covers: ${covers.join(', ')}${more ? `, and ${more} more` : ''}.`
     : 'This pack holds no tools this key can use.'
 
-export const META_TOOLS: McpTool[] = [
+/** A pack by the title its agents read. */
+type PackWords = { title: string }
+
+/** The meta-tools as the gateway words them, or over one pack as that pack words them. */
+export const metaToolsFor = (pack?: PackWords): McpTool[] => [
   mcpTool({
     name: 'search_tools',
     title: 'Find tools',
-    description:
-      'Finds tools across every upstream behind this gateway by what you want to do, best match first. Start here for any task, then describe_tool the one you pick.',
+    description: pack
+      ? `Finds tools in ${pack.title} by what you want to do, best match first, and says what the pack covers when nothing in it fits. Then describe_tool the one you pick.`
+      : 'Finds tools across every upstream behind this gateway by what you want to do, best match first. Start here for any task, then describe_tool the one you pick.',
     input: z.object({
       query: z
         .string()
@@ -90,7 +98,11 @@ export const META_TOOLS: McpTool[] = [
     title: 'Describe a tool',
     description:
       'A tool’s full description and input schema, and how its upstream says to use it. Read this before call_tool.',
-    input: z.object({ name: toolName.describe('The tool name from search_tools, `<upstream>.<tool>`.') }),
+    input: z.object({
+      name: toolName.describe(
+        pack ? 'The tool name as search_tools gives it.' : 'The tool name from search_tools, `<upstream>.<tool>`.',
+      ),
+    }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     call: ({ name }) => ({ path: `/api/tools/${encodeURIComponent(name)}`, query: { view: 'brief' } }),
     summarize: (tool: Detail) =>
@@ -112,8 +124,9 @@ export const META_TOOLS: McpTool[] = [
   mcpTool({
     name: 'list_upstreams',
     title: 'Connected upstreams',
-    description:
-      'The servers behind this gateway that you may use, with their tool counts, their groups of tools (narrow search_tools with one) and how each says it should be used.',
+    description: pack
+      ? `The connections ${pack.title} draws its tools from, with how many of its tools come from each and how each says it should be used.`
+      : 'The servers behind this gateway that you may use, with their tool counts, their groups of tools (narrow search_tools with one) and how each says it should be used.',
     input: z.object({}),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     call: () => ({ path: '/api/upstreams' }),
@@ -208,6 +221,8 @@ export const META_TOOLS: McpTool[] = [
   }),
 ]
 
+export const META_TOOLS: McpTool[] = metaToolsFor()
+
 export const RESOURCES: McpResource[] = [
   mcpResource({
     name: 'upstream',
@@ -228,17 +243,22 @@ export const RESOURCES: McpResource[] = [
   }),
 ]
 
-export const PROMPTS: McpPrompt[] = [
+/** The starting prompt: `use_gateway`, or `use_pack` over one pack. */
+export const promptsFor = (pack?: PackWords): McpPrompt[] => [
   {
-    name: 'use_gateway',
-    title: 'Do a task with the gateway’s tools',
-    description: 'Starts a task the gateway way: find the right tools, read them, then run them.',
+    name: pack ? 'use_pack' : 'use_gateway',
+    title: pack ? `Do a task with ${pack.title}’s tools` : 'Do a task with the gateway’s tools',
+    description: pack
+      ? `Starts a task with ${pack.title}: find the right tools, read them, then run them.`
+      : 'Starts a task the gateway way: find the right tools, read them, then run them.',
     arguments: z.object({ task: z.string().describe('What you want done.') }),
     text: ({ task }) =>
       [
         `Task: ${task}`,
         '',
-        'Use the Yardhand tools. First search_tools for each step of the task, then describe_tool the best match to read its input schema, then call_tool with matching arguments. If a result is cut, page through it with get_result. If nothing fits, say so instead of guessing.',
+        `Use the ${pack?.title ?? 'Yardhand'} tools. First search_tools for each step of the task, then describe_tool the best match to read its input schema, then call_tool with matching arguments. If a result is cut, page through it with get_result. If nothing fits, say so instead of guessing.`,
       ].join('\n'),
   },
 ]
+
+export const PROMPTS: McpPrompt[] = promptsFor()

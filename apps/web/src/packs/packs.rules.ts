@@ -1,6 +1,10 @@
-/** Pure rules for packs: names from titles, what a pack holds in words, why a tool is in, and how long a key lasts. */
+/**
+ * Pure rules for packs: names from titles, what a pack holds in words, why a tool is in, how long a key lasts, the
+ * steps of setting one up and what a try of it says.
+ */
 import type { Schemas } from '@/api/client'
 
+type Pack = Schemas['Pack']
 type PackTool = Schemas['PackTool']
 type ToolCard = Schemas['ToolCard']
 type Use = Schemas['PlaybookUse']
@@ -153,3 +157,47 @@ export const freeAlias = (alias: string, taken: Set<string>) => {
   while (taken.has(`${alias}_${n}`)) n++
   return `${alias}_${n}`
 }
+
+const countOf = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
+
+/** The four steps of setting a pack up, in order. A pack whose keys already call counts as tried. */
+export const checklistOf = (pack: Pick<Pack, 'description' | 'counts' | 'triedAt' | 'lastCallAt'>) => {
+  const steps = [
+    { id: 'describe', label: 'Describe it', done: Boolean(pack.description.trim()) },
+    { id: 'tools', label: 'Add tools', done: pack.counts.tools > 0 },
+    { id: 'try', label: 'Try it as the pack', done: Boolean(pack.triedAt || pack.lastCallAt) },
+    { id: 'connect', label: 'Connect an app', done: Boolean(pack.lastCallAt) },
+  ] as const
+  const done = steps.filter((step) => step.done).length
+  return { steps, done, total: steps.length, complete: done === steps.length }
+}
+
+export type ChecklistStep = ReturnType<typeof checklistOf>['steps'][number]
+
+/**
+ * "2 tools stood out · 18 others didn't match": `shown` of the `listed` tools the same viewer gets without a query.
+ * Only "2 tools found" when none is known to have been left out (every listed tool came back, or `listed` isn't
+ * known: still loading, or cut by its limit): a small gateway answers with the nearest tools, standing out or not.
+ */
+export const stoodOutLine = (shown: number, listed: number | null | undefined) => {
+  const rest = (listed ?? 0) - shown
+  return rest > 0
+    ? `${countOf(shown, 'tool')} stood out · ${countOf(rest, 'other')} didn't match`
+    : `${countOf(shown, 'tool')} found`
+}
+
+/** A search of a pack that found nothing, where the API sent no hint. */
+export const emptyLine = (title: string, query: string) => `Nothing in ${title} matches “${query}”.`
+
+/** What a pack covers, from the API's hint, in the words its keys are told. */
+export const coversLine = ({ covers, more }: Pick<NonNullable<Schemas['ToolList']['hint']>, 'covers' | 'more'>) =>
+  covers.length
+    ? `This pack covers: ${covers.join(', ')}${more ? `, and ${more} more` : ''}.`
+    : 'This pack holds no tools this key can use.'
+
+/** Matches a read-only key isn't shown because they change things. */
+export const hiddenLine = (count: number) =>
+  `${countOf(count, 'matching tool')} ${count === 1 ? 'changes things and is' : 'change things and are'} hidden from this read-only key.`
+
+/** An address as people read it, without its scheme: `https://gw.example.com/p/loud` → `gw.example.com/p/loud`. */
+export const shortAddress = (url: string) => url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')

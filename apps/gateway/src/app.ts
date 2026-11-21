@@ -12,6 +12,7 @@ import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { packChoice, withPackAddresses } from './features/clients/pack-choice.js'
 import { callerOf } from './features/clients/principals.js'
 import { FEATURES } from './features/index.js'
+import { mountPackDocs } from './features/packs/docs.js'
 import { createSessionAuth, sessionFeature, type Unclaimed } from './features/session/index.js'
 import { sessionsRepo } from './features/session/repo.js'
 import type { MeaningSearch } from './features/tools/meaning.js'
@@ -120,7 +121,7 @@ export const createApp = async ({
     oauth,
     guards: { store: await dbGuardStore(db) },
   })
-  // The pack a request asks for (`/mcp/p/<pack>` or `x-gateway-pack`), on the caller before any route reads it
+  // The pack a request asks for (its address `/p/<pack>/…` or `x-gateway-pack`), on the caller before any route reads it
   app.use('*', packChoice)
   // A pack address the key doesn't open is refused at the door, saying which packs it does open
   app.use('/mcp', async (c, next) => {
@@ -141,6 +142,8 @@ export const createApp = async ({
   app.use('/api/*', (c, next) => traceContext.run(parseTraceparent(c.req.header('traceparent')), next))
   for (const feature of features) feature.register(app, services)
   serveGuide(app, { files: GUIDE_FILES, vars: () => ({}), full: ['llms.txt'] })
+  // Each pack's own guide, OpenAPI document and docs page, at its address
+  mountPackDocs(app, services)
   const mcp = mountGatewayMcp(app, services, {
     allowedHostnames: [new URL(services.publicOrigin).hostname, 'localhost', '127.0.0.1'],
   })
@@ -155,6 +158,7 @@ export const createApp = async ({
   mountProxy(app, services)
   // Last: whatever no route answered is a page of the app
   if (hasWeb) serveFrontDoor(app, web)
+  // Outermost: a pack's address is rewritten before anything reads it, and its answers link only inside it
   app.fetch = withPackAddresses(sessionAuth.wrap(app.fetch as never) as typeof app.fetch)
   return Object.assign(app, { services })
 }

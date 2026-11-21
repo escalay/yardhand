@@ -1,6 +1,6 @@
 # Architecture
 
-Layers, top to bottom: **clients** → **front doors** (`/mcp`; REST under `/api` with runs at `POST /api/calls` and the tools as OpenAPI at `/api/tools/openapi.json`; passthrough `/u/{upstream}/mcp`; link proxy `/u/{upstream}/r/*`; `/oauth/*`; `/app` behind the owner's sign-in) → **core** pipeline → **adapters** (`mcp`, `http`, `composio`, `sample`) → **upstreams**. State beside the core: SQLite (registry, clients, pins, call log), the AES-GCM vault, the master key in `instance.json` or the environment, the meaning-search ledger, nightly snapshots in `/state/backups`.
+Layers, top to bottom: **clients** → **front doors** (`/mcp`; REST under `/api` with runs at `POST /api/calls` and the tools as OpenAPI at `/api/tools/openapi.json`; each pack's own address `/p/{pack}/`, where `/p/{pack}/mcp` and `/p/{pack}/api/*` are rewritten up front to `/mcp` and `/api/*` with that pack chosen (`features/clients/pack-choice.ts`) and the pack's own guide, OpenAPI document and docs page are served at `/p/{pack}/llms.txt`, `/p/{pack}/openapi.json` and `/p/{pack}/docs` (`features/packs/docs.ts`); passthrough `/u/{upstream}/mcp`; link proxy `/u/{upstream}/r/*`; `/oauth/*`; `/app` behind the owner's sign-in) → **core** pipeline → **adapters** (`mcp`, `http`, `composio`, `sample`) → **upstreams**. State beside the core: SQLite (registry, clients, pins, call log), the AES-GCM vault, the master key in `instance.json` or the environment, the meaning-search ledger, nightly snapshots in `/state/backups`.
 
 ## Call pipeline
 

@@ -67,7 +67,9 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Adapter**: the code for one kind of upstream; turns it into tools.
 - **Tool**: `<upstream>.<tool>`, e.g. `cookbook.research_recipes`. A tool has versions; only a `live` version is served.
 - **Client**: who calls the gateway (an API key or an OAuth client): an allowlist of upstreams, read/write scope, pins.
-- **Pin**: a real tool shown directly in a client's MCP tool list beside the meta-tools.
+- **Pin**: a real tool shown directly in a client's MCP tool list beside the meta-tools: the client's own pins, else
+  the global ones. Inside a pack a pin is the pack's name for the tool (its alias, else the tool's own name), a key's
+  own pins narrow its list from the whole pack to those, and the global pins never apply (`pinnedBy`).
 - **Access**: the owner's per-tool setting (`PATCH /api/tools/{name}`): `read` or `write` override the upstream's
   hints; `off` hides the tool from every client but the owner and the pipeline and passthrough refuse it for everyone.
 - **Group**: a part of a connection's tools (`features/groups`, tables in `features/tools`), found by rules
@@ -91,9 +93,13 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   pack wording, alias and fixed inputs, plus playbooks and manuals. Starting from a playbook brings in the tools it names or calls by route
   (a server publishes a tool's route in `_meta` under a `<vendor>/route` key, the kit as `agent-api-kit/route`; stored on the tool row, never versioned).
 - **Pack key**: a key locked to one or more packs, optionally expiring (8 h, 1 day, 7 days). Each pack is its own
-  connection at `/mcp/p/<pack>` (rewritten to `/mcp` up front, the choice carried in `features/clients/pack-choice.ts`);
-  plain `/mcp` and REST serve its default pack, and REST names another with `x-gateway-pack`. A request sees and runs
-  only its one pack.
+  server at `/p/<pack>/`: MCP at `/p/<pack>/mcp` and REST under `/p/<pack>/api` (rewritten to `/mcp` and `/api` up
+  front, the choice carried in `features/clients/pack-choice.ts`), with its own guide, OpenAPI document and docs page
+  beside them (`features/packs/docs.ts`). `/mcp/p/<pack>` and the `x-gateway-pack` header (on REST and on `/mcp`)
+  still work; plain `/mcp` and REST serve the key's default pack. A request sees and runs only its one pack. A pack
+  connection has the gateway's shape under the pack's name: the meta-tools over the pack, and every tool of the pack
+  listed directly, or only the key's own pins. The owner asking for a pack (its address or the header) is answered as
+  a write key of that pack and refused the routes that manage the gateway (`requireOwner`).
 - **Alias**: a pack's own name for one of its tools (`team_inbox_search`); the same tool can be in a pack under
   several aliases. A pack tool is keyed by that name; `entryOf` resolves it to the tool.
 - **Fixed input**: an input a pack tool fills on every call, hidden from the pack's keys; a call that sends it is a
@@ -124,9 +130,12 @@ Copy is plain and specific; every error says where, why and what to do (the prob
    the same log; manuals and playbooks reach agents only as an approved (`live`) version.
 8. The pack lock lives on the principal (`features/clients/principals.ts`): a pack key's upstreams are the pack's,
    and `reaches` / `runsTool` / `holds` / `shownAs` keep tools, playbooks, manuals, names, wording and fixed inputs to
-   the pack at every site that lists or runs anything; `seenBy` is the one rule for which tools a caller is listed.
-   Search scores every tool and then keeps to `seenBy`, and a pack key's connection cards count only what the pack
-   holds. A pack key never gets a passthrough. A new place that lists or runs tools uses them.
+   the pack at every site that lists or runs anything; `seenBy` is the one rule for which tools a caller is listed,
+   and `pinnedBy` for which of them MCP lists directly. Search scores every tool and then keeps to `seenBy`, and a
+   pack key's connection cards count only what the pack holds. A pack key never gets a passthrough. The owner asking
+   for a pack is such a principal too (`owner: false`), held to the same rules. A new place that lists or runs tools
+   uses them. `withPackAddresses` (`features/clients/pack-choice.ts`) keeps the `_links` of an answer inside a pack's
+   address when the request came by it, outside the app, so a replayed answer is linked for the address asking.
    The passthrough (`/u/{id}/mcp`) exists only for `trusted` upstreams (a `review` upstream's lists would reach agents
    unapproved) and runs only tools the gateway serves live.
 9. Upstream failures leave as 503 problems (code `upstream`, `Retry-After: 30`), never 502: a proxy in front may

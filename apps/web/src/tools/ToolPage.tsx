@@ -102,7 +102,7 @@ export const ToolPage = ({
             aria-pressed={pinned}
           >
             {pinned ? <IconPinnedFilled className="text-primary" /> : <IconPin />}{' '}
-            {pinned ? 'Pinned' : 'Pin for every agent'}
+            {pinned ? 'Pinned' : 'Pin for every agent outside a pack'}
           </Button>
         }
       >

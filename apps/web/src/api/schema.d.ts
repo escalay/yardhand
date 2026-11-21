@@ -33,7 +33,7 @@ export interface paths {
         };
         /**
          * Start here
-         * @description What the gateway is, and links to tools, upstreams, calls, the tools as OpenAPI, the guide and MCP.
+         * @description What the gateway is, and links to tools, upstreams, calls, the tools as OpenAPI, the guide and MCP. Inside a pack (its key, or its address `/p/<pack>/api`) it is the pack: its title, what it is for, and at its address links that stay under it.
          */
         get: operations["getHome"];
         put?: never;
@@ -145,7 +145,7 @@ export interface paths {
         };
         /**
          * Global pins
-         * @description The tools every client without its own pins sees directly in MCP (owner only).
+         * @description The tools every client without its own pins sees directly in MCP (owner only). Pack keys are outside them: a pack connection lists its pack, or its key’s own pins.
          */
         get: operations["getGlobalPins"];
         /**
@@ -824,6 +824,26 @@ export interface paths {
         patch: operations["updatePack"];
         trace?: never;
     };
+    "/api/packs/{name}/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How to connect to a pack
+         * @description The pack’s own address (`/p/<name>/`: MCP, REST, docs and guide under it) and paste-ready setup for Claude Code, Cursor, Codex, curl and TypeScript, with `<YOUR_KEY>` where a key of the pack goes (owner only). A pack’s address takes keys only, so there is no claude.ai setup.
+         */
+        get: operations["getPackSetup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/packs/{name}/tools/{tool}/wording": {
         parameters: {
             query?: never;
@@ -1471,19 +1491,21 @@ export interface components {
             upstreams: "all" | string[];
             pins: components["schemas"]["PinnedTool"][];
             resultCap: number;
-            /** @description The pack this request is locked to (its address names it, else the key’s default): its pins are the pack’s tools, in its wording. */
+            /** @description The pack this request is locked to (its address names it, else the key’s default). `pins` is then every tool of the pack this key can run, in the pack’s wording, or only the key’s own pins when it has some. */
             pack: {
                 name: string;
                 title: string;
                 description: string;
                 playbooks: string[];
                 manuals: string[];
+                /** @description True when the key has pins of its own: `pins` is then only those this pack holds. False: `pins` is every tool of the pack. */
+                ownPins: boolean;
             } | null;
             /** @description Every pack this key opens, the default first; empty for a key without packs. */
             packs: {
                 name: string;
                 title: string;
-                /** @description Where to connect to this pack alone. */
+                /** @description Where to connect to this pack alone: `/p/<name>/mcp`, with REST, docs and guide beside it. */
                 mcpUrl: string;
                 /** @description Served at plain /mcp and to REST without x-gateway-pack. */
                 default: boolean;
@@ -1527,7 +1549,7 @@ export interface components {
              */
             upstreams: "all" | string[];
             /**
-             * @description Tool names shown directly in MCP, or null to use the global default.
+             * @description Names shown directly in MCP. Null uses the global pins; for a pack key, where global pins never apply, null lists every tool of the pack. A pack key’s pins are its packs’ own names for the tools (an alias, else the tool’s name): each of its pack connections lists the ones that pack holds, and a name in none of its packs is refused.
              * @example [
              *       "cookbook.research_recipes"
              *     ]
@@ -1537,7 +1559,7 @@ export interface components {
             resultCap: number;
             /** @description The key’s default pack (plain /mcp and REST serve it), or null for a key that reaches its allowlist. */
             pack: string | null;
-            /** @description Every pack the key opens, the default first; each is its own connection at /mcp/p/<name>. */
+            /** @description Every pack the key opens, the default first; each is its own connection at /p/<name>/mcp. */
             packs: string[];
             /** @description When the key stops working, or null for never. */
             expiresAt: string | null;
@@ -1581,7 +1603,7 @@ export interface components {
              */
             upstreams?: "all" | string[];
             /**
-             * @description Tool names shown directly in MCP, or null to use the global default.
+             * @description Names shown directly in MCP. Null uses the global pins; for a pack key, where global pins never apply, null lists every tool of the pack. A pack key’s pins are its packs’ own names for the tools (an alias, else the tool’s name): each of its pack connections lists the ones that pack holds, and a name in none of its packs is refused.
              * @example [
              *       "cookbook.research_recipes"
              *     ]
@@ -1597,7 +1619,7 @@ export interface components {
              */
             pack?: string;
             /**
-             * @description Lock the key to these packs: each is its own connection at /mcp/p/<name>, and `pack` (else the first) is the default.
+             * @description Lock the key to these packs: each is its own connection at /p/<name>/mcp, and `pack` (else the first) is the default.
              * @example [
              *       "acme",
              *       "support"
@@ -1615,11 +1637,10 @@ export interface components {
             /** @example invoice-script */
             name?: string;
             /**
-             * @description `write` lets it call tools that change things.
-             * @default read
+             * @description `write` lets it call tools that change things. Left out, it stays as it is.
              * @enum {string}
              */
-            scope: "read" | "write";
+            scope?: "read" | "write";
             /**
              * @description `all`, or the ids of the upstreams this client may reach.
              * @example [
@@ -1629,7 +1650,7 @@ export interface components {
              */
             upstreams?: "all" | string[];
             /**
-             * @description Tool names shown directly in MCP, or null to use the global default.
+             * @description Names shown directly in MCP. Null uses the global pins; for a pack key, where global pins never apply, null lists every tool of the pack. A pack key’s pins are its packs’ own names for the tools (an alias, else the tool’s name): each of its pack connections lists the ones that pack holds, and a name in none of its packs is refused.
              * @example [
              *       "cookbook.research_recipes"
              *     ]
@@ -1667,7 +1688,7 @@ export interface components {
             snippet: string;
             note: string | null;
         };
-        /** @description Tools every client without its own pins sees directly in MCP. */
+        /** @description Tools every client without its own pins sees directly in MCP. They never apply inside a pack: a pack connection lists its pack, or its key’s own pins. */
         GlobalPins: {
             tools: string[];
             _links: components["schemas"]["Links"];
@@ -2579,6 +2600,10 @@ export interface components {
             manuals: components["schemas"]["PackItem"][];
             keyList: components["schemas"]["PackKey"][];
             createdAt: string;
+            /** @description When the owner first searched as the pack (`GET /api/tools?pack=<name>&q=…`) while it listed a tool, or null. */
+            triedAt: string | null;
+            /** @description The newest call in the log (90 days) by any key that opens the pack, or null. A key with several packs counts for each of them. */
+            lastCallAt: string | null;
         };
         /** @description One tool in a pack. */
         PackTool: {
@@ -2653,7 +2678,7 @@ export interface components {
             /** @example Design */
             title: string;
             /**
-             * @description What the pack is for, as agents read it: it becomes the server instructions for its keys.
+             * @description What the pack is for, as agents read it: it opens the instructions, guide and docs of the pack’s own connection.
              * @default
              */
             description: string;
@@ -2662,6 +2687,25 @@ export interface components {
              * @example cookbook-plan-a-dinner
              */
             playbook?: string;
+        };
+        /** @description Where a pack is reached and paste-ready setup for every place a key of it can run. Never holds a key. */
+        PackSetup: {
+            pack: string;
+            title: string;
+            /**
+             * @description The pack’s own address: everything of it is under here.
+             * @example https://gw.example.com/p/design
+             */
+            baseUrl: string;
+            mcpUrl: string;
+            apiUrl: string;
+            docsUrl: string;
+            /** @description The pack’s guide for agents (`llms.txt`). */
+            guideUrl: string;
+            /** @description What stands in for the key in every snippet. */
+            keyPlaceholder: string;
+            surfaces: components["schemas"]["SetupSurface"][];
+            _links: components["schemas"]["Links"];
         };
         /** @description Changes to a pack. */
         PackPatch: {
@@ -4632,8 +4676,13 @@ export interface operations {
                 upstream?: string;
                 /** @description Only this group, by its key or title (with `upstream`). */
                 group?: string;
-                /** @description Owner only: answer as this client would see it (its reach, scope, pack and wording). Not logged. */
+                /** @description Owner only: answer as this client would see it (its reach, scope, pack, pins and wording). With `pack`, or at a pack’s address, as that client in that pack; a client that doesn’t open it is a 409. Not logged. */
                 as?: string;
+                /**
+                 * @description Owner only: answer as the keys of this pack are answered (its tools under its names and wording, searched as they are searched). Not logged; the first search this way that is listed a tool of the pack marks the pack tried (`triedAt`).
+                 * @example design
+                 */
+                pack?: string;
                 /** @description At most this many, counted as `count` counts them (1–5000, default 20). */
                 limit?: number;
             };
@@ -4672,6 +4721,24 @@ export interface operations {
             };
             /** @description `forbidden`: The key is valid but may not do this. */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4851,8 +4918,13 @@ export interface operations {
     getTool: {
         parameters: {
             query?: {
-                /** @description Owner only: answer as this client would see it (its reach, scope, pack and wording). Not logged. */
+                /** @description Owner only: answer as this client would see it (its reach, scope, pack, pins and wording). With `pack`, or at a pack’s address, as that client in that pack; a client that doesn’t open it is a 409. Not logged. */
                 as?: string;
+                /**
+                 * @description Owner only: answer as the keys of this pack are answered (its tools under its names and wording, searched as they are searched). Not logged; the first search this way that is listed a tool of the pack marks the pack tried (`triedAt`).
+                 * @example design
+                 */
+                pack?: string;
                 /** @description `brief` leaves out the output schema and shortens the upstream instructions, for agents reading it in context. */
                 view?: "full" | "brief";
             };
@@ -4872,6 +4944,15 @@ export interface operations {
                 };
                 content: {
                     "application/hal+json": components["schemas"]["ToolDetail"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
@@ -4894,6 +4975,15 @@ export interface operations {
             };
             /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6393,6 +6483,59 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getPackSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The setup. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackSetup"];
                 };
             };
             /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */

@@ -92,7 +92,8 @@ const NewPack = ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: b
     onSuccess: (pack) => {
       void queries.invalidateQueries({ queryKey: ['packs'] })
       onOpenChange(false)
-      void navigate({ to: '/packs/$name', params: { name: pack.name } })
+      // A new pack opens on its Overview: the steps of setting it up are there
+      void navigate({ to: '/packs/$name', params: { name: pack.name }, search: { tab: 'overview' } })
     },
   })
   return (

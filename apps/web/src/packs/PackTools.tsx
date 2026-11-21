@@ -235,12 +235,16 @@ export const PackTools = ({
   pack,
   titleOf,
   onPatch,
+  adding,
+  onAdding,
 }: {
   pack: Pack
   titleOf: (playbook: string) => string
   onPatch: (body: Schemas['PackPatch']) => Promise<unknown>
+  /** The dialog that adds tools is open: kept in the address, so the Overview can lead straight to it. */
+  adding: boolean
+  onAdding: (open: boolean) => void
 }) => {
-  const [adding, setAdding] = useState(false)
   const taken = new Set(pack.tools.map((tool) => tool.name))
   const accountUpstreams = [
     ...new Set(pack.tools.filter((tool) => typeof tool.fixed.account === 'string').map((tool) => tool.upstream)),
@@ -287,7 +291,7 @@ export const PackTools = ({
           </p>
         )}
         <div className="border-t border-border px-5 py-3">
-          <Button size="sm" variant={pack.tools.length ? 'ghost' : 'primary'} onClick={() => setAdding(true)}>
+          <Button size="sm" variant={pack.tools.length ? 'ghost' : 'primary'} onClick={() => onAdding(true)}>
             <IconPlus /> Add tools
           </Button>
         </div>
@@ -295,7 +299,7 @@ export const PackTools = ({
       <AddTools
         pack={pack}
         open={adding}
-        onOpenChange={setAdding}
+        onOpenChange={onAdding}
         onAdd={(drafts) => onPatch({ add: { tools: drafts.map((draft) => ({ ...draft, reason: 'picked' })) } })}
       />
     </>

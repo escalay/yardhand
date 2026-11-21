@@ -93,8 +93,8 @@ export const ToolsPage = ({ search }: { search: ToolsSearch }) => {
           </Select>
         }
       >
-        Search by what you want done, the way agents do. Pinned tools sit in every agent's tool list directly; the rest
-        are one search away.
+        Search by what you want done, the way agents do. Pinned tools sit directly in the tool list of every agent
+        outside a pack; the rest are one search away.
       </PageHeader>
       <ToolsTabs active={search.pinned ? 'pins' : 'tools'} />
       {seenAs ? (
@@ -230,7 +230,9 @@ export const ToolsPage = ({ search }: { search: ToolsSearch }) => {
                     {tool.pinned ? <IconPinnedFilled className="text-primary" /> : <IconPin />}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>{tool.pinned ? 'Pinned for every agent' : 'Pin for every agent'}</TooltipContent>
+                <TooltipContent>
+                  {tool.pinned ? 'Pinned for every agent outside a pack' : 'Pin for every agent outside a pack'}
+                </TooltipContent>
               </Tooltip>
             </li>
           ))}

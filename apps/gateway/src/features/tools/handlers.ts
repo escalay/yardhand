@@ -5,14 +5,17 @@ import type { Context } from 'hono'
 import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { VIA_HEADER } from '../calls/handlers.js'
+import { packBaseOf } from '../clients/pack-choice.js'
 import {
   allows,
   callerOf,
   describe,
   entryOf,
   holds,
+  isOwner,
   OWNER,
   type Principal,
+  pinnedBy,
   requireOwner,
   seenBy,
   shownAs,
@@ -55,16 +58,39 @@ export const toolsHandlers = ({
   searches,
   clients,
   calls,
+  packs,
   listsChanged,
 }: Services) => {
   const principalOf = (c: Context) => principals.require(callerOf(c))
-  /** The caller, or for the owner with `?as=`, the client it previews: that client's reach, scope and pack. */
-  const viewerOf = async (c: Context, as: string | undefined) => {
-    const principal = await principalOf(c)
-    if (!as) return { principal, preview: false }
-    if (!principal.owner) throw new ProblemError('forbidden', { detail: 'Only the owner can look as another client.' })
-    const target = await principals.ofClient(as)
-    if (typeof target === 'string') throw new ProblemError('conflict', { detail: target })
+  /**
+   * The caller, or what the owner previews: with `as`, that client (its reach, scope, pack and pins); with `pack`, the
+   * pack as its keys see it; with both, that client in that pack. At a pack's own address the pack is the address's.
+   */
+  const viewerOf = async (c: Context, { as, pack }: { as?: string | undefined; pack?: string | undefined }) => {
+    if (!as && !pack) return { principal: await principalOf(c), preview: false }
+    const caller = callerOf(c)
+    if (!isOwner(caller))
+      throw new ProblemError('forbidden', { detail: 'Only the owner can look as another client or as a pack.' })
+    if (pack && caller?.pack && pack !== caller.pack)
+      throw new ProblemError('bad_request', {
+        detail: `This request is for the pack ${caller.pack}: look at ${pack} from the root, GET ${PATH}?pack=${pack}.`,
+      })
+    const inPack = pack ?? caller?.pack
+    if (as) {
+      const target = await principals.ofClient(as, inPack)
+      if (typeof target !== 'string') return { principal: target, preview: true }
+      // A client that can call but doesn't open this pack: said to the owner, who is looking, not to its holder
+      const outside = inPack ? await principals.ofClient(as) : target
+      if (typeof outside === 'string') throw new ProblemError('conflict', { detail: target })
+      const opens = outside.packs.map((opened) => opened.name)
+      throw new ProblemError('conflict', {
+        detail: opens.length
+          ? `The client ${outside.name} doesn't open the pack ${inPack}. It opens ${opens.join(', ')}: look as it in one of those from the root, GET ${PATH}?as=${as}&pack=<name>.`
+          : `The client ${outside.name} doesn't open the pack ${inPack}: it isn't locked to packs. Look as it from the root, without a pack: GET ${PATH}?as=${as}.`,
+      })
+    }
+    const target = await principals.inPack(inPack as string)
+    if (typeof target === 'string') throw new ProblemError('not_found', { detail: target })
     return { principal: target, preview: true }
   }
   /**
@@ -78,7 +104,7 @@ export const toolsHandlers = ({
   }
   /** What a list shows besides the tool: pinned for this caller, and use for the owner. */
   const extrasFor = async (principal: Principal) => {
-    const pins = new Set(principal.pins ?? (await clients.globalPins()))
+    const pins = new Set(pinnedBy(principal, await clients.globalPins()))
     const uses = principal.owner
       ? new Map(
           (await calls.byTool(new Date(Date.now() - WEEK_MS).toISOString())).map((row) => [
@@ -172,7 +198,7 @@ export const toolsHandlers = ({
       .update(live.map((tool) => tool.versionId).join(','))
       .digest('hex')
       .slice(0, 12)
-    const doc = toolsOpenApi({ origin: originOf(c), tools: live, version })
+    const doc = toolsOpenApi({ origin: `${originOf(c)}${packBaseOf()}`, tools: live, version })
     // Its own media type, not HAL: it is a document for generators, not a resource to browse
     return new Response(JSON.stringify(doc, null, 1), {
       status: 200,
@@ -233,8 +259,8 @@ export const toolsHandlers = ({
     return { found, own: own ?? [] }
   }
   const list: RouteHandler<Routes['list']> = async (c) => {
-    const { q, upstream, group, limit, as } = c.req.valid('query')
-    const { principal, preview } = await viewerOf(c, as)
+    const { q, upstream, group, limit, as, pack } = c.req.valid('query')
+    const { principal, preview } = await viewerOf(c, { as, pack })
     const visible = await visibleTo(principal)
     const reachable = await visibleTo({ ...principal, scope: 'write' })
     const inUpstream = (tool: LiveTool) =>
@@ -260,6 +286,9 @@ export const toolsHandlers = ({
       .filter(scoped)
       .flatMap((tool) => shownAs(principal, tool).map((as) => ({ tool: tool.name, as })))
       .slice(0, limit)
+    // The owner's first search as a pack is the pack tried, for its checklist: once it lists this viewer a tool to try
+    if (searched && pack && principal.pack && searched.own.some(visible))
+      await packs.markTried(principal.pack.id).catch(() => {})
     // Logged for the owner's "what agents looked for"; a failing log never fails the search
     if (words && !preview)
       await searches
@@ -369,7 +398,8 @@ export const toolsHandlers = ({
     }
   }
   const get: RouteHandler<Routes['get']> = async (c) => {
-    const { principal } = await viewerOf(c, c.req.valid('query').as)
+    const { as, pack } = c.req.valid('query')
+    const { principal } = await viewerOf(c, { as, pack })
     const { name } = c.req.valid('param')
     // A pack key asks by the pack's name for the tool
     const entry = entryOf(principal, name)

@@ -1,8 +1,10 @@
 /**
  * What agents see at `/mcp`. The kit's factory builds the meta-tools, resources and prompt over the routes; per
  * request this adds `call_tool` and the client's pinned tools (which return the upstream's own result blocks), and
- * names the upstreams this client may use in the server instructions.
+ * names the upstreams this client may use in the server instructions. A pack connection has the same shape under the
+ * pack's own name: the meta-tools over the pack, and every tool of the pack listed (or only its key's own pins).
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
   type CallToolResult,
@@ -20,12 +22,21 @@ import { z } from 'zod'
 import { VIA_HEADER } from '../features/calls/handlers.js'
 import { progressSink } from '../features/calls/progress.js'
 import type { Principal } from '../features/clients/principals.js'
-import { pathWith } from '../kit/index.js'
-import { type AgentMcpFactory, type CallApi, mcpServerFactory, mountMcp } from '../kit/mcp/index.js'
+import { MODERN_PROTOCOL_VERSION, originOf, pathWith } from '../kit/index.js'
+import {
+  type AgentMcpFactory,
+  type CallApi,
+  FORWARDED,
+  type McpPrompt,
+  type McpServerInfo,
+  type McpTool,
+  mcpServerFactory,
+  mountMcp,
+} from '../kit/mcp/index.js'
 import type { Services } from '../services.js'
 import { VERSION } from '../version.js'
 import { manualSkills } from './skills.js'
-import { countOf, META_TOOLS, PROMPTS, RESOURCES } from './tools.js'
+import { countOf, META_TOOLS, metaToolsFor, PROMPTS, promptsFor, RESOURCES } from './tools.js'
 
 const INFO = {
   name: 'yardhand',
@@ -181,18 +192,58 @@ const runTool = async (
   }
 }
 
-/** A pack key's instructions: the pack's own words, then what it holds. Its tools are listed directly. */
+const ON_DEMAND = [
+  '1. search_tools with what you want to do.',
+  '2. describe_tool on the best match to read its full description and input schema.',
+  '3. call_tool with that name and arguments matching the schema.',
+]
+
+/** How a pack connection is worked: every tool of the pack is listed, or only the key's own pins, or none of them. */
+const howToWork = (pack: NonNullable<Me['pack']>, pins: Pin[]) =>
+  !pack.ownPins
+    ? pins.length
+      ? [
+          'Every tool of this pack is listed here: call one as it is. search_tools finds one by what you want to do,',
+          'describe_tool shows its full description and input schema, and call_tool runs any of them by name.',
+        ]
+      : ['This pack holds no tools this key can use.']
+    : [
+        pins.length
+          ? 'Your pinned tools are listed here: call them as they are. The rest of the pack is found on demand:'
+          : 'No tool of this pack is listed here. Each is found on demand:',
+        ...ON_DEMAND,
+      ]
+
+/** The names this connection's own tools hold: a pack's tool of the same name is not listed beside them. */
+const OWN_NAMES = new Set([...META_TOOLS.map((tool) => tool.name), 'call_tool'])
+
+/**
+ * A pack connection's instructions: the pack's own words, how to work it, then what it holds. `connections` are its
+ * upstreams as `GET /api/upstreams` counts them for the pack; `pins` are the tools listed directly; `shadowed` are
+ * the pack's names that one of the connection's own tools holds.
+ */
 export const packInstructions = (
   pack: NonNullable<Me['pack']>,
-  pins: Pin[],
-  readOnly: boolean,
-  others: Me['packs'] = [],
+  {
+    pins,
+    readOnly,
+    others = [],
+    connections = [],
+    shadowed = [],
+  }: { pins: Pin[]; readOnly: boolean; others?: Me['packs']; connections?: string[]; shadowed?: string[] },
 ) =>
   [
     `${pack.title}: ${pack.description}`.trim(),
     '',
-    `This connection is the pack ${pack.title}: the tools listed here are all it reaches. Call them as they are;`,
-    'search_tools and describe_tool look inside the pack only.',
+    ...howToWork(pack, pins),
+    ...(shadowed.length
+      ? [
+          shadowed.length === 1
+            ? `Except ${shadowed[0]}: that name is this connection’s own tool here. Run the pack’s tool of that name with call_tool.`
+            : `Except ${shadowed.join(', ')}: those names are this connection’s own tools here. Run the pack’s tools of those names with call_tool.`,
+        ]
+      : []),
+    'A cut result says how to page it with get_result. Tools marked [changes things] need write scope.',
     ...(others.length
       ? [
           `The same key opens other packs, each its own connection: ${others.map((other) => `${other.title} (${other.mcpUrl})`).join(', ')}.`,
@@ -211,28 +262,37 @@ export const packInstructions = (
           `Manuals (read once, before the tools, with read_resource): ${pack.manuals.map((name) => `gateway://u/${name.split('.')[0]}/manual`).join(', ')}.`,
         ]
       : []),
-    '',
-    'Tools:',
-    ...pins.map((pin) => `- ${pin.name}: ${pin.description.split(/\n\s*\n/)[0]?.slice(0, 200) ?? ''}`),
+    ...(connections.length ? ['', 'In this pack:', ...connections] : []),
+    ...(pins.length
+      ? [
+          '',
+          'Listed here:',
+          ...pins.map((pin) => `- ${pin.name}: ${pin.description.split(/\n\s*\n/)[0]?.slice(0, 200) ?? ''}`),
+        ]
+      : []),
   ].join('\n')
 
-/** The instructions plus the upstreams this caller may use, so an agent knows what is here before it searches. */
-const instructionsFor = async (callApi: CallApi, auth: Auth, scope: string | undefined) => {
+/** One line per upstream this caller may use, as `GET /api/upstreams` counts them for it (a pack key: its pack's). */
+const upstreamLines = async (callApi: CallApi, auth: Auth) => {
   const response = await callApi({ path: '/api/upstreams' }, auth).catch(() => null)
-  const readOnly =
-    scope === 'read'
-      ? '\n\nThis key is read-only: tools that change things are hidden (search_tools says how many matched).'
-      : ''
-  if (!response?.ok) return `${INSTRUCTIONS}${readOnly}`
+  if (!response?.ok) return []
   const { _embedded } = (await response.json()) as {
     _embedded: {
       upstreams: { id: string; title: string; toolCount: number; offers: { manuals: number; playbooks: number } }[]
     }
   }
-  const lines = _embedded.upstreams.map(
+  return _embedded.upstreams.map(
     (row) =>
       `- ${row.id}: ${row.title} (${countOf(row.toolCount, 'tool')}${row.offers.playbooks ? `, ${countOf(row.offers.playbooks, 'playbook')}` : ''})${row.offers.manuals ? ' [manual]' : ''}`,
   )
+}
+
+/** The instructions plus the upstreams this caller may use, so an agent knows what is here before it searches. */
+const instructionsFor = (lines: string[], scope: string | undefined) => {
+  const readOnly =
+    scope === 'read'
+      ? '\n\nThis key is read-only: tools that change things are hidden (search_tools says how many matched).'
+      : ''
   return lines.length
     ? `${INSTRUCTIONS}${readOnly}\n\nConnected for you:\n${lines.join('\n')}`
     : `${INSTRUCTIONS}${readOnly}`
@@ -246,7 +306,14 @@ type Me = {
   upstreams: 'all' | string[]
   resultCap: number
   pins: Pin[]
-  pack: { name: string; title: string; description: string; playbooks: string[]; manuals: string[] } | null
+  pack: {
+    name: string
+    title: string
+    description: string
+    playbooks: string[]
+    manuals: string[]
+    ownPins: boolean
+  } | null
   packs: { name: string; title: string; mcpUrl: string; default: boolean }[]
 }
 type PlaybookCard = {
@@ -357,39 +424,71 @@ type Pin = {
   annotations: Record<string, unknown>
 }
 
-export const gatewayMcpFactory = (app: OpenAPIHono, services: Services): AgentMcpFactory => {
+type Served = { info: McpServerInfo; instructions: string; tools: McpTool[]; prompts: McpPrompt[] }
+
+/**
+ * A pack's name and instructions for the kit's own answer to `initialize`, which reads them off the factory and not
+ * off a server built for the request.
+ */
+const packGreeting = new AsyncLocalStorage<Pick<Served, 'info' | 'instructions'>>()
+
+const gatewayMcp = (app: OpenAPIHono, services: Services) => {
   const callApi = viaMcp(app)
-  const build = (instructions: string) =>
-    mcpServerFactory({
-      info: { ...INFO, websiteUrl: `${services.publicOrigin}/llms.txt` },
-      instructions,
-      tools: META_TOOLS,
-      resources: RESOURCES,
-      prompts: PROMPTS,
-      callApi,
-    })
-  const base = build(INSTRUCTIONS)
-  const factory = async (ctx: McpRequestContext) => {
-    const auth = ctx.authInfo
+  const build = ({ info, instructions, tools, prompts }: Served) =>
+    mcpServerFactory({ info, instructions, tools, resources: RESOURCES, prompts, callApi })
+  const gateway = {
+    info: { ...INFO, websiteUrl: `${services.publicOrigin}/llms.txt` },
+    tools: META_TOOLS,
+    prompts: PROMPTS,
+  }
+  /** A pack connection names itself after the pack: its name, its title and the first words of what it is for. */
+  const packServed = (pack: NonNullable<Me['pack']>) => ({
+    info: {
+      name: pack.name,
+      title: pack.title,
+      version: VERSION,
+      description: pack.description.trim().split(/\n\s*\n/)[0] || `The ${pack.title} pack.`,
+      websiteUrl: `${services.publicOrigin}/p/${pack.name}/llms.txt`,
+    },
+    tools: metaToolsFor(pack),
+    prompts: promptsFor(pack),
+  })
+  const base = build({ ...gateway, instructions: INSTRUCTIONS })
+  /** What this caller is served: the gateway, or its pack under the pack's own name. */
+  const servedFor = async (auth: Auth) => {
     const me = await callApi({ path: '/api/me' }, auth)
     const caller = me.ok ? ((await me.json()) as Me) : null
-    const instructions = caller?.pack
-      ? packInstructions(
-          caller.pack,
-          caller.pins,
-          caller.scope === 'read',
-          caller.packs.filter((other) => other.name !== caller.pack?.name),
-        )
-      : await instructionsFor(callApi, auth, caller?.scope)
-    const server = (await build(instructions)(ctx)) as McpServer
+    const pack = caller?.pack ?? null
+    const connections = await upstreamLines(callApi, auth)
+    // A pin under the name of one of the connection's own tools is not listed: that tool keeps the name
+    const pins = (caller?.pins ?? []).filter((pin) => !OWN_NAMES.has(pin.name))
+    const instructions =
+      caller && pack
+        ? packInstructions(pack, {
+            pins,
+            readOnly: caller.scope === 'read',
+            others: caller.packs.filter((other) => other.name !== pack.name),
+            connections,
+            shadowed: caller.pins.filter((pin) => OWN_NAMES.has(pin.name)).map((pin) => pin.name),
+          })
+        : instructionsFor(connections, caller?.scope)
+    return { caller, pins, pack, served: { ...(pack ? packServed(pack) : gateway), instructions } }
+  }
+  const factory = async (ctx: McpRequestContext) => {
+    const auth = ctx.authInfo
+    const { caller, pins, pack, served } = await servedFor(auth)
+    const server = (await build(served)(ctx)) as McpServer
     server.registerTool(
       'call_tool',
       {
         title: 'Run a tool',
-        description:
-          'Runs any tool behind the gateway by name and returns its own result (its readable text; the typed JSON is on REST `POST /api/calls`). Find it with search_tools and read its schema with describe_tool first.',
+        description: `${pack ? `Runs a tool of ${pack.title} by name` : 'Runs any tool behind the gateway by name'} and returns its own result (its readable text; the typed JSON is on REST \`POST /api/calls\`). Find it with search_tools and read its schema with describe_tool first.`,
         inputSchema: z.object({
-          name: z.string().min(3).max(160).describe('The tool name, `<upstream>.<tool>`.'),
+          name: z
+            .string()
+            .min(3)
+            .max(160)
+            .describe(pack ? 'The tool name as search_tools gives it.' : 'The tool name, `<upstream>.<tool>`.'),
           arguments: z
             .record(z.string(), z.unknown())
             .optional()
@@ -425,7 +524,7 @@ export const gatewayMcpFactory = (app: OpenAPIHono, services: Services): AgentMc
               title: caller.pack.title,
               description: caller.pack.description,
               // Only manuals and playbooks are read off this one; the routes resolve tools themselves
-              tools: new Map(caller.pins.map((pin) => [pin.name, { tool: pin.name, wording: null, fixed: {} }])),
+              tools: new Map(),
               playbooks: new Set(caller.pack.playbooks),
               manuals: new Set(caller.pack.manuals),
             }
@@ -434,7 +533,7 @@ export const gatewayMcpFactory = (app: OpenAPIHono, services: Services): AgentMc
       await registerPlaybooks(server, callApi, auth)
       await registerLinks(server, callApi, auth)
       manualSkills(services, principal).attach(server)
-      for (const pin of caller.pins) {
+      for (const pin of pins) {
         // One upstream schema the SDK can't take must not take /mcp down for this client
         try {
           server.registerTool(
@@ -456,17 +555,48 @@ export const gatewayMcpFactory = (app: OpenAPIHono, services: Services): AgentMc
     }
     return server
   }
-  return Object.assign(factory, {
-    info: base.info,
-    tools: base.tools,
-    resources: base.resources,
-    instructions: base.instructions,
-    prompts: base.prompts,
-  }) as unknown as AgentMcpFactory
+  // Read per request, so a pack connection's greeting is the pack's; everything else is the gateway's
+  Object.defineProperties(factory, {
+    info: { enumerable: true, get: () => packGreeting.getStore()?.info ?? base.info },
+    instructions: { enumerable: true, get: () => packGreeting.getStore()?.instructions ?? base.instructions },
+  })
+  return {
+    factory: Object.assign(factory, {
+      tools: base.tools,
+      resources: base.resources,
+      prompts: base.prompts,
+    }) as unknown as AgentMcpFactory,
+    servedFor,
+  }
 }
 
 export const mountGatewayMcp = (
   app: OpenAPIHono,
   services: Services,
   { allowedHostnames }: { allowedHostnames: string[] },
-) => mountMcp(app, { factory: gatewayMcpFactory(app, services), allowedHostnames })
+) => {
+  const { factory, servedFor } = gatewayMcp(app, services)
+  // A 2026-07-28 client that still opens with `initialize` is greeted by the kit from the factory: as the pack, when
+  // the caller is served one. Only that one request pays for the look.
+  app.use('/mcp', async (c, next) => {
+    if (c.req.method !== 'POST' || c.req.header('mcp-protocol-version') !== MODERN_PROTOCOL_VERSION) return next()
+    const message = (await c.req.raw
+      .clone()
+      .json()
+      .catch(() => null)) as { method?: string } | null
+    if (message?.method !== 'initialize') return next()
+    const origin = new URL(originOf(c))
+    const forwarded = FORWARDED.flatMap((name) => {
+      const value = c.req.header(name)
+      return value ? [[name, value]] : []
+    })
+    const headers = {
+      ...Object.fromEntries(forwarded),
+      'x-forwarded-proto': origin.protocol.slice(0, -1),
+      'x-forwarded-host': origin.host,
+    }
+    const { pack, served } = await servedFor({ extra: { headers } } as unknown as Auth)
+    return pack ? packGreeting.run({ info: served.info, instructions: served.instructions }, next) : next()
+  })
+  return mountMcp(app, { factory, allowedHostnames })
+}

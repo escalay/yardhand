@@ -178,6 +178,15 @@ const ok = <Schema extends z.ZodTypeAny>(description: string, schema: Schema) =>
   description,
 })
 const name = z.string().min(3).max(160).openapi({ description: 'The tool name, `<upstream>.<tool>`.' })
+const AsClient = z.string().max(40).optional().openapi({
+  description:
+    'Owner only: answer as this client would see it (its reach, scope, pack, pins and wording). With `pack`, or at a pack’s address, as that client in that pack; a client that doesn’t open it is a 409. Not logged.',
+})
+const AsPack = z.string().max(40).optional().openapi({
+  description:
+    'Owner only: answer as the keys of this pack are answered (its tools under its names and wording, searched as they are searched). Not logged; the first search this way that is listed a tool of the pack marks the pack tried (`triedAt`).',
+  example: 'design',
+})
 
 export const routes = {
   openapi: createRoute({
@@ -221,10 +230,8 @@ export const routes = {
           .max(60)
           .optional()
           .openapi({ description: 'Only this group, by its key or title (with `upstream`).' }),
-        as: z.string().max(40).optional().openapi({
-          description:
-            'Owner only: answer as this client would see it (its reach, scope, pack and wording). Not logged.',
-        }),
+        as: AsClient,
+        pack: AsPack,
         limit: z.coerce
           .number()
           .int()
@@ -234,7 +241,7 @@ export const routes = {
           .openapi({ description: 'At most this many, counted as `count` counts them (1–5000, default 20).' }),
       }),
     },
-    responses: { 200: ok('Tools.', ToolListSchema), ...problemResponses(400, 401, 403) },
+    responses: { 200: ok('Tools.', ToolListSchema), ...problemResponses(400, 401, 403, 404, 409) },
   }),
   get: createRoute({
     method: 'get',
@@ -246,17 +253,15 @@ export const routes = {
     request: {
       params: z.object({ name }),
       query: z.object({
-        as: z.string().max(40).optional().openapi({
-          description:
-            'Owner only: answer as this client would see it (its reach, scope, pack and wording). Not logged.',
-        }),
+        as: AsClient,
+        pack: AsPack,
         view: z.enum(['full', 'brief']).default('full').openapi({
           description:
             '`brief` leaves out the output schema and shortens the upstream instructions, for agents reading it in context.',
         }),
       }),
     },
-    responses: { 200: ok('The tool.', ToolDetailSchema), ...problemResponses(401, 403, 404) },
+    responses: { 200: ok('The tool.', ToolDetailSchema), ...problemResponses(400, 401, 403, 404, 409) },
   }),
   setAccess: createRoute({
     method: 'patch',

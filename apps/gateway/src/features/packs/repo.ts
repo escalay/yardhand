@@ -1,6 +1,6 @@
 /** Packs, their tools and their playbooks and manuals: the only queries on these tables. */
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, inArray, like, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, like, sql } from 'drizzle-orm'
 import type { Db } from '../../kit/index.js'
 import type { Fixed } from './entries.js'
 import {
@@ -93,6 +93,12 @@ export const packsRepo = (db: Db) => {
           .set({ ...change, updatedAt: new Date().toISOString() })
           .where(eq(packs.id, packId))
     },
+    /** Notes the owner's first try of the pack, once; not a change to the pack, so `updatedAt` stays. */
+    markTried: (packId: string) =>
+      db
+        .update(packs)
+        .set({ triedAt: new Date().toISOString() })
+        .where(and(eq(packs.id, packId), isNull(packs.triedAt))),
     remove: async (packId: string) => {
       await db.delete(packTools).where(eq(packTools.packId, packId))
       await db.delete(packItems).where(eq(packItems.packId, packId))
