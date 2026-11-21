@@ -209,6 +209,18 @@ describe('on a large catalog', () => {
     })
     expect((await api(kit, '/api/tools')).json.hint).toBeNull()
   })
+
+  it('suggests the pack’s own playbook, however many elsewhere say the words better', async () => {
+    const asked = '/api/tools?q=say%20a%20topic%20back'
+    expect((await api(kit, asked)).json.playbooks).toEqual([
+      expect.objectContaining({ name: 'fixture-say-it-back', title: 'Fixture · Say it back' }),
+    ])
+    expect((await api(notes, asked)).json.playbooks).toEqual([])
+    expect((await api(full, asked)).json.playbooks).toHaveLength(3)
+    expect((await api(full, `${asked}&upstream=fixture`)).json.playbooks).toEqual([
+      expect.objectContaining({ name: 'fixture-say-it-back' }),
+    ])
+  })
 })
 
 describe('on a catalog too small to tell a match from noise', () => {

@@ -286,21 +286,27 @@ export const toolsHandlers = ({
     const titles = new Map((await upstreams.list()).map((row) => [row.id, row.title]))
     return coversOf(listed, (id) => titles.get(id) ?? id)
   }
-  /** Playbooks made for what was asked, offered to this caller: at most three, each matching enough of the words. */
+  /**
+   * Playbooks made for what was asked, offered to this caller: at most three, each matching enough of the words. They
+   * are searched among the ones it may read, so better matches it can't read never push its own off the page.
+   */
   const playbooksFor = async (principal: Principal, words: string, upstream: string | undefined) => {
-    const rows = new Map((await upstreams.list()).map((row) => [row.id, row]))
-    const items = (await catalog.liveByIds(await catalog.searchIds(words, 30))).filter((item) => {
-      const row = rows.get(item.upstreamId)
-      return (
-        item.kind === 'playbook' &&
-        row?.enabled &&
-        (row.playbooks || principal.pack) &&
-        allows(principal, item.upstreamId) &&
-        holds(principal, item) &&
-        (!upstream || item.upstreamId === upstream)
+    const offering = (await upstreams.list())
+      .filter(
+        (row) =>
+          row.enabled &&
+          (row.playbooks || principal.pack) &&
+          allows(principal, row.id) &&
+          (!upstream || row.id === upstream),
       )
+      .map((row) => row.id)
+    const ids = await catalog.searchIds(words, 30, {
+      kind: 'playbook',
+      upstreams: offering,
+      names: principal.pack ? [...principal.pack.playbooks] : undefined,
     })
-    return items
+    return (await catalog.liveByIds(ids))
+      .filter((item) => holds(principal, item))
       .map((item) => ({ item, content: item.content as PlaybookContent }))
       .filter(({ item, content }) => matchesEnough(words, `${item.name} ${content.title ?? ''} ${content.description}`))
       .slice(0, 3)
