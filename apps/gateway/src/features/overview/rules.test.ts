@@ -45,18 +45,18 @@ describe('nudges', () => {
     expect(nudges[3]?.href).toBe('/app/connections/old')
   })
 
-  it('says how many things in the packs to recheck, wording and values alike', () => {
+  it('says how many things in the packs to recheck: wording, values and the packs’ own texts alike', () => {
     const facts = { now, pendingReviews: 0, keyClients: [], upstreams: [] }
     expect(nudgesOf({ ...facts, packFlags: 1 })).toEqual([
       {
         kind: 'pack_wording',
-        message: '1 thing in your packs to recheck: its server changed the tool it was set up for.',
+        message: '1 thing in your packs to recheck: a tool it was set up for has changed or left its pack.',
         action: 'Recheck',
         href: '/app/tools/reviews',
       },
     ])
     expect(nudgesOf({ ...facts, packFlags: 3 })[0]?.message).toBe(
-      '3 things in your packs to recheck: their servers changed the tools they were set up for.',
+      '3 things in your packs to recheck: tools they were set up for have changed or left their packs.',
     )
     expect(nudgesOf(facts)).toEqual([])
   })

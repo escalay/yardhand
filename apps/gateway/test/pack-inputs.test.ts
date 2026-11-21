@@ -493,7 +493,7 @@ describe('a value that stops fitting its tool', () => {
       (found: { kind: string }) => found.kind === 'pack_wording',
     )
     expect(nudge.message).toBe(
-      `${flags.length} things in your packs to recheck: their servers changed the tools they were set up for.`,
+      `${flags.length} things in your packs to recheck: tools they were set up for have changed or left their packs.`,
     )
     expect((await owner('/api/packs')).json._embedded.packs).toContainEqual(
       expect.objectContaining({ name: 'hall', flags: 2 }),
