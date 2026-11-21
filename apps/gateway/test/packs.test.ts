@@ -752,6 +752,16 @@ describe('a pack at its own address', () => {
     expect((await at(key, '/api')).headers.get('link')).toContain('service-desc')
   })
 
+  it('serves MCP itself and nothing beside it: the public server card stays the gateway’s, at the root', async () => {
+    // No route, with a key or without, for a pack that exists and one that does not alike
+    for (const pack of ['loud', 'nope'])
+      for (const bearer of [null, key])
+        expect([pack, (await at(bearer, `/p/${pack}/mcp/server-card`)).status]).toEqual([pack, 404])
+    const card = await at(null, '/mcp/server-card')
+    expect(card.status).toBe(200)
+    expect(card.json.remotes[0].url).toBe('http://localhost/mcp')
+  })
+
   it('lets the owner in as a write key of the pack would be', async () => {
     const me = await owner('/p/loud/api/me')
     expect(me.status).toBe(200)

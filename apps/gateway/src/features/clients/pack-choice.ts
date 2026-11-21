@@ -25,10 +25,14 @@ type Fetch = (request: Request, ...rest: never[]) => Response | Promise<Response
 
 /** A path as the router reads it, percent-encoded letters decoded: what is served is decided on this one. */
 const routed = (path: string) => tryDecodeURI(path.includes('%25') ? path.replace(/%25/g, '%2525') : path)
+const API = /^\/api(\/|$)/
 /** Health and sign-in belong to the gateway, not to a pack. */
 const AT_ROOT_ONLY = /^\/api\/(health|session)(\/|$)/
-/** Served under a pack's address as they are at the root: MCP and the API. */
-const rewritten = (path: string) => /^\/(mcp|api)(\/|$)/.test(path) && !AT_ROOT_ONLY.test(path)
+/**
+ * Served under a pack's address as they are at the root: MCP itself and the API. Nothing beside `/mcp`: the public
+ * server card there is the gateway's.
+ */
+const rewritten = (path: string) => path === '/mcp' || (API.test(path) && !AT_ROOT_ONLY.test(path))
 /** Served under a pack's address by the pack's own routes: its front page, guide, OpenAPI document and docs. */
 const KEPT = new Set(['', '/', '/llms.txt', '/openapi.json', '/docs'])
 
@@ -54,7 +58,7 @@ const withoutRootPointers = (response: Response) => {
 }
 
 /**
- * Wraps the app's fetch. `/p/<pack>/mcp…` and `/p/<pack>/api…` are served as `/mcp…` and `/api…` with that pack
+ * Wraps the app's fetch. `/p/<pack>/mcp` and `/p/<pack>/api…` are served as `/mcp` and `/api…` with that pack
  * chosen; the pack's own pages keep their path and run with it chosen; anything else under `/p/<pack>/` passes
  * through as it is and finds no route. `/mcp/p/<pack>[/…]` is served as `/mcp[/…]`.
  */
