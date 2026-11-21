@@ -415,6 +415,21 @@ describe('what the pack page stands on', () => {
     expect((await api(reader.key, `/p/loud/api/tools?as=${reader.id}`)).status).toBe(403)
   })
 
+  it('opens the pack’s address to the signed-in owner’s browser, with the session cookie alone', async () => {
+    const signedIn = await request('/api/session', { method: 'POST', body: { key: OWNER } })
+    const cookie = /gw_session=[^;]+/.exec(signedIn.headers.get('set-cookie') ?? '')?.[0] ?? ''
+    expect(cookie).not.toBe('')
+    const home = await request('/p/loud/api', { headers: { cookie } })
+    expect(home.json).toMatchObject({ name: 'Loud', _links: { tools: { href: 'http://localhost/p/loud/api/tools' } } })
+    const docs = await request('/p/loud/docs', { headers: { cookie } })
+    expect([docs.status, docs.text.includes('/p/loud/openapi.json')]).toEqual([200, true])
+    expect((await request('/p/loud/openapi.json', { headers: { cookie } })).json.info.title).toBe('Loud')
+    expect((await request('/p/loud/llms.txt', { headers: { cookie } })).text).toMatch(/^# Loud/)
+    expect((await request('/p/loud')).status).toBe(401)
+    await request('/api/session', { method: 'DELETE', headers: { cookie } })
+    expect((await request('/p/loud/docs', { headers: { cookie } })).status).toBe(401)
+  })
+
   it('notes when the owner first tried a pack, and when its keys last called', async () => {
     const before = (await owner('/api/packs/loud')).json
     expect(before).toMatchObject({ triedAt: null, lastCallAt: null })

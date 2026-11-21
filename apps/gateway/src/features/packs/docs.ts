@@ -49,8 +49,12 @@ type OpenApi = {
   info: { title: string; version: string; description?: string }
   paths: Paths
   tags?: Tag[]
-  components: { schemas?: Record<string, unknown> } & Record<string, unknown>
+  security?: Record<string, string[]>[]
+  components: { schemas?: Record<string, unknown>; securitySchemes?: Record<string, unknown> } & Record<string, unknown>
 } & Record<string, unknown>
+
+/** The gateway's own sign-in for agents: a pack's address takes keys only, so its document doesn't offer it. */
+const OAUTH = 'oauth'
 type ToolsDoc = { paths: Paths; tags?: Tag[]; components?: { schemas?: Record<string, unknown> } }
 
 /**
@@ -103,10 +107,14 @@ export const packOpenApi = ({
     },
     tags: [...(gateway.tags ?? []), ...(tools.tags ?? [])].filter((tag) => used.has(tag.name)),
     paths,
+    security: (gateway.security ?? []).filter((scheme) => !(OAUTH in scheme)),
     // The gateway's own schema wins a shared name (CallResult, Problem): the pack's routes are written against it
     components: {
       ...gateway.components,
       schemas: { ...tools.components?.schemas, ...gateway.components.schemas },
+      securitySchemes: Object.fromEntries(
+        Object.entries(gateway.components.securitySchemes ?? {}).filter(([name]) => name !== OAUTH),
+      ),
     },
   }
 }

@@ -62,6 +62,23 @@ describe('a pack’s OpenAPI document', () => {
   })
 })
 
+describe('a pack’s OpenAPI document on a gateway agents can sign in to', () => {
+  it('offers a key only: a pack’s address takes no OAuth sign-in', async () => {
+    const plain = (await read('/openapi.json')) as Parameters<typeof packOpenApi>[0]['gateway']
+    const gateway = {
+      ...plain,
+      security: [...(plain.security ?? []), { oauth: ['read', 'write'] }],
+      components: {
+        ...plain.components,
+        securitySchemes: { ...plain.components.securitySchemes, oauth: { type: 'oauth2' } },
+      },
+    }
+    const doc = packOpenApi({ gateway, tools: { paths: {} }, pack: PACK, url: URL })
+    expect(doc.security).toEqual([{ apiKey: [] }])
+    expect(Object.keys(doc.components.securitySchemes ?? {})).toEqual(['apiKey'])
+  })
+})
+
 describe('a pack’s guide', () => {
   const guide = packGuide({
     pack: PACK,
