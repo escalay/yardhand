@@ -4,14 +4,13 @@ import { linksOf, mintApiKey, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { findability } from '../searches/demand.js'
 import { needsWrite } from '../tools/repo.js'
+import { expiryOf } from './lifetimes.js'
 import { callerOf, describe, entryOf, pinnedBy, requireOwner } from './principals.js'
 import { ME_PATH, PATH, PINS_PATH, type routes } from './routes.js'
 import type { ClientRow } from './schema.js'
 import { KEY_PLACEHOLDER, surfacesOf } from './setup.js'
 
 type Routes = typeof routes
-
-const LIFETIME_MS = { '8h': 8 * 3_600_000, '1d': 24 * 3_600_000, '7d': 7 * 24 * 3_600_000 } as const
 
 export const clientsHandlers = ({
   clients,
@@ -229,8 +228,7 @@ export const clientsHandlers = ({
       keyHash: hash,
       packIds: chosen?.ids ?? [],
       packId: chosen?.defaultId ?? null,
-      expiresAt:
-        !expiresIn || expiresIn === 'never' ? null : new Date(Date.now() + LIFETIME_MS[expiresIn]).toISOString(),
+      expiresAt: expiryOf(expiresIn),
     })
     principals.addKey(hash, id)
     return c.json({ ...(await cardOf(originOf(c), await rowOf(id))), key }, 201, { location: `${PATH}/${id}` })

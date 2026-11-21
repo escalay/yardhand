@@ -1,6 +1,7 @@
 /** Client routes (owner only, except `/api/me`): make keys, set what each client reaches, pin tools. */
 import { createRoute, z } from '@hono/zod-openapi'
 import { HAL_JSON, LinksSchema, problemResponses } from '../../kit/index.js'
+import { KEY_LIFETIMES } from './lifetimes.js'
 
 export const PATH = '/api/clients'
 export const PINS_PATH = '/api/pins'
@@ -93,7 +94,6 @@ const ClientPatchSchema = ClientInputSchema.partial()
     }),
   })
   .openapi('ClientPatch', { description: 'Fields to change.' })
-export const KEY_LIFETIMES = ['8h', '1d', '7d', 'never'] as const
 const ClientCreateSchema = z
   .object({
     ...clientFields,
@@ -115,10 +115,9 @@ const ClientCreateSchema = z
           'Lock the key to these packs: each is its own connection at /p/<name>/mcp, and `pack` (else the first) is the default.',
         example: ['acme', 'support'],
       }),
-    expiresIn: z
-      .enum(KEY_LIFETIMES)
-      .optional()
-      .openapi({ description: 'How long the key works: 8 hours, a day, a week, or until revoked (the default).' }),
+    expiresIn: z.enum(KEY_LIFETIMES).optional().openapi({
+      description: 'How long the key works: 8 hours, a day, a week, 30 days, or until revoked (the default).',
+    }),
   })
   .openapi('ClientCreate', { description: 'A new API-key client, optionally locked to a pack and expiring.' })
 export const SurfaceSchema = z

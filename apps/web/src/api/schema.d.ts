@@ -1627,10 +1627,10 @@ export interface components {
              */
             packs?: string[];
             /**
-             * @description How long the key works: 8 hours, a day, a week, or until revoked (the default).
+             * @description How long the key works: 8 hours, a day, a week, 30 days, or until revoked (the default).
              * @enum {string}
              */
-            expiresIn?: "8h" | "1d" | "7d" | "never";
+            expiresIn?: "8h" | "1d" | "7d" | "30d" | "never";
         };
         /** @description Fields to change. */
         ClientPatch: {
