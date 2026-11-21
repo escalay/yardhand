@@ -242,11 +242,12 @@ test('a pack sets its tools’ inputs: a fixed value, a default and a variable, 
   const agentDecides = whoFills('id').getByRole('radio', { name: 'Agent decides' })
   await expect(agentDecides).toBeFocused()
   await expect(agentDecides).not.toHaveCSS('box-shadow', resting)
-  // A key held as a hand holds it: the mode follows the focus while the arrow is down
-  await page.keyboard.press('ArrowLeft', { delay: 50 })
-  await expect(whoFills('id').getByRole('radio', { name: 'Default' })).toBeChecked()
-  await page.keyboard.press('ArrowLeft', { delay: 50 })
-  await expect(whoFills('id').getByRole('radio', { name: 'Fixed' })).toBeChecked()
+  // The mode follows the focus while the arrow is down, so the key is let go only once it has
+  for (const mode of ['Default', 'Fixed']) {
+    await page.keyboard.down('ArrowLeft')
+    await expect(whoFills('id').getByRole('radio', { name: mode })).toBeChecked()
+    await page.keyboard.up('ArrowLeft')
+  }
   await expect(page.getByText('Filled on every call and hidden from the pack’s keys.')).toBeVisible()
 
   // Fixed to a variable, picked from the pack's own
