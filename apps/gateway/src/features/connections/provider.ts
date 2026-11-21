@@ -98,14 +98,14 @@ export const signInViaOf = async (vault: Vault, upstreamId: string): Promise<Sig
   (await vault.get<Stored>(connectionSecretOf(upstreamId)))?.via ?? 'gateway'
 
 /**
- * Keeps how this upstream signs in. A registration made for another callback is dropped, so the next connect
- * registers again with the callback in use (a server only sends the owner back to a callback it registered).
+ * Keeps how this upstream signs in. A registration made for another callback is dropped with its tokens (they
+ * refresh only under the client they were issued to), so the next connect registers again with the callback in use.
  */
 export const chooseSignInVia = async (vault: Vault, upstreamId: string, via: SignInVia, redirectUrl: string) => {
   const id = connectionSecretOf(upstreamId)
   const stored = (await vault.get<Stored>(id)) ?? {}
   const registeredFor = (stored.client as { redirect_uris?: string[] } | undefined)?.redirect_uris
-  const { client, ...rest } = stored
-  const keepClient = client && (!registeredFor || registeredFor.includes(redirectUrl))
-  await vault.put(id, { ...rest, ...(keepClient ? { client } : {}), via })
+  const { client, tokens, ...rest } = stored
+  const keep = client && (!registeredFor || registeredFor.includes(redirectUrl))
+  await vault.put(id, { ...rest, ...(keep ? { client, tokens } : {}), via })
 }

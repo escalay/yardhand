@@ -163,7 +163,15 @@ export const feature: Feature = {
     app.openapi(connectRoute, async (c) => {
       requireOwner(c)
       const row = await oauthUpstream(c.req.valid('param').id)
-      const via: SignInVia = c.req.valid('query').via ?? (await signInViaOf(vault, row.id))
+      const current = await signInViaOf(vault, row.id)
+      const asked = c.req.valid('query').via
+      // A sign-in that still works stays as it is: switching would drop its registration and tokens
+      const switching =
+        asked !== undefined &&
+        asked !== current &&
+        (await auth(oauthProviderFor(row.id, undefined, current), { serverUrl: row.url }).catch(() => null)) !==
+          'AUTHORIZED'
+      const via: SignInVia = switching ? asked : current
       await chooseSignInVia(vault, row.id, via, redirectUrlOf(via))
       let authorizeUrl: string | null = null
       const provider = oauthProviderFor(

@@ -395,7 +395,7 @@ export const ConnectionPage = ({ id, tab = 'tools' }: { id: string; tab?: Connec
               Synced <span className="whitespace-nowrap">{ago(row.syncedAt)}</span>.
             </Row>
             {editingKey ? <KeyEditor id={id} onDone={() => setEditingKey(false)} /> : null}
-            {row.auth === 'oauth' ? (
+            {row.auth === 'oauth' && (row.status !== 'live' || loopbackStarted) ? (
               <LoopbackSignIn
                 key={String(loopbackStarted)}
                 id={id}

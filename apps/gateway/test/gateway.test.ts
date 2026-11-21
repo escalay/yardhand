@@ -693,6 +693,13 @@ describe('OAuth upstreams', () => {
       expect((await api(OWNER, '/api/upstreams/secure')).json.status).toBe('live')
       const run = await api(OWNER, '/api/calls', { method: 'POST', body: { tool: 'secure.ping', arguments: {} } })
       expect(run.json.result.content[0].text).toBe('pong')
+      // Asking for another way to sign in leaves a sign-in that works as it is
+      expect((await api(OWNER, '/api/upstreams/secure/connect?via=loopback', { method: 'POST' })).json).toMatchObject({
+        connected: true,
+        via: 'gateway',
+      })
+      const still = await api(OWNER, '/api/calls', { method: 'POST', body: { tool: 'secure.ping', arguments: {} } })
+      expect(still.json.result.content[0].text).toBe('pong')
       // Links and the passthrough reach it with the stored OAuth token too
       const linked = await app.request('/u/secure/r/api/ping', { headers: { authorization: `Bearer ${OWNER}` } })
       expect(await linked.json()).toEqual({ pong: true })
