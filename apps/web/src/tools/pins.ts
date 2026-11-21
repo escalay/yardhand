@@ -1,4 +1,4 @@
-/** Pinning a tool for every agent without its own pins (the global pins, at most 40). */
+/** Pinning a tool for every agent outside a pack without its own pins (the global pins, at most 40). */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api, unwrap } from '@/api/client'
