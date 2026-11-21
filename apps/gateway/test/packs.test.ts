@@ -1341,6 +1341,7 @@ describe('packs in the config', () => {
             wording: 'Says it back. Loud pack wording.',
             alias: null,
             fixed: null,
+            defaults: null,
           },
           {
             name: 'fixture.shout',
@@ -1349,10 +1350,12 @@ describe('packs in the config', () => {
             wording: null,
             alias: null,
             fixed: null,
+            defaults: null,
           },
         ],
         playbooks: ['fixture-say-it-back'],
         manuals: ['fixture'],
+        variables: [],
       },
     ])
     expect(exported.clients).toContainEqual(expect.objectContaining({ name: 'loud-reader', pack: 'loud' }))
@@ -1412,5 +1415,122 @@ describe('packs in the config', () => {
 
     // A third import changes nothing
     expect((await send('/api/config', 'POST', exported)).packs).toEqual({ created: [], filled: [] })
+  })
+
+  it('carry their variables and defaults, checked on the way in with the variables filled', async () => {
+    await owner('/api/packs', { method: 'POST', body: { name: 'porch', title: 'Porch', description: 'Greets.' } })
+    await owner('/api/packs/porch/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'who', value: 'the desk', description: 'Who greets.' }] },
+    })
+    const added = await owner('/api/packs/porch', {
+      method: 'PATCH',
+      body: {
+        add: {
+          tools: [
+            { name: 'fixture.greet', alias: 'greet_default', defaults: { from: '{{who}}' } },
+            { name: 'fixture.greet', alias: 'greet_fixed', fixed: { from: 'Hello from {{who}}' } },
+          ],
+        },
+      },
+    })
+    expect(added.status).toBe(200)
+    const exported = (await owner('/api/config')).json
+    const porch = exported.packs.find((pack: { name: string }) => pack.name === 'porch')
+    expect(porch).toEqual({
+      name: 'porch',
+      title: 'Porch',
+      description: 'Greets.',
+      tools: [
+        {
+          name: 'fixture.greet',
+          reason: 'picked',
+          via: null,
+          wording: null,
+          alias: 'greet_default',
+          fixed: null,
+          defaults: { from: '{{who}}' },
+        },
+        {
+          name: 'fixture.greet',
+          reason: 'picked',
+          via: null,
+          wording: null,
+          alias: 'greet_fixed',
+          fixed: { from: 'Hello from {{who}}' },
+          defaults: null,
+        },
+      ],
+      playbooks: [],
+      manuals: [],
+      variables: [{ name: 'who', value: 'the desk', description: 'Who greets.' }],
+    })
+
+    const fresh = await createApp({
+      db: await testDb(),
+      env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: randomBytes(32).toString('base64') },
+    })
+    const send = async (path: string, method: string, body?: unknown) => {
+      const response = await fresh.request(path, {
+        method,
+        headers: { authorization: `Bearer ${OWNER}`, 'content-type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      })
+      return (await response.json()) as any
+    }
+    // A tool whose value its schema refuses stays out and says why; the rest of the pack comes in
+    const wanted = {
+      ...exported,
+      packs: [
+        {
+          ...porch,
+          tools: [...porch.tools, { name: 'fixture.greet', alias: 'greet_bad', fixed: { colour: '{{who}}' } }],
+        },
+      ],
+    }
+    await send('/api/config', 'POST', { upstreams: exported.upstreams })
+    await send('/api/upstreams/fixture', 'PATCH', { auth: { type: 'bearer', value: 'fixture-token' } })
+    const first = await send('/api/config', 'POST', wanted)
+    expect(first.packs).toEqual({ created: ['porch'], filled: [] })
+    expect(first.skipped.filter((line: string) => line.startsWith('pack porch'))).toEqual([
+      'pack porch tool greet_bad: fixture.greet has no input colour',
+    ])
+    const back = await send('/api/packs/porch', 'GET')
+    expect(back.variables).toEqual([
+      { name: 'who', value: 'the desk', description: 'Who greets.', usedBy: ['greet_default', 'greet_fixed'] },
+    ])
+    expect(
+      back.tools.map((tool: { name: string; fixed: object; defaults: object }) => [
+        tool.name,
+        tool.fixed,
+        tool.defaults,
+      ]),
+    ).toEqual([
+      ['greet_default', {}, { from: '{{who}}' }],
+      ['greet_fixed', { from: 'Hello from {{who}}' }, {}],
+    ])
+    expect(back.findings).toEqual([])
+
+    // A variable the pack already has keeps its value: an import only adds. One that would break a value stays out
+    await send('/api/packs/porch/tools/greet_default', 'PATCH', { defaults: { from: '{{place}}' } })
+    const again = await send('/api/config', 'POST', {
+      packs: [
+        {
+          ...porch,
+          variables: [
+            { name: 'who', value: 'the boss' },
+            { name: 'days', value: 7 },
+            { name: 'place', value: 7 },
+          ],
+        },
+      ],
+    })
+    expect(again.packs).toEqual({ created: [], filled: ['porch'] })
+    expect(again.skipped).toEqual(['pack porch variable place: from must be string'])
+    expect((await send('/api/packs/porch', 'GET')).variables).toEqual([
+      expect.objectContaining({ name: 'who', value: 'the desk' }),
+      expect.objectContaining({ name: 'days', value: 7, description: null }),
+    ])
+    expect((await owner('/api/packs/porch', { method: 'DELETE' })).status).toBe(204)
   })
 })

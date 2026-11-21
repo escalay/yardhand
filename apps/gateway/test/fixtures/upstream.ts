@@ -16,7 +16,8 @@ import { z } from 'zod'
 
 /**
  * `asking` adds tools that ask mid-call (`delete_menus`, `summarize`) and one that reports progress (`count_slowly`);
- * `greeting` adds `greet` (`to` and `from`; `state.greetFrom = false` drops `from`, as an upstream renaming an input).
+ * `greeting` adds `greet` (`to` and `from`; `state.greetFrom = false` drops `from`, as an upstream renaming an input,
+ * and `'enum'` keeps it but takes only `the desk` or `the boss`, as an upstream narrowing one).
  */
 export const startUpstream = async ({
   token,
@@ -31,7 +32,7 @@ export const startUpstream = async ({
     echoDescription: 'Echoes the text back.',
     echoRoute: 'GET /api/v1/echo',
     whisper: false,
-    greetFrom: true,
+    greetFrom: true as true | false | 'enum',
     calls: 0,
     manual: 'Start with echo for anything you want said back.',
     playbookDescription: 'Says a topic back, loudly.',
@@ -76,7 +77,13 @@ export const startUpstream = async ({
       content: [{ type: 'text' as const, text: `Hello ${args.to}, from ${args.from ?? args.sender}` }],
     })
     const greetMeta = { description: 'Greets someone, from someone.', annotations: { readOnlyHint: true } }
-    if (greeting && state.greetFrom)
+    if (greeting && state.greetFrom === 'enum')
+      server.registerTool(
+        'greet',
+        { ...greetMeta, inputSchema: z.object({ to: z.string(), from: z.enum(['the desk', 'the boss']) }) },
+        greet,
+      )
+    else if (greeting && state.greetFrom)
       server.registerTool('greet', { ...greetMeta, inputSchema: z.object({ to: z.string(), from: z.string() }) }, greet)
     else if (greeting)
       server.registerTool(

@@ -1,4 +1,7 @@
-/** Pack handlers (owner only). Every change tells agents their lists changed: a pack key's tools are the pack. */
+/**
+ * Pack handlers (owner only). Every change tells agents their lists changed: a pack key's tools are the pack. A
+ * change to what a pack sets is judged before it is written (`checks.ts`): refused only for what it breaks itself.
+ */
 import type { RouteHandler } from '@hono/zod-openapi'
 import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
@@ -7,13 +10,16 @@ import { playbookTitleOf } from '../catalog/content.js'
 import { OWNER, requireOwner } from '../clients/principals.js'
 import { KEY_PLACEHOLDER, surfacesOf } from '../clients/setup.js'
 import { summaryOf } from '../tools/handlers.js'
-import { needsWrite } from '../tools/repo.js'
-import { type Fixed, fixedOf, fixedProblems, lostInputs } from './entries.js'
+import { type LiveTool, needsWrite } from '../tools/repo.js'
+import { checkPack, judge, throwOnRefused, writersOf } from './checks.js'
+import { defaultsOf, fixedOf, inputProblems, lostInputs } from './entries.js'
 import { flagOf, packFlags } from './flags.js'
 import type { PackContents } from './repo.js'
 import { FLAGS_PATH, PATH, type routes } from './routes.js'
 import type { PackRow, PackToolRow } from './schema.js'
+import { packStateOf, withEntry, withTools, withVariables } from './state.js'
 import { likelyUses, type Use, usesIn } from './uses.js'
+import { resolveValue, type Variables, variablesFrom } from './values.js'
 
 type Routes = typeof routes
 
@@ -52,21 +58,42 @@ export const packsHandlers = ({
 
   /**
    * A pack's tools as the board shows them: the name its keys call each, the tool behind it, live text, the pack's
-   * wording and fixed inputs, and a flag when the upstream moved on.
+   * wording, who fills each input (as stored, and with the pack's variables filled in), and a flag when the upstream
+   * moved on.
    */
-  const toolsOf = async (rows: PackToolRow[]) => {
+  const toolsOf = async (rows: PackToolRow[], variables: Variables) => {
     const live = new Map((await tools.liveMany(rows.map((row) => row.toolName))).map((tool) => [tool.name, tool]))
     return Promise.all(
       rows.map(async (row) => {
         const tool = live.get(row.toolName)
         const flag = flagOf(tool, row.description && row.basedOn ? await tools.version(row.basedOn) : undefined)
         const fixed = fixedOf(row)
+        const defaults = defaultsOf(row)
+        const problems = tool ? inputProblems(tool, { fixed, defaults }, variables) : []
+        const saidOf = (input: string, level: 'error' | 'warning') =>
+          problems.find((problem) => problem.input === input && problem.level === level)?.message ?? null
+        const required = Array.isArray(tool?.inputSchema.required) ? (tool.inputSchema.required as string[]) : []
         return {
           name: row.name,
           tool: row.toolName,
           alias: row.name === row.toolName ? null : row.name,
           fixed,
-          lostInputs: tool ? lostInputs(tool.inputSchema, fixed) : [],
+          defaults,
+          inputs: Object.keys((tool?.inputSchema.properties ?? {}) as object).map((input) => {
+            const mode =
+              input in fixed ? ('fixed' as const) : input in defaults ? ('default' as const) : ('agent' as const)
+            const value = mode === 'fixed' ? fixed[input] : mode === 'default' ? defaults[input] : null
+            return {
+              name: input,
+              mode,
+              value,
+              resolved: mode === 'agent' ? null : resolveValue(value, variables).value,
+              required: required.includes(input),
+              problem: saidOf(input, 'error'),
+              note: saidOf(input, 'warning'),
+            }
+          }),
+          lostInputs: tool ? lostInputs(tool.inputSchema, { ...fixed, ...defaults }) : [],
           upstream: tool?.upstreamId ?? upstreamOfTool(row.toolName),
           title: tool?.title ?? null,
           description: row.description ?? tool?.description ?? '',
@@ -105,7 +132,7 @@ export const packsHandlers = ({
   const cardOf = async (origin: string, pack: PackRow, contents?: PackContents) => {
     const held = contents ?? (await packs.contentsOf(pack))
     const [toolRows, keys, items] = await Promise.all([
-      toolsOf(held.tools),
+      toolsOf(held.tools, variablesFrom(held.variables)),
       clients.ofPack(pack.id),
       catalog.liveNames([...held.playbooks, ...held.manuals]),
     ])
@@ -121,7 +148,9 @@ export const packsHandlers = ({
           ...new Set([...toolRows.map((tool) => tool.upstream), ...items.map((item) => item.upstreamId)]),
         ].sort(),
         keys: live.length,
-        flags: toolRows.filter((tool) => tool.flag || tool.lostInputs.length).length,
+        flags: toolRows.filter(
+          (tool) => tool.flag || tool.lostInputs.length || tool.inputs.some((input) => input.problem),
+        ).length,
         updatedAt: pack.updatedAt,
         _links: linksOf(origin, { self: `${PATH}/${pack.name}`, list: PATH }),
       },
@@ -145,9 +174,15 @@ export const packsHandlers = ({
 
   const detailOf = async (origin: string, pack: PackRow) => {
     const { card, held, toolRows, keys } = await cardOf(origin, pack)
+    const state = await packStateOf({ packs, tools }, pack, held)
     return {
       ...card,
       tools: toolRows,
+      variables: state.variables.map((variable) => ({
+        ...variable,
+        usedBy: [...new Set(writersOf(state, variable.name).map((writer) => writer.tool))],
+      })),
+      findings: checkPack(state).map(({ key: _, ...finding }) => finding),
       playbooks: await itemsOf('playbook', held.playbooks),
       manuals: await itemsOf('manual', held.manuals),
       keyList: keys.map((key) => ({
@@ -272,21 +307,8 @@ export const packsHandlers = ({
     )
   }
 
-  /** Throws 400 naming every fixed value its live tool refuses. */
-  const checkFixed = (entries: { tool: { name: string; inputSchema: Record<string, unknown> }; fixed: Fixed }[]) => {
-    const problems = entries.flatMap(({ tool, fixed }) => fixedProblems(tool, fixed))
-    if (problems.length)
-      throw new ProblemError('bad_request', {
-        detail: `Fixed inputs don't fit: ${problems.join('; ')}. GET /api/tools/{name} shows each tool's inputs.`,
-      })
-  }
-
-  /** Throws 400 naming every tool, playbook or manual that isn't live, and every fixed value that doesn't fit. */
-  const checkAdds = async (add: {
-    tools?: { name: string; fixed?: Fixed | undefined }[]
-    playbooks?: string[]
-    manuals?: string[]
-  }) => {
+  /** Throws 400 naming every tool, playbook or manual that isn't live. */
+  const checkAdds = async (add: { tools?: { name: string }[]; playbooks?: string[]; manuals?: string[] }) => {
     const toolNames = add.tools?.map((tool) => tool.name) ?? []
     const liveTools = new Map((await tools.liveMany(toolNames)).map((tool) => [tool.name, tool]))
     const missing = toolNames.filter((name) => !liveTools.has(name))
@@ -299,32 +321,52 @@ export const packsHandlers = ({
       throw new ProblemError('bad_request', {
         detail: `Not live, so not added: ${missing.join(', ')}. GET /api/tools and /api/playbooks list what is.`,
       })
-    checkFixed(
-      (add.tools ?? []).flatMap((tool) => {
-        const live = liveTools.get(tool.name)
-        return live && tool.fixed ? [{ tool: live, fixed: tool.fixed }] : []
-      }),
-    )
+    return liveTools
   }
 
   const update: RouteHandler<Routes['update']> = async (c) => {
     requireOwner(c)
     const pack = await packOf(c.req.valid('param').name)
     const { title, description, add, remove } = c.req.valid('json')
-    if (add) await checkAdds(add)
+    const liveTools = add ? await checkAdds(add) : new Map<string, LiveTool>()
+    const before = await packStateOf({ packs, tools }, pack)
+    const have = new Set(before.tools.map((tool) => tool.name))
+    const adding = (add?.tools ?? []).map((tool) => ({ ...tool, as: tool.alias ?? tool.name }))
+    // A name the pack already has stays as it is, so only the new ones are this request's to answer for
+    const fresh = adding.filter((tool) => !have.has(tool.as))
+    const after = withTools(
+      before,
+      adding.map((tool) => ({
+        key: tool.as,
+        name: tool.as,
+        tool: tool.name,
+        live: liveTools.get(tool.name) ?? null,
+        fixed: tool.fixed ?? {},
+        defaults: tool.defaults ?? {},
+      })),
+      remove?.tools ?? [],
+    )
+    throwOnRefused(
+      judge(
+        before,
+        after,
+        fresh.flatMap((tool) => [`tools.${tool.as}.fixed`, `tools.${tool.as}.defaults`]),
+      ).refused,
+    )
     await packs.update(pack.id, {
       ...(title === undefined ? {} : { title }),
       ...(description === undefined ? {} : { description }),
     })
-    if (add?.tools?.length)
+    if (adding.length)
       await packs.addTools(
         pack.id,
-        add.tools.map((tool) => ({
+        adding.map((tool) => ({
           name: tool.name,
           reason: tool.reason,
           via: tool.via ?? null,
           alias: tool.alias ?? null,
           fixed: tool.fixed ?? null,
+          defaults: tool.defaults ?? null,
         })),
       )
     if (add?.playbooks?.length) await packs.addItems(pack.id, 'playbook', add.playbooks)
@@ -360,7 +402,7 @@ export const packsHandlers = ({
     return row
   }
   const shownEntry = async (pack: PackRow, name: string) => {
-    const [shown] = await toolsOf([await entryIn(pack, name)])
+    const [shown] = await toolsOf([await entryIn(pack, name)], variablesFrom(await packs.variablesOf(pack.id)))
     if (!shown) throw new ProblemError('not_found', { detail: `${pack.title} has no tool called ${name}.` })
     return shown
   }
@@ -386,26 +428,53 @@ export const packsHandlers = ({
     const { name, tool: entryName } = c.req.valid('param')
     const pack = await packOf(name)
     const row = await entryIn(pack, entryName)
-    const { alias, fixed } = c.req.valid('json')
+    const { alias, fixed, defaults } = c.req.valid('json')
+    const before = await packStateOf({ packs, tools }, pack)
     const next = alias === undefined ? row.name : (alias ?? row.toolName)
-    if (next !== row.name && (await packs.contentsOf(pack)).tools.some((tool) => tool.name === next))
+    if (next !== row.name && before.tools.some((tool) => tool.name === next))
       throw new ProblemError('conflict', {
         detail: `${pack.title} already has a tool called ${next}: pick another alias.`,
       })
-    if (fixed) {
-      const live = await tools.live(row.toolName)
-      if (!live && Object.keys(fixed).length)
-        throw new ProblemError('conflict', {
-          detail: `${row.toolName} is not live, so its inputs can't be checked: sync its upstream first.`,
-        })
-      if (live) checkFixed([{ tool: live, fixed }])
-    }
+    const sets = Object.keys(fixed ?? {}).length + Object.keys(defaults ?? {}).length
+    if (sets && !before.tools.find((tool) => tool.key === row.name)?.live)
+      throw new ProblemError('conflict', {
+        detail: `${row.toolName} is not live, so its inputs can't be checked: sync its upstream first.`,
+      })
+    const after = withEntry(before, row.name, {
+      name: next,
+      ...(fixed === undefined ? {} : { fixed: fixed ?? {} }),
+      ...(defaults === undefined ? {} : { defaults: defaults ?? {} }),
+    })
+    // Only the maps this request sends are its own: a rename of a flagged tool still goes through
+    throwOnRefused(
+      judge(before, after, [
+        ...(fixed === undefined ? [] : [`tools.${row.name}.fixed`]),
+        ...(defaults === undefined ? [] : [`tools.${row.name}.defaults`]),
+      ]).refused,
+    )
     await packs.setEntry(pack.id, row.name, {
       ...(alias === undefined ? {} : { name: next }),
       ...(fixed === undefined ? {} : { fixed }),
+      ...(defaults === undefined ? {} : { defaults }),
     })
     listsChanged({ tools: true })
     return c.json(await shownEntry(pack, next), 200)
+  }
+
+  const variables: RouteHandler<Routes['variables']> = async (c) => {
+    requireOwner(c)
+    const pack = await packOf(c.req.valid('param').name)
+    const wanted = c.req.valid('json').variables.map((variable) => ({
+      name: variable.name,
+      value: variable.value,
+      description: variable.description ?? null,
+    }))
+    const before = await packStateOf({ packs, tools }, pack)
+    throwOnRefused(judge(before, withVariables(before, wanted), ['variables']).refused)
+    await packs.setVariables(pack.id, wanted)
+    // A new value changes the defaults the pack's keys read
+    listsChanged({ tools: true })
+    return c.json(await detailOf(originOf(c), await packOf(pack.name)), 200)
   }
 
   const uses: RouteHandler<Routes['uses']> = async (c) => {
@@ -434,5 +503,5 @@ export const packsHandlers = ({
     )
   }
 
-  return { flags, list, create, get, setup, update, remove, wording, entry, uses }
+  return { flags, list, create, get, setup, update, remove, wording, entry, variables, uses }
 }

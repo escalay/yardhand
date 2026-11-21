@@ -7,8 +7,11 @@ import { problemResponses } from '../../kit/index.js'
 import { VERSION } from '../../version.js'
 import { requireOwner } from '../clients/principals.js'
 import type { Feature } from '../index.js'
-import { ALIAS, fixedOf, fixedProblems } from '../packs/entries.js'
+import { judge } from '../packs/checks.js'
+import { ALIAS, defaultsOf, fixedOf } from '../packs/entries.js'
 import { PACK_REASONS } from '../packs/schema.js'
+import { packStateOf, withTools, withVariables } from '../packs/state.js'
+import { type Scalar, VARIABLE } from '../packs/values.js'
 
 const TAG = 'Config'
 const ConfigSchema = z
@@ -22,7 +25,7 @@ const route = createRoute({
   tags: [TAG],
   summary: 'Export the settings',
   description:
-    'Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs), playbooks and manuals, as one JSON document (owner only).',
+    'Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs and defaults, as written), variables, playbooks and manuals, as one JSON document (owner only).',
   responses: {
     200: { content: { 'application/json': { schema: ConfigSchema } }, description: 'The settings.' },
     ...problemResponses(401, 403),
@@ -66,8 +69,19 @@ const ImportSchema = z
                 wording: z.string().max(8000).nullable().default(null),
                 alias: z.string().regex(ALIAS).nullable().default(null),
                 fixed: z.record(z.string(), z.unknown()).nullable().default(null),
+                defaults: z.record(z.string(), z.unknown()).nullable().default(null),
               }),
             )
+            .default([]),
+          variables: z
+            .array(
+              z.object({
+                name: z.string().regex(VARIABLE),
+                value: z.union([z.string().max(4000), z.number(), z.boolean()]),
+                description: z.string().max(400).nullable().default(null),
+              }),
+            )
+            .max(100)
             .default([]),
           playbooks: z.array(z.string().min(1).max(160)).default([]),
           manuals: z.array(z.string().min(1).max(160)).default([]),
@@ -106,7 +120,7 @@ const importRoute = createRoute({
   tags: [TAG],
   summary: 'Import the settings',
   description:
-    'Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the tools, playbooks and manuals it lacks. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.',
+    'Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the variables, tools, playbooks and manuals it lacks. Variables go in first, so a tool’s fixed inputs and defaults are checked with them filled in; a variable or a tool that would leave a value its tool’s live schema refuses is skipped and named. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.',
   request: { body: { required: true, content: { 'application/json': { schema: ImportSchema } } } },
   responses: {
     200: { content: { 'application/json': { schema: ImportResultSchema } }, description: 'What changed.' },
@@ -172,9 +186,21 @@ export const feature: Feature = {
                 wording: tool.description,
                 alias: tool.name === tool.toolName ? null : tool.name,
                 fixed: tool.fixed ? fixedOf(tool) : null,
+                defaults: tool.defaults ? defaultsOf(tool) : null,
               })),
               playbooks: held.playbooks,
               manuals: held.manuals,
+              variables: held.variables.flatMap((variable) =>
+                variable.value === null
+                  ? []
+                  : [
+                      {
+                        name: variable.name,
+                        value: JSON.parse(variable.value) as Scalar,
+                        description: variable.description,
+                      },
+                    ],
+              ),
             }
           }),
         ),
@@ -234,18 +260,59 @@ export const feature: Feature = {
         const packId =
           existing?.id ??
           (await packs.create({ name: wanted.name, title: wanted.title, description: wanted.description }))
+        const pack = existing ?? (await packs.byId(packId))
+        if (!pack) continue
         const held = existing ? await packs.contentsOf(existing) : null
+        // Each addition is judged as a change of its own, so a problem the pack already has never keeps a good one out
+        let state = await packStateOf({ packs, tools }, pack)
+        // Variables first: the values of the tools that follow are checked with them filled in
+        const declaring: typeof wanted.variables = []
+        for (const variable of wanted.variables) {
+          if (state.variables.some((known) => known.name === variable.name)) continue
+          const after = withVariables(state, [...state.variables, variable])
+          const { refused } = judge(state, after, [`variables.${variable.name}`])
+          if (refused.length)
+            result.skipped.push(
+              `pack ${wanted.name} variable ${variable.name}: ${refused.map((finding) => finding.message).join('; ')}`,
+            )
+          else {
+            declaring.push(variable)
+            state = after
+          }
+        }
+        const variables = await packs.addVariables(packId, declaring)
         // A pack tool is the name its keys call it: the alias, else the tool's own
-        const have = new Set(held?.tools.map((tool) => tool.name))
+        const have = new Set(state.tools.map((tool) => tool.name))
         const missing = wanted.tools.filter((tool) => !have.has(tool.alias ?? tool.name))
         const live = new Map((await tools.liveMany(missing.map((tool) => tool.name))).map((tool) => [tool.name, tool]))
         const adding: typeof missing = []
         for (const tool of missing) {
+          const as = tool.alias ?? tool.name
           const found = live.get(tool.name)
-          const problems = !found ? ['not live yet'] : tool.fixed ? fixedProblems(found, tool.fixed) : []
-          if (problems.length)
-            result.skipped.push(`pack ${wanted.name} tool ${tool.alias ?? tool.name}: ${problems.join('; ')}`)
-          else adding.push(tool)
+          const after = withTools(
+            state,
+            [
+              {
+                key: as,
+                name: as,
+                tool: tool.name,
+                live: found ?? null,
+                fixed: tool.fixed ?? {},
+                defaults: tool.defaults ?? {},
+              },
+            ],
+            [],
+          )
+          const problems = !found
+            ? ['not live yet']
+            : judge(state, after, [`tools.${as}.fixed`, `tools.${as}.defaults`]).refused.map(
+                (finding) => finding.message,
+              )
+          if (problems.length) result.skipped.push(`pack ${wanted.name} tool ${as}: ${problems.join('; ')}`)
+          else {
+            adding.push(tool)
+            state = after
+          }
         }
         const added = await packs.addTools(packId, adding)
         for (const tool of adding)
@@ -268,7 +335,7 @@ export const feature: Feature = {
           items += liveNames.length
         }
         if (!existing) result.packs.created.push(wanted.name)
-        else if (added + items) result.packs.filled.push(wanted.name)
+        else if (variables + added + items) result.packs.filled.push(wanted.name)
       }
       return c.json(result, 200)
     })

@@ -90,7 +90,7 @@ export const createPipeline =
       throw problem
     }
 
-    // A pack calls its tools by its own names and fills the inputs it fixes
+    // A pack calls its tools by its own names, fills the inputs it fixes and gives others a default
     const entry = entryOf(principal, toolName)
     const tool = await tools.live(entry?.tool ?? toolName)
     if (!tool || !allows(principal, tool.upstreamId))
@@ -148,7 +148,8 @@ export const createPipeline =
       )
     let sent: Record<string, unknown>
     try {
-      sent = checkArguments(tool, { ...args, ...entry.fixed })
+      // The caller's value wins over the pack's default, a fixed value over both
+      sent = checkArguments(tool, { ...entry.defaults, ...args, ...entry.fixed })
     } catch (problem) {
       return refuse(problem as ProblemError, tool.upstreamId)
     }

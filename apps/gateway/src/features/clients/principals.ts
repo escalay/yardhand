@@ -4,14 +4,18 @@
  * database and join the kit's key map at boot and whenever one is made or revoked.
  *
  * A key locked to a pack reaches only the pack: its upstreams become the pack's, and `reaches` / `runsTool` / `holds`
- * keep tools, playbooks and manuals to what is in it. A pack names its tools its own way (`entryOf`, `shownAs`).
+ * keep tools, playbooks and manuals to what is in it. A pack names its tools its own way and sets some of their
+ * inputs (`entryOf`, `shownAs`). `packScopeFrom` is the one builder of that lock, with the pack's variables filled
+ * into the values it fixes and defaults.
  * The owner asking for a pack (its address or the header) is answered as a write key of that pack would be.
  */
 import type { Context } from 'hono'
 import { type Caller, ProblemError } from '../../kit/index.js'
 import type { CatalogRepo } from '../catalog/repo.js'
-import { fixedOf, type PackEntry, presented } from '../packs/entries.js'
-import type { PacksRepo } from '../packs/repo.js'
+import { type Fixed, type PackEntry, presented, resolveEntry } from '../packs/entries.js'
+import type { PackContents, PacksRepo } from '../packs/repo.js'
+import type { PackRow } from '../packs/schema.js'
+import { variablesFrom } from '../packs/values.js'
 import { isOff, type LiveTool, needsWrite } from '../tools/repo.js'
 import type { ClientsRepo } from './repo.js'
 import type { ClientRow } from './schema.js'
@@ -22,10 +26,27 @@ export type PackScope = {
   name: string
   title: string
   description: string
-  /** The names its keys call, in order, each with the tool behind it, the pack's wording and what it fixes. */
+  /** The names its keys call, in order, each with the tool behind it, the pack's wording and the inputs it sets. */
   tools: Map<string, PackEntry>
   playbooks: Set<string>
   manuals: Set<string>
+}
+
+/** The lock for a pack with these contents: the only place a `PackScope` is built. */
+export const packScopeFrom = (
+  pack: Pick<PackRow, 'id' | 'name' | 'title' | 'description'>,
+  contents: Pick<PackContents, 'tools' | 'variables' | 'playbooks' | 'manuals'>,
+): PackScope => {
+  const variables = variablesFrom(contents.variables)
+  return {
+    id: pack.id,
+    name: pack.name,
+    title: pack.title,
+    description: pack.description,
+    tools: new Map(contents.tools.map((row) => [row.name, resolveEntry(row, variables)])),
+    playbooks: new Set(contents.playbooks),
+    manuals: new Set(contents.manuals),
+  }
 }
 
 export type Principal = {
@@ -35,7 +56,8 @@ export type Principal = {
   scope: 'read' | 'write'
   upstreams: 'all' | string[]
   /**
-   * The client's own pins, or null. A pin names what the client calls: inside a pack, the pack's name for the tool.
+   * The client's own pins, or null. A pin names what the client calls: inside a pack, the pack's name for the tool,
+   * shown as the pack sets its inputs.
    * Null means the global pins outside a pack and every tool of the pack inside one, where global pins never apply.
    */
   pins: string[] | null
@@ -89,14 +111,14 @@ export const reaches = (principal: Principal, name: string) => !principal.pack |
 export const runsTool = (principal: Principal, toolName: string) =>
   !principal.pack || [...principal.pack.tools.values()].some((entry) => entry.tool === toolName)
 
-/** The tool behind a name this principal calls, with the inputs its pack fills; null when its pack has no such name. */
-export const entryOf = (
-  principal: Principal,
-  name: string,
-): { tool: string; fixed: Record<string, unknown> } | null => {
-  if (!principal.pack) return { tool: name, fixed: {} }
+/**
+ * The tool behind a name this principal calls, with the inputs its pack fixes and those it gives a default; null
+ * when its pack has no such name.
+ */
+export const entryOf = (principal: Principal, name: string): { tool: string; fixed: Fixed; defaults: Fixed } | null => {
+  if (!principal.pack) return { tool: name, fixed: {}, defaults: {} }
   const entry = principal.pack.tools.get(name)
-  return entry ? { tool: entry.tool, fixed: entry.fixed } : null
+  return entry ? { tool: entry.tool, fixed: entry.fixed, defaults: entry.defaults } : null
 }
 
 /** May it read this playbook or manual? A pack holds its own; without one, its allowlist decides. */
@@ -110,7 +132,7 @@ export const holds = (principal: Principal, item: { kind: string; name: string }
 
 /**
  * The tool as this principal reads it: as itself outside a pack; inside one, once per name the pack runs it under,
- * each with that name, the pack's wording and the schema without what it fixes (in pack order).
+ * each with that name, the pack's wording and its inputs as the pack sets them (in pack order).
  */
 export const shownAs = <T extends { name: string; description: string; inputSchema: Record<string, unknown> }>(
   principal: Principal,
@@ -156,18 +178,7 @@ export const createPrincipals = ({
   const packScopeOf = async (packId: string): Promise<PackScope | null> => {
     const pack = await packs.byId(packId)
     if (!pack) return null
-    const contents = await packs.contentsOf(pack)
-    return {
-      id: pack.id,
-      name: pack.name,
-      title: pack.title,
-      description: pack.description,
-      tools: new Map(
-        contents.tools.map((row) => [row.name, { tool: row.toolName, wording: row.description, fixed: fixedOf(row) }]),
-      ),
-      playbooks: new Set(contents.playbooks),
-      manuals: new Set(contents.manuals),
-    }
+    return packScopeFrom(pack, await packs.contentsOf(pack))
   }
   /** A pack's upstreams: those of its tools, playbooks and manuals. */
   const upstreamsOfPack = async (scope: PackScope) => {
@@ -210,15 +221,11 @@ export const createPrincipals = ({
       resultCap: row.resultCap,
       // A key whose pack was removed reaches nothing rather than everything
       pack: chosen.id
-        ? (pack ?? {
-            id: chosen.id,
-            name: 'removed',
-            title: 'a removed pack',
-            description: '',
-            tools: new Map(),
-            playbooks: new Set(),
-            manuals: new Set(),
-          })
+        ? (pack ??
+          packScopeFrom(
+            { id: chosen.id, name: 'removed', title: 'a removed pack', description: '' },
+            { tools: [], variables: [], playbooks: [], manuals: [] },
+          ))
         : null,
       packs: byDefault.map((opened) => ({ name: opened.name, title: opened.title })),
     }
