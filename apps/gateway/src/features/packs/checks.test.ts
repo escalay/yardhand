@@ -385,6 +385,16 @@ describe('checkPack on a pack’s own playbooks', () => {
     ])
   })
 
+  it('knows a name the text was written for however it is shaped', () => {
+    const state = desk({ playbooks: [playbook('Run `greet`, then `wave`.', 'say-hello', ['greet'])] })
+    expect(checkPack(state).map((finding) => [finding.code, finding.message])).toEqual([
+      [
+        'left_pack',
+        '`greet` is no longer a tool of Front desk: write the name it has now, or take it out of the text.',
+      ],
+    ])
+  })
+
   it('errors on a {{word}} that is neither an argument nor a variable: in a text it is never sent as written', () => {
     expect(
       found('Greet {{guest}} from {{desk}}.').map((finding) => [finding.level, finding.code, finding.message]),

@@ -132,8 +132,7 @@ const readText = (
           message: `\`${word}\` is called ${aliases.join(' and ')} in ${state.title}: write ${aliases.length === 1 ? 'that' : 'the one you mean'}.`,
         },
       ]
-    if (!toolShaped(word)) return []
-    if (state.upstreams.includes(word.slice(0, Math.max(0, word.indexOf('.')))))
+    if (toolShaped(word) && state.upstreams.includes(word.slice(0, Math.max(0, word.indexOf('.')))))
       return [
         {
           level: 'error',
@@ -151,7 +150,7 @@ const readText = (
           message: `\`${word}\` is no longer a tool of ${state.title}: write the name it has now, or take it out of the text.`,
         },
       ]
-    return known.has(word)
+    return !toolShaped(word) || known.has(word)
       ? []
       : [
           {
