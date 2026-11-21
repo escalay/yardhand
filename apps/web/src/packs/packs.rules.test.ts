@@ -4,10 +4,14 @@ import {
   addLabel,
   aliasOf,
   byConnection,
+  checklistOf,
+  coversLine,
   effectOf,
+  emptyLine,
   expiryOf,
   fixedLine,
   freeAlias,
+  hiddenLine,
   holdsLine,
   isAlias,
   isPackName,
@@ -15,7 +19,9 @@ import {
   packQueryOf,
   preselected,
   reasonOf,
+  shortAddress,
   slugOf,
+  stoodOutLine,
   suggestionsFor,
   toolkitOf,
   wordingOf,
@@ -154,5 +160,80 @@ describe('a tool in one line', () => {
     expect(accountAlias('Primary Personal Account', 'List Events')).toBe('primary_list_events')
     expect(freeAlias('work_inbox', new Set(['work_inbox', 'work_inbox_2']))).toBe('work_inbox_3')
     expect(freeAlias('work_inbox', new Set())).toBe('work_inbox')
+  })
+})
+
+describe('setting a pack up', () => {
+  const pack = (extra: Record<string, unknown> = {}) => ({
+    description: '',
+    counts: { tools: 0, playbooks: 0, manuals: 0 },
+    triedAt: null,
+    lastCallAt: null,
+    ...extra,
+  })
+  const doneOf = (list: ReturnType<typeof checklistOf>) => list.steps.filter((step) => step.done).map((step) => step.id)
+
+  it('lists the four steps in order, none done for an empty pack', () => {
+    const list = checklistOf(pack({ description: '  ' }))
+    expect(list.steps.map((step) => step.id)).toEqual(['describe', 'tools', 'try', 'connect'])
+    expect(list.steps.map((step) => step.label)).toEqual([
+      'Describe it',
+      'Add tools',
+      'Try it as the pack',
+      'Connect an app',
+    ])
+    expect(list).toMatchObject({ done: 0, total: 4, complete: false })
+  })
+
+  it('ticks a described pack with tools, then the try', () => {
+    const built = pack({ description: 'Say things back.', counts: { tools: 2, playbooks: 0, manuals: 0 } })
+    expect(doneOf(checklistOf(built))).toEqual(['describe', 'tools'])
+    const tried = checklistOf({ ...built, triedAt: '2026-11-21T10:00:00Z' })
+    expect(doneOf(tried)).toEqual(['describe', 'tools', 'try'])
+    expect(tried).toMatchObject({ done: 3, complete: false })
+  })
+
+  it('counts a pack whose keys already call as tried and connected', () => {
+    const used = checklistOf(
+      pack({
+        description: 'Say things back.',
+        counts: { tools: 2, playbooks: 0, manuals: 0 },
+        lastCallAt: '2026-11-21T10:00:00Z',
+      }),
+    )
+    expect(used).toMatchObject({ done: 4, total: 4, complete: true })
+  })
+})
+
+describe('trying a pack', () => {
+  it('says what stood out, and how many of the listed tools did not', () => {
+    expect(stoodOutLine(2, 20)).toBe("2 tools stood out · 18 others didn't match")
+    expect(stoodOutLine(1, 2)).toBe("1 tool stood out · 1 other didn't match")
+  })
+
+  it('leaves the rest out when every tool matched or the listed count is not known', () => {
+    expect(stoodOutLine(3, 3)).toBe('3 tools stood out')
+    expect(stoodOutLine(2, null)).toBe('2 tools stood out')
+    expect(stoodOutLine(2, undefined)).toBe('2 tools stood out')
+  })
+
+  it('says nothing matched, in the pack’s title', () => {
+    expect(emptyLine('Career', 'taxes')).toBe('Nothing in Career matches “taxes”.')
+  })
+
+  it('says what the pack covers, as its keys are told', () => {
+    expect(coversLine({ covers: ['Inbox', 'Notes'], more: 0 })).toBe('This pack covers: Inbox, Notes.')
+    expect(coversLine({ covers: ['Inbox', 'Notes'], more: 3 })).toBe('This pack covers: Inbox, Notes, and 3 more.')
+    expect(coversLine({ covers: [], more: 0 })).toBe('This pack holds no tools this key can use.')
+  })
+
+  it('says how many matches a read-only key is not shown', () => {
+    expect(hiddenLine(1)).toBe('1 matching tool changes things and is hidden from this read-only key.')
+    expect(hiddenLine(2)).toBe('2 matching tools change things and are hidden from this read-only key.')
+  })
+
+  it('shows an address without its scheme', () => {
+    expect(shortAddress('https://gw.example.com/p/career')).toBe('gw.example.com/p/career')
+    expect(shortAddress('http://localhost:4400/p/loud')).toBe('localhost:4400/p/loud')
   })
 })
