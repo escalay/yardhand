@@ -114,6 +114,76 @@ describe('a pack’s guide', () => {
     )
   })
 
+  it('opens on the pack’s skill, its headings one level down and its front matter left out', () => {
+    const skill = [
+      '---',
+      'name: desk',
+      'description: "Working with Front desk: Greets for the desk."',
+      '---',
+      '',
+      '# Working with Front desk',
+      '',
+      '## What it is for',
+      '',
+      'Greeting people.',
+      '',
+      '```sh',
+      '# a comment, not a heading',
+      '## nor this',
+      '```',
+      '',
+      '###### As deep as headings go',
+      '',
+      '#not a heading either',
+    ].join('\n')
+    const withSkill = packGuide({ pack: PACK, url: URL, readOnly: false, tools: [], playbooks: [], manuals: [], skill })
+    expect(withSkill).toContain(
+      [
+        'What is listed here is all this address reaches.',
+        '',
+        '## Working with Front desk',
+        '',
+        '### What it is for',
+        '',
+        'Greeting people.',
+        '',
+        '```sh',
+        '# a comment, not a heading',
+        '## nor this',
+        '```',
+        '',
+        '###### As deep as headings go',
+        '',
+        '#not a heading either',
+        '',
+        '## Connect',
+      ].join('\n'),
+    )
+    expect(withSkill).not.toContain('name: desk')
+    // One title: the pack's. The other line that starts so is the code's
+    expect(withSkill.match(/^# .*$/gm)).toEqual(['# Front desk', '# a comment, not a heading'])
+    // Without a skill the guide goes straight on to how to connect
+    expect(guide).toContain('What is listed here is all this address reaches.\n\n## Connect')
+  })
+
+  it('lists the pack’s own playbooks first, as it is given them', () => {
+    const both = packGuide({
+      pack: PACK,
+      url: URL,
+      readOnly: false,
+      tools: [],
+      manuals: [],
+      playbooks: [
+        { name: 'say-hello', title: 'Front desk · Say hello', description: 'Greets a guest.' },
+        { name: 'fixture-warm-up', title: 'Fixture · Warm up', description: 'Warms up.' },
+      ],
+    })
+    expect(both).toContain(
+      '- `say-hello`: Front desk · Say hello. Greets a guest.\n- `fixture-warm-up`: Fixture · Warm up. Warms up.',
+    )
+    expect(both).toContain('Step-by-step ways to do one task with these tools')
+  })
+
   it('leaves out the sections it has nothing for, and says when the pack holds no tools', () => {
     const empty = packGuide({ pack: PACK, url: URL, readOnly: false, tools: [], playbooks: [], manuals: [] })
     expect(empty).toContain('## Tools (0)')

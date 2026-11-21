@@ -729,3 +729,49 @@ describe('a pack named like a connection whose manual it holds', () => {
     expect([byRest.status, byRest.json.text.includes('Start with echo')]).toEqual([200, true])
   })
 })
+
+describe('a pack’s guide', () => {
+  it('opens on the pack’s skill and lists its own playbooks first', async () => {
+    const guide = await at(ada.key, '/p/desk/llms.txt')
+    expect(guide.status).toBe(200)
+    expect(guide.text).toMatch(/^# Front desk\n\nFront desk: says things to people\.\n/)
+    expect(guide.text).toContain(
+      '\n\n## Working with Front desk\n\n### What it is for\n\nGreeting people at the front door.\n\n### Which tool for which job\n',
+    )
+    // A code block in the skill is left as written, and the front matter is not printed
+    expect(guide.text).toContain('### Gotchas\n\n```sh\n# not a heading\n```\n\n### What it can’t do')
+    expect(guide.text).not.toContain('name: desk')
+    expect(guide.text.indexOf('## Working with Front desk')).toBeLessThan(guide.text.indexOf('## Connect'))
+    expect(guide.text).toContain(
+      '- `say-hello`: Front desk · Say hello. Greets a guest by name, from the desk.\n- `fixture-warm-up`: Fixture · Warm up.',
+    )
+  })
+
+  it('logs the skill it printed as a read: through REST for a key, through the app for the owner', async () => {
+    await at(ada.key, '/p/desk/llms.txt')
+    expect(await lastReads(1)).toEqual([['manual', 'skill://desk/SKILL.md', null, 'rest', 'ok']])
+    await owner('/p/desk/llms.txt')
+    expect(await lastReads(1)).toEqual([['manual', 'skill://desk/SKILL.md', null, 'app', 'ok']])
+  })
+
+  it('reads a variable as it is now', async () => {
+    await variables('desk', { door: 'the side door' })
+    expect((await at(ada.key, '/p/desk/llms.txt')).text).toContain('Greeting people at the side door.')
+    await variables('desk', { door: 'the front door' })
+  })
+
+  it('prints nothing written for another pack, and no skill for a pack without one', async () => {
+    const loud = (await at(sam.key, '/p/loud/llms.txt')).text
+    expect(loud).toContain('## Working with Loud\n\n### What it is for\n\nSaying things loudly.')
+    for (const word of ['say-hello', 'Front desk', 'front door']) expect(loud).not.toContain(word)
+    expect((await at(both.key, '/p/loud/llms.txt')).text).not.toContain('say-hello')
+    expect((await at(sam.key, '/p/desk/llms.txt')).status).toBe(403)
+
+    const quiet = await keyFor({ name: 'Another quiet key', pack: 'quiet' })
+    const before = await lastReads(1)
+    const guide = (await at(quiet.key, '/p/quiet/llms.txt')).text
+    expect(guide).toContain('What is listed here is all this address reaches.\n\n## Connect')
+    expect(guide).not.toContain('Working with')
+    expect(await lastReads(1)).toEqual(before)
+  })
+})

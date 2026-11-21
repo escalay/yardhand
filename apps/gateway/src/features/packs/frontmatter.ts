@@ -36,16 +36,28 @@ export const splitFrontMatter = (markdown: string): { data: unknown; body: strin
   return { problem: `front matter, line ${line}: ${reason}: fix the YAML between the --- lines` }
 }
 
-/** The lines of a text that are not in a fenced code block. */
-export const linesOutsideFences = (text: string) => {
-  const kept: string[] = []
+/** Each line of a text, with whether it is in a fenced code block; the lines that open and close one are. */
+const fenced = (text: string) => {
   let fence: string | null = null
-  for (const line of text.split(/\r?\n/)) {
+  return text.split(/\r?\n/).map((line) => {
     const mark = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
     if (fence) {
       if (mark && mark[0] === fence[0] && mark.length >= fence.length) fence = null
-    } else if (mark) fence = mark
-    else kept.push(line)
-  }
-  return kept
+      return { line, code: true }
+    }
+    if (mark) fence = mark
+    return { line, code: Boolean(mark) }
+  })
 }
+
+/** The lines of a text that are not in a fenced code block. */
+export const linesOutsideFences = (text: string) =>
+  fenced(text)
+    .filter(({ code }) => !code)
+    .map(({ line }) => line)
+
+/** A text with each line outside its code blocks changed, and the code left as written. */
+export const outsideFences = (text: string, change: (line: string) => string) =>
+  fenced(text)
+    .map(({ line, code }) => (code ? line : change(line)))
+    .join('\n')

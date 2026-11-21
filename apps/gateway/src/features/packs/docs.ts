@@ -2,7 +2,8 @@
  * A pack's own pages at its address: the guide (`/p/<pack>/llms.txt`), the OpenAPI document
  * (`/p/<pack>/openapi.json`) and the docs page (`/p/<pack>/docs`), each describing the pack and nothing else of the
  * gateway. They need credentials that open the pack. What they list is read through the API as the caller, so the
- * rules for what a pack shows (`seenBy`, `shownAs`, `holds`) live in one place.
+ * rules for what a pack shows (`seenBy`, `shownAs`, `holds`) live in one place. The guide opens on the pack's own
+ * skill, read as any read of it is (`reads.packSkill`), so it is in the call log.
  *
  * Each page prints the pack's address into what it returns (the guide's Connect lines, the OpenAPI `servers`, the docs
  * page's document URL), so under a name the pack used to have they send the reader on (308) instead of answering.
@@ -12,7 +13,8 @@ import { Scalar } from '@scalar/hono-api-reference'
 import type { Context, MiddlewareHandler } from 'hono'
 import { originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
-import { callerOf } from '../clients/principals.js'
+import { callerOf, OWNER } from '../clients/principals.js'
+import { outsideFences, withoutFrontMatter } from './frontmatter.js'
 
 const MARKDOWN = 'text/markdown; charset=utf-8'
 /** Read with credentials, so never kept in a shared cache. */
@@ -122,7 +124,14 @@ export const packOpenApi = ({
   }
 }
 
-/** The pack's guide for agents, as Markdown: what it is for, how to connect and work, and everything it holds. */
+/** `SKILL.md` as a part of the guide: without its front matter, every heading one level down, its code as written. */
+const skillSection = (skillMd: string) =>
+  outsideFences(withoutFrontMatter(skillMd), (line) => (/^#{1,5}[ \t]/.test(line) ? `#${line}` : line)).trim()
+
+/**
+ * The pack's guide for agents, as Markdown: what it is for, its skill when it has one, how to connect and work, and
+ * everything it holds.
+ */
 export const packGuide = ({
   pack,
   url,
@@ -130,20 +139,25 @@ export const packGuide = ({
   playbooks,
   manuals,
   readOnly,
+  skill,
 }: {
   pack: PackWords
   /** The pack's address, `https://gw.example.com/p/<pack>`. */
   url: string
   tools: ToolLine[]
+  /** In the order to print them: the pack's own first, as `GET /api/playbooks` lists them. */
   playbooks: PlaybookLine[]
   manuals: ManualLine[]
   readOnly: boolean
+  /** The pack's `SKILL.md` as served ("Working with <Title>"), which becomes a section under the pack's title. */
+  skill?: string
 }) =>
   [
     `# ${pack.title}`,
     ...(pack.description.trim() ? ['', pack.description.trim()] : []),
     '',
     `${pack.title} is a pack: a set of tools chosen for one kind of work, served at its own address. What is listed here is all this address reaches.`,
+    ...(skill ? ['', skillSection(skill)] : []),
     '',
     '## Connect',
     '',
@@ -195,7 +209,7 @@ export const packGuide = ({
     '',
   ].join('\n')
 
-export const mountPackDocs = (app: OpenAPIHono, { principals }: Pick<Services, 'principals'>) => {
+export const mountPackDocs = (app: OpenAPIHono, { principals, reads }: Pick<Services, 'principals' | 'reads'>) => {
   /** The pack this address names, for a caller that opens it; 403 says why not, 404 where no pack is addressed. */
   const packOf = async (c: Context) => {
     const principal = await principals.require(callerOf(c))
@@ -258,6 +272,10 @@ export const mountPackDocs = (app: OpenAPIHono, { principals }: Pick<Services, '
       readAs<{ _embedded: { playbooks: PlaybookLine[] } }>(c, '/api/playbooks?limit=200'),
       readAs<{ _embedded: { manuals: ManualLine[] } }>(c, '/api/manuals'),
     ])
+    // A read like any other of the skill; the owner looking at the guide is not counted among agents' reads
+    const skill = pack.skill
+      ? await reads.packSkill({ principal, via: principal.id === OWNER.id ? 'app' : 'rest' }).catch(() => undefined)
+      : undefined
     const guide = packGuide({
       pack: wordsOf(pack),
       url: urlOf(c, pack.name),
@@ -265,6 +283,7 @@ export const mountPackDocs = (app: OpenAPIHono, { principals }: Pick<Services, '
       playbooks: playbooks._embedded.playbooks,
       manuals: manuals._embedded.manuals,
       readOnly: principal.scope === 'read',
+      ...(skill ? { skill: skill.text } : {}),
     })
     return c.body(guide, 200, { 'content-type': MARKDOWN, 'cache-control': PRIVATE })
   })
