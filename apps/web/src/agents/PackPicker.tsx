@@ -1,5 +1,5 @@
 /**
- * Which packs a key opens and which one is its default. Each pack is its own connection (`/mcp/p/<pack>`), so an
+ * Which packs a key opens and which one is its default. Each pack is its own connection at its own address (`/p/<pack>/`), so an
  * agent turns them on per project; plain `/mcp` serves the default.
  */
 import { Link } from '@tanstack/react-router'
@@ -38,7 +38,7 @@ export const PackPicker = ({
               <span className="flex min-w-0 flex-col">
                 <span className="font-medium">{pack.title}</span>
                 <span className="text-xs text-muted-foreground">
-                  {holdsLine(pack.counts)} · /mcp/p/{pack.name}
+                  {holdsLine(pack.counts)} · /p/{pack.name}/
                 </span>
               </span>
             </label>
