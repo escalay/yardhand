@@ -20,7 +20,7 @@ import {
   seenBy,
   shownAs,
 } from '../clients/principals.js'
-import { fuse, KEYWORD_MIN_Z } from './meaning.js'
+import { fuse } from './meaning.js'
 
 /** Meaning counts a bit more than words: generic words like "app" match too much to lead. */
 const MEANING_WEIGHT = [1, 1.5]
@@ -242,11 +242,7 @@ export const toolsHandlers = ({
       const stood = await meaning.standouts(words, { limit: 100, keep: inReach })
       if (!stood || typed) return stood && [hits, stood]
       // The question is embedded once: the second look reads it from the embedder's cache
-      const near = await meaning.standouts(words, {
-        limit: 100,
-        keep: (name) => hits.includes(name),
-        minZ: KEYWORD_MIN_Z,
-      })
+      const near = await meaning.standouts(words, { limit: 100, keep: (name) => hits.includes(name), found: true })
       // A hit with no vector yet (synced or approved since the last refresh) can't be scored: it is kept
       return near && [hits.filter((name) => near.includes(name) || !meaning.has(name)), stood]
     }

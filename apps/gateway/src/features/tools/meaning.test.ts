@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DIMENSIONS } from '../../kit/vectors/index.js'
-import { createMeaningSearch, fuse, KEYWORD_MIN_Z, MIN_ROWS } from './meaning.js'
+import { barsFor, createMeaningSearch, fuse, MIN_ROWS } from './meaning.js'
 import type { ToolsRepo } from './repo.js'
 
 describe('fuse', () => {
@@ -71,20 +71,31 @@ describe('standouts', () => {
     expect(await search.names('off topic', 5)).toHaveLength(5)
   })
 
-  it('uses the kit’s own bar (3.5 at this size): four equal matches among sixty stand out, five do not', async () => {
-    // k equal matches among n rows stand √((n − k) / k) above the mean: 3.74 for four, 3.32 for five
-    expect(await (await refreshed(60, 4)).standouts('on topic', everything)).toHaveLength(4)
-    expect(await (await refreshed(60, 5)).standouts('on topic', everything)).toEqual([])
+  it('takes a bar of 3 to stand out among fewer than 150 tools, and the kit’s own (3.5) from there', async () => {
+    expect([50, 149, 150, 1000].map((rows) => barsFor(rows).stands)).toEqual([3, 3, undefined, undefined])
+    // k equal matches among n rows stand √((n − k) / k) above the mean
+    const standing = async (rows: number, matches: number) =>
+      ((await (await refreshed(rows, matches)).standouts('on topic', everything)) ?? []).length
+    // Among sixty: 3.32 for five, 2.75 for seven
+    expect([await standing(60, 5), await standing(60, 7)]).toEqual([5, 0])
+    // The step at 150: twelve matches stand 3.38 out among 149 and 3.39 among 150; eleven stand 3.55 out among 150
+    expect([await standing(149, 12), await standing(150, 12), await standing(150, 11)]).toEqual([12, 0, 11])
   })
 
-  it('takes a lower bar for keyword hits: eleven equal matches among sixty pass KEYWORD_MIN_Z, thirteen do not', async () => {
-    expect(KEYWORD_MIN_Z).toBe(2)
-    // 2.11 for eleven, 1.90 for thirteen
-    const floor = { ...everything, minZ: KEYWORD_MIN_Z }
-    expect(await (await refreshed(60, 11)).standouts('on topic', floor)).toHaveLength(11)
-    expect(await (await refreshed(60, 13)).standouts('on topic', floor)).toEqual([])
+  it('takes a lower bar for keyword hits, which rises with the catalog: 1 under 150 tools, 1.5 under 1000, then 2', async () => {
+    expect([50, 149, 150, 999, 1000, 5000].map((rows) => barsFor(rows).found)).toEqual([1, 1, 1.5, 1.5, 2, 2])
+    const found = { limit: 5000, keep: () => true, found: true }
+    // k equal matches among n rows stand √((n − k) / k) above the mean
+    const passing = async (rows: number, matches: number) =>
+      ((await (await refreshed(rows, matches)).standouts('on topic', found)) ?? []).length
+    // Among sixty: 1.03 for twenty-nine, 0.97 for thirty-one
+    expect([await passing(60, 29), await passing(60, 31)]).toEqual([29, 0])
+    // The step at 150: forty-seven matches stand 1.47 out among 149 and 1.48 among 150
+    expect([await passing(149, 47), await passing(150, 47), await passing(150, 46)]).toEqual([47, 0, 46])
+    // The step at 1000: 201 matches stand 1.99 out among 999 and among 1000; 199 stand 2.01 out
+    expect([await passing(999, 201), await passing(1000, 201), await passing(1000, 199)]).toEqual([201, 0, 199])
     const hits = new Set([nameOf(3), nameOf(40)])
-    expect(await (await refreshed(60, 11)).standouts('on topic', { ...floor, keep: (name) => hits.has(name) })).toEqual(
+    expect(await (await refreshed(60, 29)).standouts('on topic', { ...found, keep: (name) => hits.has(name) })).toEqual(
       [nameOf(3)],
     )
   })
