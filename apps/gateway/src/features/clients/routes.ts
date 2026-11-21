@@ -1,6 +1,8 @@
 /** Client routes (owner only, except `/api/me`): make keys, set what each client reaches, pin tools. */
 import { createRoute, z } from '@hono/zod-openapi'
 import { HAL_JSON, LinksSchema, problemResponses } from '../../kit/index.js'
+import { EXTEND_LIFETIMES, KEY_LIFETIMES } from './lifetimes.js'
+import { APP_IDS, KEY_APPS } from './setup.js'
 
 export const PATH = '/api/clients'
 export const PINS_PATH = '/api/pins'
@@ -39,6 +41,9 @@ export const ClientSchema = z
       description: 'Every pack the key opens, the default first; each is its own connection at /p/<name>/mcp.',
     }),
     expiresAt: z.string().nullable().openapi({ description: 'When the key stops working, or null for never.' }),
+    app: z.enum(APP_IDS).nullable().openapi({
+      description: 'Where it runs, as the owner said when making it; null when not said.',
+    }),
     createdAt: z.string(),
     revokedAt: z.string().nullable(),
     usage: z
@@ -91,9 +96,12 @@ const ClientPatchSchema = ClientInputSchema.partial()
     pack: z.string().min(1).max(60).optional().openapi({
       description: 'For a pack key: its default pack, one of the packs it opens.',
     }),
+    expiresIn: z.enum(EXTEND_LIFETIMES).optional().openapi({
+      description:
+        'Extend: how long it works from now, 7 days, 30 days or until revoked (it replaces when it ends). An ended key works again with the same key; a revoked one does not. A request that was refused with an `Idempotency-Key` while the key had ended keeps answering that refusal for a day: its holder sends it again with a new `Idempotency-Key`.',
+    }),
   })
   .openapi('ClientPatch', { description: 'Fields to change.' })
-export const KEY_LIFETIMES = ['8h', '1d', '7d', 'never'] as const
 const ClientCreateSchema = z
   .object({
     ...clientFields,
@@ -115,15 +123,17 @@ const ClientCreateSchema = z
           'Lock the key to these packs: each is its own connection at /p/<name>/mcp, and `pack` (else the first) is the default.',
         example: ['acme', 'support'],
       }),
-    expiresIn: z
-      .enum(KEY_LIFETIMES)
-      .optional()
-      .openapi({ description: 'How long the key works: 8 hours, a day, a week, or until revoked (the default).' }),
+    expiresIn: z.enum(KEY_LIFETIMES).optional().openapi({
+      description: 'How long the key works: 8 hours, a day, a week, 30 days, or until revoked (the default).',
+    }),
+    app: z.enum(KEY_APPS).optional().openapi({
+      description: 'The app the key will be pasted into. claude.ai is not one: it signs in and takes no key.',
+    }),
   })
   .openapi('ClientCreate', { description: 'A new API-key client, optionally locked to a pack and expiring.' })
 export const SurfaceSchema = z
   .object({
-    id: z.enum(['claude-code', 'cursor', 'codex', 'claude-ai', 'curl', 'typescript']),
+    id: z.enum(APP_IDS),
     title: z.string(),
     where: z.string().openapi({ description: 'Where the snippet goes.' }),
     format: z.enum(['shell', 'json', 'toml', 'text', 'typescript']),
@@ -257,7 +267,8 @@ export const routes = {
     operationId: 'updateClient',
     tags: [TAG],
     summary: 'Change a client',
-    description: 'Changes a client’s name, scope, upstreams, pins, result cap or laptop-tool access (owner only).',
+    description:
+      'Changes a client’s name, scope, upstreams, pins, result cap, laptop-tool access or how long it works (owner only).',
     request: { params: z.object({ id }), body: json(ClientPatchSchema) },
     responses: { 200: ok('The client.', ClientSchema), ...problemResponses(400, 401, 403, 404) },
   }),

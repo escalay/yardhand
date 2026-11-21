@@ -1,8 +1,9 @@
 /** Clients, their allowlists and pins: the only queries on these tables. */
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, inArray, isNull, like } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, like } from 'drizzle-orm'
 import type { Db } from '../../kit/index.js'
 import {
+  type ClientPackRow,
   type ClientRow,
   clientPacks,
   clients,
@@ -26,11 +27,14 @@ export type ClientDraft = {
   packIds?: string[]
   packId?: string | null
   expiresAt?: string | null
+  app?: ClientRow['app']
 }
 
 export type ClientChange = Partial<
-  Pick<ClientDraft, 'name' | 'scope' | 'upstreams' | 'pins' | 'macTools' | 'resultCap'>
+  Pick<ClientDraft, 'name' | 'scope' | 'upstreams' | 'pins' | 'macTools' | 'resultCap' | 'expiresAt'>
 >
+
+const HOUR_MS = 3_600_000
 
 export const clientsRepo = (db: Db) => {
   const setUpstreams = async (clientId: string, upstreams: 'all' | string[]) => {
@@ -43,16 +47,24 @@ export const clientsRepo = (db: Db) => {
     if (toolNames.length)
       await db.insert(pins).values(toolNames.map((toolName, position) => ({ clientId, toolName, position })))
   }
+  /** A client's links to the packs it opens, in order. */
+  const linksOf = (clientId: string) =>
+    db.select().from(clientPacks).where(eq(clientPacks.clientId, clientId)).orderBy(asc(clientPacks.position))
+  const linkOf = (clientId: string, packId: string) =>
+    and(eq(clientPacks.clientId, clientId), eq(clientPacks.packId, packId))
+  /** A pack it keeps opening keeps its row, and with it what was noted there. */
   const setPacks = async (clientId: string, packIds: string[]) => {
-    await db.delete(clientPacks).where(eq(clientPacks.clientId, clientId))
-    if (packIds.length)
-      await db.insert(clientPacks).values(packIds.map((packId, position) => ({ clientId, packId, position })))
+    const had = new Set((await linksOf(clientId)).map((link) => link.packId))
+    const dropped = [...had].filter((packId) => !packIds.includes(packId))
+    if (dropped.length)
+      await db.delete(clientPacks).where(and(eq(clientPacks.clientId, clientId), inArray(clientPacks.packId, dropped)))
+    for (const [position, packId] of packIds.entries())
+      if (had.has(packId)) await db.update(clientPacks).set({ position }).where(linkOf(clientId, packId))
+      else await db.insert(clientPacks).values({ clientId, packId, position })
   }
   /** The packs a key opens, in order; a key from before lists stays on its one pack. */
   const packsOf = async (row: Pick<ClientRow, 'id' | 'packId'>) => {
-    const ids = (
-      await db.select().from(clientPacks).where(eq(clientPacks.clientId, row.id)).orderBy(asc(clientPacks.position))
-    ).map((link) => link.packId)
+    const ids = (await linksOf(row.id)).map((link) => link.packId)
     return ids.length ? ids : row.packId ? [row.packId] : []
   }
   /** Every client (live or revoked) that opens this pack. */
@@ -83,8 +95,33 @@ export const clientsRepo = (db: Db) => {
         .where(and(eq(clients.kind, 'key'), isNull(clients.revokedAt))),
     upstreamsOf,
     pinsOf,
+    linksOf,
     packsOf,
     idsOfPack,
+    /**
+     * Notes the former name a client came to a pack by (`cameBy`), or that it came by the name now (null). Written
+     * only when that changes, or to refresh a note over an hour old.
+     */
+    noteAddress: async (link: ClientPackRow, cameBy: string | null, now = new Date()) => {
+      const fresh = link.cameByAt !== null && now.getTime() - Date.parse(link.cameByAt) < HOUR_MS
+      if (cameBy ? link.cameBy === cameBy && fresh : !link.cameBy) return
+      await db
+        .update(clientPacks)
+        .set({ cameBy, cameByAt: cameBy ? now.toISOString() : null })
+        .where(linkOf(link.clientId, link.packId))
+    },
+    /** Who last came to a pack by a former name, which one and when. */
+    cameBy: (packId: string) =>
+      db
+        .select({ clientId: clientPacks.clientId, cameBy: clientPacks.cameBy, cameByAt: clientPacks.cameByAt })
+        .from(clientPacks)
+        .where(and(eq(clientPacks.packId, packId), isNotNull(clientPacks.cameBy))),
+    /** Drops the notes of a name that no longer leads to the pack. */
+    forgetAddress: (packId: string, name: string) =>
+      db
+        .update(clientPacks)
+        .set({ cameBy: null, cameByAt: null })
+        .where(and(eq(clientPacks.packId, packId), eq(clientPacks.cameBy, name))),
     globalPins: () => pinsOf(GLOBAL_PINS),
     setGlobalPins: (toolNames: string[]) => setPins(GLOBAL_PINS, toolNames),
     create: async (draft: ClientDraft) => {
@@ -102,6 +139,7 @@ export const clientsRepo = (db: Db) => {
         resultCap: draft.resultCap ?? DEFAULT_RESULT_CAP,
         packId: draft.packId ?? draft.packIds?.[0] ?? null,
         expiresAt: draft.expiresAt ?? null,
+        app: draft.app ?? null,
         createdAt: new Date().toISOString(),
       })
       await setUpstreams(id, draft.upstreams)
@@ -117,6 +155,7 @@ export const clientsRepo = (db: Db) => {
         ...(change.resultCap === undefined ? {} : { resultCap: change.resultCap }),
         ...(change.upstreams === undefined ? {} : { allUpstreams: change.upstreams === 'all' }),
         ...(change.pins === undefined ? {} : { ownPins: change.pins !== null }),
+        ...(change.expiresAt === undefined ? {} : { expiresAt: change.expiresAt }),
       }
       if (Object.keys(set).length) await db.update(clients).set(set).where(eq(clients.id, id))
       if (change.upstreams !== undefined) await setUpstreams(id, change.upstreams)

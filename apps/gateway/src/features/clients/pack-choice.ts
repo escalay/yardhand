@@ -6,6 +6,10 @@
  *
  * MCP and REST addresses are rewritten to `/mcp` and `/api` before anything else sees them, so sign-in, rate limits,
  * MCP and list-change notices work as at the root, and the choice rides along every in-process call the request makes.
+ *
+ * A name a pack used to have is read as the name it has now, once the caller is known (`packChoice`): the request is
+ * served in place, so no client has to follow a redirect on a POST, and the links it is handed are the pack's
+ * address now. Without credentials nothing is looked up: every name gets the same 401.
  */
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MiddlewareHandler } from 'hono'
@@ -16,8 +20,11 @@ const NAME = '[a-z0-9][a-z0-9-]{0,39}'
 const ADDRESS = new RegExp(`^/p/(${NAME})(/.*)?$`)
 const LEGACY_ADDRESS = new RegExp(`^/mcp/p/(${NAME})(/.*)?$`)
 
-/** The pack a request chose; `base` is `/p/<name>` when it came by the pack's own address, else null. */
-type Choice = { name: string; base: string | null }
+/**
+ * The pack a request chose; `base` is `/p/<name>` when it came by the pack's own address, else null. `cameBy` is the
+ * name that was asked, when it is one the pack used to have: `name` and `base` are then the pack's now.
+ */
+type Choice = { name: string; base: string | null; cameBy?: string }
 const chosen = new AsyncLocalStorage<Choice>()
 
 type Fetch = (request: Request, ...rest: never[]) => Response | Promise<Response>
@@ -140,12 +147,25 @@ export const packBaseOf = () => chosen.getStore()?.base ?? ''
  * Puts the chosen pack (address or header) on the caller, after authentication, for the principal to honour. A pack
  * named by the header is carried from here on like one an address chose, so the calls MCP makes in-process, which
  * take only the caller's credentials along, are for that pack too.
+ *
+ * A former name becomes the name the pack has now, with what was asked beside it as `cameBy`. The choice the request
+ * already carries is changed in place: `withPackAddresses` relinks by it once the answer is back, and the in-process
+ * calls read it without asking again.
  */
-export const packChoice: MiddlewareHandler = async (c, next) => {
-  const stored = chosen.getStore()?.name
-  const pack = stored ?? c.req.header(PACK_HEADER)
-  const caller = c.get('caller' as never) as object | undefined
-  if (pack && caller) c.set('caller' as never, { ...caller, pack } as never)
-  if (pack && !stored) await chosen.run({ name: pack, base: null }, next)
-  else await next()
-}
+export const packChoice =
+  (currentNameOf: (name: string) => Promise<string | undefined>): MiddlewareHandler =>
+  async (c, next) => {
+    const stored = chosen.getStore()
+    const asked = stored?.name ?? c.req.header(PACK_HEADER)
+    if (!asked) return next()
+    const caller = c.get('caller' as never) as object | undefined
+    const choice = stored ?? { name: asked, base: null }
+    const current = caller && !choice.cameBy ? await currentNameOf(asked) : undefined
+    if (current) Object.assign(choice, { name: current, base: choice.base && `/p/${current}`, cameBy: asked })
+    if (caller)
+      c.set(
+        'caller' as never,
+        { ...caller, pack: choice.name, ...(choice.cameBy ? { cameBy: choice.cameBy } : {}) } as never,
+      )
+    return stored ? next() : chosen.run(choice, next)
+  }

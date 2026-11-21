@@ -2,16 +2,16 @@
 import type { RouteHandler } from '@hono/zod-openapi'
 import { linksOf, mintApiKey, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
+import { noPack } from '../packs/names.js'
 import { findability } from '../searches/demand.js'
 import { needsWrite } from '../tools/repo.js'
+import { expiryOf } from './lifetimes.js'
 import { callerOf, describe, entryOf, pinnedBy, requireOwner } from './principals.js'
 import { ME_PATH, PATH, PINS_PATH, type routes } from './routes.js'
 import type { ClientRow } from './schema.js'
 import { KEY_PLACEHOLDER, surfacesOf } from './setup.js'
 
 type Routes = typeof routes
-
-const LIFETIME_MS = { '8h': 8 * 3_600_000, '1d': 24 * 3_600_000, '7d': 7 * 24 * 3_600_000 } as const
 
 export const clientsHandlers = ({
   clients,
@@ -54,7 +54,9 @@ export const clientsHandlers = ({
     const found = await Promise.all([...new Set(names)].map(async (name) => ({ name, pack: await packs.get(name) })))
     const missing = found.filter((item) => !item.pack).map((item) => item.name)
     if (missing.length)
-      throw new ProblemError('bad_request', { detail: `No pack ${missing.join(', ')}. GET /api/packs lists them.` })
+      throw new ProblemError('bad_request', {
+        detail: (await Promise.all(missing.map((name) => noPack(packs, name)))).join(' '),
+      })
     const fallback = preferred ?? names[0]
     const defaultPack = found.find((item) => item.name === fallback)?.pack
     if (!defaultPack)
@@ -80,6 +82,7 @@ export const clientsHandlers = ({
       return ordered.flatMap((id) => known.get(id) ?? [])
     })(),
     expiresAt: row.expiresAt,
+    app: row.app,
     createdAt: row.createdAt,
     revokedAt: row.revokedAt,
     usage: await (async () => {
@@ -229,8 +232,7 @@ export const clientsHandlers = ({
       keyHash: hash,
       packIds: chosen?.ids ?? [],
       packId: chosen?.defaultId ?? null,
-      expiresAt:
-        !expiresIn || expiresIn === 'never' ? null : new Date(Date.now() + LIFETIME_MS[expiresIn]).toISOString(),
+      expiresAt: expiryOf(expiresIn),
     })
     principals.addKey(hash, id)
     return c.json({ ...(await cardOf(originOf(c), await rowOf(id))), key }, 201, { location: `${PATH}/${id}` })
@@ -240,14 +242,15 @@ export const clientsHandlers = ({
     const { id } = c.req.valid('param')
     const row = await rowOf(id)
     if (row.revokedAt) throw new ProblemError('gone', { detail: `Client ${id} was revoked; make a new one.` })
-    const { packs: packNamesIn, pack: packName, ...change } = c.req.valid('json')
+    const { packs: packNamesIn, pack: packName, expiresIn, ...change } = c.req.valid('json')
     const repacked = packNamesIn || packName ? await repackedOf(row, packNamesIn, packName) : null
     // A pack key's pins are checked against the packs this change leaves it with
     await (row.packId
       ? checkPackPins(change.pins, repacked?.ids ?? (await clients.packsOf(row)))
       : checkTools(change.pins))
     if (repacked) await clients.setPacks(id, repacked.ids, repacked.defaultId)
-    await clients.update(id, change)
+    // Extend counts from now; a change that says nothing of it leaves the end where it was
+    await clients.update(id, expiresIn ? { ...change, expiresAt: expiryOf(expiresIn) } : change)
     // Its allowlist, scope or pins change what it sees
     listsChanged()
     return c.json(await cardOf(originOf(c), await rowOf(id)), 200)

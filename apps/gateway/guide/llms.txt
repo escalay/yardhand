@@ -46,6 +46,8 @@ and `packs` when the key opens several). A pack is a small server of its own at 
   `/p/<pack>/docs`. They describe the pack and nothing else: with a pack key, read them rather than this guide.
 - The older ways still work: MCP at `/mcp/p/<pack>`, and REST or `/mcp` naming the pack with the `x-gateway-pack`
   header. Plain `/mcp` and `/api` serve the key's default pack.
+- A pack's address can change when its owner renames it: the old one keeps answering, and `GET /api/me` gives the
+  address it has now (`packs[].mcpUrl`).
 
 A pack key sees only the pack. Over MCP the server is named after the pack and its description opens the server
 instructions. It has the gateway's shape: `search_tools`, `describe_tool`, `call_tool` and the others work over the
@@ -59,7 +61,9 @@ last day (through `/u/{upstream}/r/…` and `read_resource`), so `GET /api/links
 (`GET /api/upstreams`, `list_upstreams`) count only what the pack holds: its tools under the pack's names, its
 playbooks and its manuals. A search that matches nothing in the pack says what the pack covers: `hint` on
 `GET /api/tools?q=…`, and over MCP `Nothing in <pack> matches "<query>". This pack covers: …`. Ask again by one of
-those, or say it can't be done with this pack. Keys can expire: a 403 says when.
+those, or say it can't be done with this pack. Access can end: a 403 then says which pack, the day it ended and to
+ask the owner for a new invite; over MCP the connection still opens and says the same. Once the owner has extended
+it, send a request that was refused with a new `Idempotency-Key`: the old one answers the refusal again for a day.
 
 A key that opens several packs has one connection per pack, and is refused (403) a pack it doesn't open with the
 addresses of those it does. An `Idempotency-Key` is remembered per key and route, not per pack: sent again with the

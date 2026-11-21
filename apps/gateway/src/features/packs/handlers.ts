@@ -4,12 +4,14 @@ import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import type { ManualContent, PlaybookContent } from '../catalog/content.js'
 import { playbookTitleOf } from '../catalog/content.js'
+import { dayOf } from '../clients/lifetimes.js'
 import { OWNER, requireOwner } from '../clients/principals.js'
 import { KEY_PLACEHOLDER, surfacesOf } from '../clients/setup.js'
 import { summaryOf } from '../tools/handlers.js'
 import { needsWrite } from '../tools/repo.js'
 import { type Fixed, fixedOf, fixedProblems, lostInputs } from './entries.js'
 import { flagOf, packFlags } from './flags.js'
+import { noPack } from './names.js'
 import type { PackContents } from './repo.js'
 import { FLAGS_PATH, PATH, type routes } from './routes.js'
 import type { PackRow, PackToolRow } from './schema.js'
@@ -46,7 +48,7 @@ export const packsHandlers = ({
 }: Services) => {
   const packOf = async (name: string) => {
     const pack = await packs.get(name)
-    if (!pack) throw new ProblemError('not_found', { detail: `No pack ${name}. GET ${PATH} lists them.` })
+    if (!pack) throw new ProblemError('not_found', { detail: await noPack(packs, name) })
     return pack
   }
 
@@ -102,15 +104,19 @@ export const packsHandlers = ({
       }),
     )
 
+  /** The pack's keys that work now: not revoked and not ended. */
+  const liveKeysOf = async (pack: PackRow) => {
+    const now = new Date().toISOString()
+    return (await clients.ofPack(pack.id)).filter((key) => !key.expiresAt || key.expiresAt > now)
+  }
+
   const cardOf = async (origin: string, pack: PackRow, contents?: PackContents) => {
     const held = contents ?? (await packs.contentsOf(pack))
-    const [toolRows, keys, items] = await Promise.all([
+    const [toolRows, live, items] = await Promise.all([
       toolsOf(held.tools),
-      clients.ofPack(pack.id),
+      liveKeysOf(pack),
       catalog.liveNames([...held.playbooks, ...held.manuals]),
     ])
-    const now = new Date().toISOString()
-    const live = keys.filter((key) => !key.expiresAt || key.expiresAt > now)
     return {
       card: {
         name: pack.name,
@@ -143,6 +149,17 @@ export const packsHandlers = ({
     )
   }
 
+  /** The names that still lead to the pack, each with how many of its live keys last came by it. */
+  const formerNamesOf = async (pack: PackRow, keys: { id: string }[]) => {
+    const live = new Set(keys.map((key) => key.id))
+    const notes = (await clients.cameBy(pack.id)).filter((note) => live.has(note.clientId))
+    return (await packs.formerNames(pack.id)).map((former) => ({
+      name: former.name,
+      until: former.until,
+      people: notes.filter((note) => note.cameBy === former.name).length,
+    }))
+  }
+
   const detailOf = async (origin: string, pack: PackRow) => {
     const { card, held, toolRows, keys } = await cardOf(origin, pack)
     return {
@@ -160,6 +177,7 @@ export const packsHandlers = ({
       createdAt: pack.createdAt,
       triedAt: pack.triedAt,
       lastCallAt: await lastCallOf(pack),
+      formerNames: await formerNamesOf(pack, keys),
     }
   }
 
@@ -222,13 +240,29 @@ export const packsHandlers = ({
     return c.json({ count: cards.length, _links: linksOf(origin, { self: PATH }), _embedded: { packs: cards } }, 200)
   }
 
+  /** Throws 409 unless a pack can take this name: no pack has it, and it leads to none but `self`. */
+  const nameFree = async (name: string, self?: PackRow) => {
+    const holder = await packs.holderOf(name)
+    if (!holder || holder.pack.id === self?.id) return
+    throw new ProblemError('conflict', {
+      detail: holder.until
+        ? `${name} still leads to ${holder.pack.title} (its name until ${dayOf(holder.until)}), so the people who connect there are not cut off: pick another name, or free it with DELETE ${PATH}/${holder.pack.name}/names/${name}.`
+        : `A pack is already named ${name}: pick another name.`,
+    })
+  }
+
+  /** For a write that failed: the 409 that says so when the name was taken while it ran, else the failure itself. */
+  const takenMeanwhile = (name: string, self?: PackRow) => async (error: unknown) => {
+    await nameFree(name, self)
+    throw error
+  }
+
   const create: RouteHandler<Routes['create']> = async (c) => {
     requireOwner(c)
     const { name, title, description, playbook } = c.req.valid('json')
-    if (await packs.get(name))
-      throw new ProblemError('conflict', { detail: `A pack is already named ${name}: pick another name.` })
+    await nameFree(name)
     const start = playbook ? await usesOf(playbook, new Set()) : null
-    const id = await packs.create({ name, title, description })
+    const id = await packs.create({ name, title, description }).catch(takenMeanwhile(name))
     if (start && playbook) {
       await packs.addItems(id, 'playbook', [playbook])
       const manual = await manualOf(start.item.upstreamId)
@@ -310,8 +344,17 @@ export const packsHandlers = ({
   const update: RouteHandler<Routes['update']> = async (c) => {
     requireOwner(c)
     const pack = await packOf(c.req.valid('param').name)
-    const { title, description, add, remove } = c.req.valid('json')
+    const { name, title, description, add, remove } = c.req.valid('json')
+    const next = name !== undefined && name !== pack.name ? name : null
+    // Every check before the first write: a change that is refused leaves the pack, and its name, as they were
+    if (next) await nameFree(next, pack)
     if (add) await checkAdds(add)
+    // Any key that is not revoked keeps the old name: an ended one can be extended and must find its address
+    if (next) {
+      await packs.rename(pack, next, (await clients.ofPack(pack.id)).length > 0).catch(takenMeanwhile(next, pack))
+      // Back to a name it had: whoever was noted coming by it is at the pack's address again
+      await clients.forgetAddress(pack.id, next)
+    }
     await packs.update(pack.id, {
       ...(title === undefined ? {} : { title }),
       ...(description === undefined ? {} : { description }),
@@ -333,19 +376,31 @@ export const packsHandlers = ({
     if (remove?.playbooks?.length) await packs.removeItems(pack.id, 'playbook', remove.playbooks)
     if (remove?.manuals?.length) await packs.removeItems(pack.id, 'manual', remove.manuals)
     listsChanged()
-    return c.json(await detailOf(originOf(c), await packOf(pack.name)), 200)
+    return c.json(await detailOf(originOf(c), await packOf(next ?? pack.name)), 200)
   }
 
   const remove: RouteHandler<Routes['remove']> = async (c) => {
     requireOwner(c)
     const pack = await packOf(c.req.valid('param').name)
-    const now = new Date().toISOString()
-    const live = (await clients.ofPack(pack.id)).filter((key) => !key.expiresAt || key.expiresAt > now)
+    const live = await liveKeysOf(pack)
     if (live.length)
       throw new ProblemError('conflict', {
         detail: `${pack.title} has ${live.length} live key${live.length === 1 ? '' : 's'} (${live.map((key) => key.name).join(', ')}): revoke ${live.length === 1 ? 'it' : 'them'} first.`,
       })
     await packs.remove(pack.id)
+    listsChanged()
+    return c.body(null, 204)
+  }
+
+  const freeName: RouteHandler<Routes['freeName']> = async (c) => {
+    requireOwner(c)
+    const { name, former } = c.req.valid('param')
+    const pack = await packOf(name)
+    if (!(await packs.freeName(pack.id, former)))
+      throw new ProblemError('not_found', {
+        detail: `${pack.title} has no old name ${former}. GET ${PATH}/${pack.name} lists them.`,
+      })
+    await clients.forgetAddress(pack.id, former)
     listsChanged()
     return c.body(null, 204)
   }
@@ -434,5 +489,5 @@ export const packsHandlers = ({
     )
   }
 
-  return { flags, list, create, get, setup, update, remove, wording, entry, uses }
+  return { flags, list, create, get, setup, update, remove, freeName, wording, entry, uses }
 }
