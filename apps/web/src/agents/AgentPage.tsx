@@ -149,7 +149,22 @@ export const AgentPage = ({ id, tab = 'overview' }: { id: string; tab?: 'overvie
         <Status tone="neutral">Revoked {ago(row.revokedAt)}: its key no longer works.</Status>
       ) : expiry.expired ? (
         <Status tone="neutral">
-          Expired {ago(row.expiresAt)}: its key no longer works. Issue a new one from its pack.
+          {row.pack ? (
+            <span>
+              Ended {ago(row.expiresAt)}: its key no longer works. Extend it under{' '}
+              <Link
+                to="/packs/$name"
+                params={{ name: row.pack }}
+                search={{ tab: 'people' }}
+                className="rounded-xs text-foreground underline underline-offset-4 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                its pack's People
+              </Link>
+              , or share the pack again.
+            </span>
+          ) : (
+            `Ended ${ago(row.expiresAt)}: its key no longer works. Give the agent a new one under Agents.`
+          )}
         </Status>
       ) : (
         <>

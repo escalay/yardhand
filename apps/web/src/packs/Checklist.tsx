@@ -40,9 +40,15 @@ const Todo = ({ step, pack, onEdit }: { step: ChecklistStep; pack: Pack; onEdit:
         </Link>
       )
     case 'connect':
-      // A key of a pack without tools would reach nothing: the step waits for the tools
+      // A key of a pack without tools would reach nothing: the step waits for the tools, then opens the Share sheet
       return pack.tools.length ? (
-        <Link to="/agents/new" search={{ pack: pack.name }} className={TODO}>
+        <Link
+          to="/packs/$name"
+          params={{ name: pack.name }}
+          search={{ tab: 'overview', share: true }}
+          resetScroll={false}
+          className={TODO}
+        >
           {step.label}
         </Link>
       ) : (

@@ -44,7 +44,7 @@ export const AddressCard = ({ pack }: { pack: Pack }) => {
           <div className="flex min-w-0 flex-col gap-3 p-4">
             <p className="text-sm text-muted-foreground">
               Every app connects with a key of this pack where a snippet says <Mono>{setup.data.keyPlaceholder}</Mono>.
-              Give access makes one and shows it once.
+              Share makes one and shows it once.
             </p>
             <SetupTabs surfaces={setup.data.surfaces} keyPlaceholder={setup.data.keyPlaceholder} apiKey={null} />
           </div>

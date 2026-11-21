@@ -1,8 +1,8 @@
 /**
  * Packs: the board of curated kits. Each card says what the pack is for, which servers it draws on, what it holds and
- * how many keys are locked to it; a pack starts empty or from a playbook, which brings in the tools it uses.
+ * how many people it is shared with; a pack starts empty or from a playbook, which brings in the tools it uses.
  */
-import { IconAlertTriangle, IconKey, IconPlus } from '@tabler/icons-react'
+import { IconAlertTriangle, IconPlus, IconUsers } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -59,8 +59,8 @@ const Card = ({ pack }: { pack: PackCard }) => (
     <div className="flex items-end justify-between gap-3 border-t border-border pt-3 text-xs text-muted-foreground">
       <span>{holdsLine(pack.counts)}</span>
       <span className="flex items-center gap-1 font-mono">
-        <IconKey className="size-3.5" />
-        {pack.keys ? plural(pack.keys, 'key') : 'No keys'}
+        <IconUsers className="size-3.5" />
+        {pack.keys ? plural(pack.keys, 'person', 'people') : 'Not shared yet'}
       </span>
     </div>
   </Link>
