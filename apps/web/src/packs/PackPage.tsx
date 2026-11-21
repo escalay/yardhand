@@ -99,6 +99,7 @@ const EditPack = ({
   const [title, setTitle] = useState(pack.title)
   const [description, setDescription] = useState(pack.description)
   const [problem, setProblem] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   const renamed = name !== pack.name
   return (
     <Dialog
@@ -123,10 +124,13 @@ const EditPack = ({
           onSubmit={(event) => {
             event.preventDefault()
             setProblem(null)
-            void onSave({ ...(renamed ? { name } : {}), title: title.trim(), description: description.trim() }).then(
-              () => onOpenChange(false),
-              (error: Error) => setProblem(error.message),
-            )
+            setSaving(true)
+            void onSave({ ...(renamed ? { name } : {}), title: title.trim(), description: description.trim() })
+              .then(
+                () => onOpenChange(false),
+                (error: Error) => setProblem(error.message),
+              )
+              .finally(() => setSaving(false))
           }}
         >
           <Field
@@ -172,8 +176,8 @@ const EditPack = ({
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" disabled={!title.trim() || !isPackName(name)}>
-              Save
+            <Button type="submit" variant="primary" disabled={!title.trim() || !isPackName(name) || saving}>
+              {saving ? 'Saving…' : 'Save'}
             </Button>
           </div>
         </form>

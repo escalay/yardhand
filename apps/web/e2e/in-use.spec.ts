@@ -268,12 +268,26 @@ test('renaming a pack moves its page, keeps the scope and keeps its old address 
   await page.getByRole('button', { name: 'Edit' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByLabel('Name')).toHaveValue('draft')
+  // One press is one request: while it is on its way, Save takes no second one
+  const sent: string[] = []
+  await page.route('**/api/packs/draft', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.continue()
+    sent.push(route.request().postData() ?? '')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await route.continue()
+  })
   await dialog.getByLabel('Name').fill('drafts')
   await expect(dialog).toContainText('Its address is /p/drafts.')
   await expect(dialog).toContainText('Its 1 person keeps working at /p/draft; new setup says the new address.')
   await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog.getByRole('button', { name: 'Saving…' })).toBeDisabled()
+  await dialog.getByLabel('Title').press('Enter')
 
   await expect(page).toHaveURL(/\/app\/packs\/drafts\?tab=overview$/)
+  await expect(dialog).toHaveCount(0)
+  expect(sent).toHaveLength(1)
+  await page.unroute('**/api/packs/draft')
+  await expect(page.getByText(/it was renamed to drafts/)).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Draft', exact: true })).toBeVisible()
   const address = page.locator('section', { has: page.getByRole('heading', { name: 'Address' }) })
   await expect(address.getByText(/^[\w.:]+\/p\/drafts$/)).toBeVisible()
