@@ -21,7 +21,7 @@ import {
 import { z } from 'zod'
 import { VIA_HEADER } from '../features/calls/handlers.js'
 import { progressSink } from '../features/calls/progress.js'
-import type { Principal } from '../features/clients/principals.js'
+import { type Principal, packScopeFrom } from '../features/clients/principals.js'
 import { MODERN_PROTOCOL_VERSION, originOf, pathWith } from '../kit/index.js'
 import {
   type AgentMcpFactory,
@@ -36,7 +36,7 @@ import {
 import type { Services } from '../services.js'
 import { VERSION } from '../version.js'
 import { manualSkills } from './skills.js'
-import { countOf, META_TOOLS, metaToolsFor, PROMPTS, promptsFor, RESOURCES } from './tools.js'
+import { countOf, META_TOOLS, metaToolsFor, OWN_NAMES, PROMPTS, promptsFor, RESOURCES } from './tools.js'
 
 const INFO = {
   name: 'yardhand',
@@ -213,9 +213,6 @@ const howToWork = (pack: NonNullable<Me['pack']>, pins: Pin[]) =>
           : 'No tool of this pack is listed here. Each is found on demand:',
         ...ON_DEMAND,
       ]
-
-/** The names this connection's own tools hold: a pack's tool of the same name is not listed beside them. */
-const OWN_NAMES = new Set([...META_TOOLS.map((tool) => tool.name), 'call_tool'])
 
 /**
  * A pack connection's instructions: the pack's own words, how to work it, then what it holds. `connections` are its
@@ -525,17 +522,17 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
         macTools: false,
         resultCap: caller.resultCap,
         packs: caller.packs.map(({ name, title }) => ({ name, title })),
+        // Only manuals and playbooks are read off this one; the routes resolve tools themselves
         pack: caller.pack
-          ? {
-              id: caller.pack.name,
-              name: caller.pack.name,
-              title: caller.pack.title,
-              description: caller.pack.description,
-              // Only manuals and playbooks are read off this one; the routes resolve tools themselves
-              tools: new Map(),
-              playbooks: new Set(caller.pack.playbooks),
-              manuals: new Set(caller.pack.manuals),
-            }
+          ? packScopeFrom(
+              {
+                id: caller.pack.name,
+                name: caller.pack.name,
+                title: caller.pack.title,
+                description: caller.pack.description,
+              },
+              { tools: [], variables: [], playbooks: caller.pack.playbooks, manuals: caller.pack.manuals },
+            )
           : null,
       }
       await registerPlaybooks(server, callApi, auth)

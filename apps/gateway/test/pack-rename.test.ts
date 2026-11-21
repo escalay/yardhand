@@ -168,6 +168,36 @@ describe('renaming a pack', () => {
     expect((await rename('bureau', 'desk')).json).toMatchObject({ name: 'desk', formerNames: [{ name: 'bureau' }] })
   })
 
+  it('keeps its name and its tools when a tool sent with the new name is refused', async () => {
+    const tools = ['fixture.echo', 'fixture.shout']
+    for (const [tool, detail] of [
+      [
+        { name: 'fixture.echo', alias: 'echo_loudly', fixed: { volume: 11 } },
+        'Not saved: echo_loudly: fixture.echo has no input volume. GET /api/tools/fixture.echo shows its inputs.',
+      ],
+      [
+        { name: 'fixture.echo', alias: 'echo_loudly', defaults: { text: 7 } },
+        'Not saved: echo_loudly: text must be string. GET /api/tools/fixture.echo shows its inputs.',
+      ],
+      [
+        { name: 'fixture.echo', alias: 'search_tools' },
+        "search_tools is the name of a tool every pack connection has of its own, so fixture.echo can't take it in Garden: give it another alias.",
+      ],
+    ] as const) {
+      const refused = await owner('/api/packs/garden', {
+        method: 'PATCH',
+        body: { name: 'plot', title: 'Plot', add: { tools: [tool] }, remove: { tools: ['fixture.shout'] } },
+      })
+      expect([refused.status, refused.json.detail]).toEqual([400, detail])
+      const still = await owner('/api/packs/garden')
+      expect([still.status, still.json.title, namesOf(still.json.tools)]).toEqual([200, 'Garden', tools])
+      // Its keys would have kept `garden` leading to it had the rename run before the refusal
+      expect([still.json.keys, await formerOf('garden')]).toEqual([2, [{ name: 'shed', people: 0 }]])
+      expect((await owner('/api/packs/plot')).json.detail).toBe(unknown('plot'))
+    }
+    expect(namesOf((await owner('/api/packs')).json._embedded.packs)).toEqual(['desk', 'garden'])
+  })
+
   it('tells the owner where it went, wherever a pack is named', async () => {
     const moved = renamed('shed', 'garden')
     for (const path of [

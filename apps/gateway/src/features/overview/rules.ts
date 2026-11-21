@@ -48,7 +48,7 @@ export type NudgeFacts = {
   pendingReviews: number
   /** Smart grouping: whether it is set up, and connections whose groups still come from the rules, by size. */
   grouping?: { ready: boolean; byRules: { id: string; title: string; tools: number }[] }
-  /** Pack wordings whose tool its server has since rewritten. */
+  /** Pack wordings whose tool its server has since rewritten, and pack tools with a value that no longer fits. */
   packFlags?: number
 }
 
@@ -113,7 +113,7 @@ export const nudgesOf = ({
     ? [
         {
           kind: 'pack_wording' as const,
-          message: `${plural(packFlags, 'tool')} you worded in a pack ${packFlags === 1 ? 'was' : 'were'} rewritten by ${packFlags === 1 ? 'its server' : 'their servers'}. Agents keep your wording until you recheck it.`,
+          message: `${plural(packFlags, 'thing')} in your packs to recheck: ${packFlags === 1 ? 'its server changed the tool it was' : 'their servers changed the tools they were'} set up for.`,
           action: 'Recheck',
           href: '/app/tools/reviews',
         },

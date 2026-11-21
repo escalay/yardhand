@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { fieldsOf } from '@/tools/schema-form.rules'
 import {
   accountAlias,
   addLabel,
@@ -9,24 +10,42 @@ import {
   effectOf,
   emptyLine,
   expiryOf,
+  failsLine,
+  filledIn,
   fixedLine,
   freeAlias,
   hiddenLine,
   holdsLine,
+  inputsLine,
+  inputValuesOf,
   isAlias,
   isPackName,
+  kindOfValue,
   lineOf,
+  modeOf,
   nameProblem,
   packQueryOf,
+  placeOf,
   preselected,
+  problemLines,
   reasonOf,
+  refusedInputs,
+  refusedVariables,
   renameNote,
+  setsAccount,
   shortAddress,
   slugOf,
   stoodOutLine,
   suggestionsFor,
   toolkitOf,
+  uncheckedLine,
+  usedLine,
+  variableProblem,
+  variableValueOf,
+  withAccountLabels,
+  withVariable,
   wordingOf,
+  writesVariable,
 } from './packs.rules'
 
 describe('packs', () => {
@@ -254,5 +273,291 @@ describe('trying a pack', () => {
   it('shows an address without its scheme', () => {
     expect(shortAddress('https://gw.example.com/p/loud')).toBe('gw.example.com/p/loud')
     expect(shortAddress('http://localhost:4400/p/loud')).toBe('localhost:4400/p/loud')
+  })
+})
+
+describe('what a pack sets on a tool’s inputs', () => {
+  const tool = { fixed: { account: '{{account}}' }, defaults: { posted_since: 7 } }
+  const fields = fieldsOf({
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      verbose: { type: 'boolean' },
+      limit: { type: 'integer', default: 10 },
+      tone: { enum: ['calm', 'loud'] },
+      tags: { type: 'array' },
+    },
+    required: ['id', 'limit'],
+  })
+
+  it('says who fills an input, from what the pack stores', () => {
+    expect(modeOf(tool, 'account')).toBe('fixed')
+    expect(modeOf(tool, 'posted_since')).toBe('default')
+    expect(modeOf(tool, 'query')).toBe('agent')
+    // An input named like something every object has is the agent's until the pack sets it
+    expect(modeOf(tool, 'constructor')).toBe('agent')
+    expect(modeOf({ fixed: {}, defaults: { toString: 'x' } }, 'toString')).toBe('default')
+  })
+
+  it('says what a pack tool sets, by mode', () => {
+    expect(inputsLine(tool)).toBe('Fixed account = {{account}} · Default posted_since = 7')
+    expect(inputsLine({ fixed: { from: 'the desk', account: 'work' }, defaults: {} })).toBe(
+      'Fixed from = the desk · account = work',
+    )
+    expect(inputsLine({ fixed: {}, defaults: { limit: '{{page_size}}' } })).toBe('Default limit = {{page_size}}')
+    expect(inputsLine({ fixed: {}, defaults: {} })).toBe('')
+  })
+
+  it('shows an account by its label, fixed or as a default, and keeps one the connection doesn’t list', () => {
+    const labelOf = (account: string) => ({ ca_1: 'Work inbox', ca_2: 'Home inbox' })[account]
+    expect(inputsLine(withAccountLabels({ fixed: { account: 'ca_1' }, defaults: { limit: 5 } }, labelOf))).toBe(
+      'Fixed account = Work inbox · Default limit = 5',
+    )
+    expect(inputsLine(withAccountLabels({ fixed: {}, defaults: { account: 'ca_2', limit: 5 } }, labelOf))).toBe(
+      'Default account = Home inbox · limit = 5',
+    )
+    expect(inputsLine(withAccountLabels({ fixed: {}, defaults: { account: '{{account}}' } }, labelOf))).toBe(
+      'Default account = {{account}}',
+    )
+  })
+
+  it('knows a tool whose account the pack sets, in either mode', () => {
+    expect(setsAccount({ fixed: { account: 'ca_1' }, defaults: {} })).toBe(true)
+    expect(setsAccount({ fixed: {}, defaults: { account: 'ca_2' } })).toBe(true)
+    expect(setsAccount({ fixed: { from: 'the desk' }, defaults: { limit: 5 } })).toBe(false)
+  })
+
+  it('knows a value that writes a variable, as the gateway reads it', () => {
+    expect(writesVariable('{{page_size}}')).toBe(true)
+    expect(writesVariable('from {{ desk }}')).toBe(true)
+    expect(writesVariable('{{ 1+1 }}')).toBe(false)
+    expect(writesVariable('{{Desk}}')).toBe(false)
+    expect(writesVariable('7')).toBe(false)
+  })
+
+  it('fills a value in for the owner to read, and names a word that is no variable', () => {
+    const variables = [
+      { name: 'page_size', value: 5 },
+      { name: 'desk', value: 'the desk' },
+    ]
+    expect(filledIn('{{page_size}}', variables)).toEqual({ text: '5', undeclared: [] })
+    expect(filledIn('from {{desk}}, {{first_name}}', variables)).toEqual({
+      text: 'from the desk, {{first_name}}',
+      undeclared: ['first_name'],
+    })
+    expect(filledIn('plain', variables)).toEqual({ text: 'plain', undeclared: [] })
+  })
+
+  it('turns the form into what the pack fixes and defaults', () => {
+    const { fixed, defaults, errors } = inputValuesOf(
+      fields,
+      { id: 'fixed', verbose: 'default', limit: 'default', tone: 'agent', tags: 'fixed' },
+      { id: '42', verbose: 'true', limit: '7', tone: 'calm', tags: '["a"]' },
+    )
+    expect(fixed).toEqual({ id: '42', tags: ['a'] })
+    expect(defaults).toEqual({ verbose: true, limit: 7 })
+    expect(errors).toEqual({})
+  })
+
+  it('sends a value that writes a variable as written, whatever the input takes', () => {
+    const { fixed, defaults, errors } = inputValuesOf(
+      fields,
+      { limit: 'default', verbose: 'fixed', tone: 'fixed' },
+      { limit: ' {{page_size}} ', verbose: '{{chatty}}', tone: '{{tone}}' },
+    )
+    expect(defaults).toEqual({ limit: '{{page_size}}' })
+    expect(fixed).toEqual({ verbose: '{{chatty}}', tone: '{{tone}}' })
+    expect(errors).toEqual({})
+  })
+
+  it('keeps a switch that is off as false, and asks for a value where there is none', () => {
+    const { fixed, defaults, errors } = inputValuesOf(
+      fields,
+      { verbose: 'fixed', id: 'default', limit: 'fixed' },
+      { verbose: '', id: ' ', limit: 'seven' },
+    )
+    expect(fixed).toEqual({ verbose: false })
+    expect(defaults).toEqual({})
+    expect(errors).toEqual({ id: 'Give it a value, or let the agent decide.', limit: 'A whole number.' })
+  })
+
+  it('leaves out an input the agent decides, and one the form does not mention', () => {
+    expect(inputValuesOf(fields, { id: 'agent' }, { id: '42', limit: '7' })).toEqual({
+      fixed: {},
+      defaults: {},
+      errors: {},
+    })
+  })
+
+  it('writes a picked variable into a value: over a typed one, at the end of text', () => {
+    const [id, verbose, limit] = fields
+    if (!id || !verbose || !limit) throw new Error('the schema above has these three inputs first')
+    expect(withVariable(limit, '10', 'page_size')).toBe('{{page_size}}')
+    expect(withVariable(verbose, 'true', 'chatty')).toBe('{{chatty}}')
+    expect(withVariable(id, '', 'item')).toBe('{{item}}')
+    expect(withVariable(id, 'item-', 'item')).toBe('item-{{item}}')
+  })
+
+  it('lists what no longer fits a tool: inputs it dropped, then values it refuses', () => {
+    expect(
+      problemLines({
+        tool: 'fixture.greet',
+        lostInputs: ['from', 'colour'],
+        inputs: [
+          { name: 'to', mode: 'agent', required: true, problem: null, note: null, unchecked: false },
+          {
+            name: 'tone',
+            mode: 'default',
+            required: false,
+            problem: 'tone must be equal to one of the allowed values',
+            note: null,
+            unchecked: false,
+          },
+        ],
+      }),
+    ).toEqual(['fixture.greet no longer takes from, colour', 'tone must be equal to one of the allowed values'])
+    expect(problemLines({ tool: 'fixture.greet', lostInputs: [], inputs: [] })).toEqual([])
+  })
+
+  it('says what a flagged value does to calls: the worst of what stands', () => {
+    const input = (mode: 'fixed' | 'default' | 'agent', problem: string | null) => ({
+      name: 'tone',
+      mode,
+      required: false,
+      problem,
+      note: null,
+      unchecked: false,
+    })
+    const refused = 'tone must be equal to one of the allowed values'
+    expect(failsLine({ lostInputs: [], inputs: [input('default', refused), input('fixed', refused)] })).toBe(
+      'every call fails until you change what the pack sets',
+    )
+    expect(failsLine({ lostInputs: ['from'], inputs: [input('default', refused), input('fixed', null)] })).toBe(
+      'calls that don’t send their own value fail until you change what the pack sets',
+    )
+    expect(failsLine({ lostInputs: ['from'], inputs: [input('agent', null)] })).toBe(
+      'the pack still sends it, so calls fail only if the server refuses an input it doesn’t know. Change what the pack sets',
+    )
+    expect(failsLine({ lostInputs: ['from', 'colour'], inputs: [] })).toBe(
+      'the pack still sends them, so calls fail only if the server refuses an input it doesn’t know. Change what the pack sets',
+    )
+  })
+
+  it('names the values the gateway could not check, so no fit is claimed for them', () => {
+    const input = (name: string, unchecked: boolean) => ({
+      name,
+      mode: 'fixed' as const,
+      required: false,
+      problem: null,
+      note: null,
+      unchecked,
+    })
+    expect(uncheckedLine({ inputs: [input('to', false), input('tone', true)] })).toBe(
+      'tone was not checked: the gateway can’t read its schema, so only a call checks it.',
+    )
+    expect(uncheckedLine({ inputs: [input('to', true), input('tone', true)] })).toBe(
+      'to, tone were not checked: the gateway can’t read their schema, so only a call checks them.',
+    )
+    expect(uncheckedLine({ inputs: [input('to', false)] })).toBeNull()
+  })
+})
+
+describe('a pack’s variables', () => {
+  it('checks a new variable’s name', () => {
+    const taken = new Set(['page_size'])
+    expect(variableProblem('desk_name', taken)).toBeNull()
+    expect(variableProblem('', taken)).toBe('Give it a name, like desk_name.')
+    expect(variableProblem('Desk name', taken)).toBe(
+      'Start with a lowercase letter, then lowercase letters, digits or _ (40 at most), like desk_name.',
+    )
+    expect(variableProblem('a'.repeat(41), taken)).toMatch(/^Start with a lowercase letter/)
+    expect(variableProblem('page_size', taken)).toBe(
+      'page_size is already a variable of this pack: change that one, or pick another name.',
+    )
+  })
+
+  it('reads a value as the kind the owner picked', () => {
+    expect(variableValueOf('number', ' 7 ')).toEqual({ value: 7, error: null })
+    expect(variableValueOf('number', 'seven')).toEqual({ value: null, error: 'A number, like 7.' })
+    expect(variableValueOf('number', '')).toEqual({ value: null, error: 'A number, like 7.' })
+    expect(variableValueOf('text', '7')).toEqual({ value: '7', error: null })
+    expect(variableValueOf('text', '')).toEqual({ value: null, error: 'Give it a value.' })
+    expect(variableValueOf('boolean', 'true')).toEqual({ value: true, error: null })
+    expect(variableValueOf('boolean', '')).toEqual({ value: false, error: null })
+  })
+
+  it('starts an edit from the kind of the stored value', () => {
+    expect(kindOfValue(5)).toBe('number')
+    expect(kindOfValue('5')).toBe('text')
+    expect(kindOfValue(false)).toBe('boolean')
+  })
+
+  it('says which tools write a variable', () => {
+    expect(usedLine(['items.get_item', 'work_inbox'])).toBe('Used by items.get_item, work_inbox')
+    expect(usedLine([])).toBe('Not used yet')
+  })
+})
+
+describe('a refused save', () => {
+  it('reads where a problem sits, with dots in the tool’s name', () => {
+    expect(placeOf('tools.items.get_item.defaults.limit')).toEqual({ tool: 'items.get_item', input: 'limit' })
+    expect(placeOf('tools.work_inbox.fixed.account')).toEqual({ tool: 'work_inbox', input: 'account' })
+    expect(placeOf('variables.page_size')).toEqual({ variable: 'page_size' })
+    expect(placeOf('tools.items.get_item')).toBeNull()
+    expect(placeOf('alias')).toBeNull()
+  })
+
+  it('puts each problem beside its input, and keeps the rest to say under the form', () => {
+    const refused = {
+      message: 'Not saved: limit must be integer; colour is gone. GET /api/tools/{name} shows each tool’s inputs.',
+      errors: [
+        { path: 'tools.items.get_item.defaults.limit', message: 'limit must be integer' },
+        { path: 'tools.items.get_item.fixed.colour', message: 'items.get_item has no input colour' },
+        { path: 'tools.other.fixed.limit', message: 'limit must be integer' },
+      ],
+    }
+    expect(refusedInputs(refused, ['items.get_item'], ['id', 'limit'])).toEqual({
+      byInput: { limit: 'limit must be integer.' },
+      rest: ['items.get_item has no input colour.', 'other: limit must be integer.'],
+    })
+  })
+
+  it('says the whole answer when it names no place', () => {
+    expect(
+      refusedInputs({ message: 'Loud already has a tool called echo: pick another alias.', errors: [] }, ['echo'], []),
+    ).toEqual({ byInput: {}, rest: ['Loud already has a tool called echo: pick another alias.'] })
+  })
+
+  it('puts a refused variable beside its row, and a value that stops fitting beside the variable it writes', () => {
+    const tools = [
+      { name: 'items.get_item', fixed: {}, defaults: { limit: '{{page_size}}' } },
+      { name: 'work_inbox', fixed: { account: '{{account}}' }, defaults: {} },
+    ]
+    expect(
+      refusedVariables(
+        {
+          message: 'Not saved: …',
+          errors: [
+            {
+              path: 'variables.account',
+              message: '{{account}} is still used by work_inbox (account): change that first, or keep the variable.',
+            },
+            { path: 'tools.items.get_item.defaults.limit', message: 'limit must be integer' },
+            { path: 'tools.gone.fixed.x', message: 'x must be string' },
+          ],
+        },
+        tools,
+      ),
+    ).toEqual({
+      byVariable: {
+        account: ['{{account}} is still used by work_inbox (account): change that first, or keep the variable.'],
+        page_size: ['items.get_item: limit must be integer.'],
+      },
+      rest: ['gone: x must be string.'],
+    })
+    expect(refusedVariables({ message: 'The gateway did not answer.', errors: [] }, tools)).toEqual({
+      byVariable: {},
+      rest: ['The gateway did not answer.'],
+    })
   })
 })

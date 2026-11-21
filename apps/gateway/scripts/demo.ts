@@ -128,7 +128,8 @@ if (seed) {
   await asAgent(`/api/playbooks/echo-say-it-back/messages?arguments=${encodeURIComponent('{"topic":"tides"}')}`)
   await asAgent(`/api/resources?uri=${encodeURIComponent('fixture://notes/7')}`)
   await owner('/api/pins', { method: 'PUT', body: { tools: ['echo.echo'] } })
-  // A pack started from a playbook, with a tool picked by hand, one tool in its own words, and a session key
+  // A pack started from a playbook, with a tool picked by hand that has a default from a variable, one tool in its
+  // own words, and a session key
   await owner('/api/packs', {
     method: 'POST',
     body: {
@@ -138,7 +139,14 @@ if (seed) {
       playbook: 'echo-say-it-back',
     },
   })
-  await owner('/api/packs/loud', { method: 'PATCH', body: { add: { tools: [{ name: 'items.get_item' }] } } })
+  await owner('/api/packs/loud/variables', {
+    method: 'PUT',
+    body: { variables: [{ name: 'page_size', value: 5, description: 'How many items a look-up returns.' }] },
+  })
+  await owner('/api/packs/loud', {
+    method: 'PATCH',
+    body: { add: { tools: [{ name: 'items.get_item', defaults: { limit: '{{page_size}}' } }] } },
+  })
   await owner('/api/packs/loud/tools/echo.echo/wording', {
     method: 'PUT',
     body: { description: 'Says your words back exactly. Call it first to check the line, then shout.' },

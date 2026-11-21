@@ -45,7 +45,7 @@ const Card = ({ pack }: { pack: PackCard }) => (
     <div className="flex items-start justify-between gap-3">
       <UpstreamChips ids={pack.upstreams} />
       {pack.flags ? (
-        <span className="flex shrink-0 items-center gap-1 text-xs text-warn" title="Wording to recheck">
+        <span className="flex shrink-0 items-center gap-1 text-xs text-warn" title="Tools to recheck">
           <IconAlertTriangle className="size-3.5" /> {pack.flags}
         </span>
       ) : null}

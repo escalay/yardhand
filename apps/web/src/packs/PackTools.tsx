@@ -1,7 +1,8 @@
 /**
- * A pack's tools: each with why it is in, the name its keys call it, the inputs the pack fixes and what its keys read,
- * which the owner can reword (the upstream's text stays beside it). When the upstream rewrites a tool the pack words,
- * or drops an input the pack fixes, the row says what changed until the owner decides.
+ * A pack's variables, then its tools: each with why it is in, the name its keys call it, the inputs the pack fixes or
+ * gives a default and what its keys read, which the owner can reword (the upstream's text stays beside it). When the
+ * upstream rewrites a tool the pack words, or stops taking a value the pack sets, the row says what changed until
+ * the owner decides.
  */
 import {
   IconAdjustmentsHorizontal,
@@ -16,12 +17,14 @@ import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { api, type Schemas, unwrap } from '@/api/client'
 import { Mono } from '@/ui/Code'
+import { Section } from '@/ui/Page'
 import { Status } from '@/ui/Status'
 import { Button } from '@/ui/shadcn/button'
 import { Textarea } from '@/ui/shadcn/textarea'
 import { AddTools } from './AddTools'
 import { EntryEditor, type EntryMode } from './PackEntry'
-import { fixedLine, reasonOf, wordingOf } from './packs.rules'
+import { PackVariables } from './PackVariables'
+import { failsLine, inputsLine, problemLines, reasonOf, setsAccount, withAccountLabels, wordingOf } from './packs.rules'
 
 type Pack = Schemas['Pack']
 type PackTool = Schemas['PackTool']
@@ -79,21 +82,25 @@ const Flag = ({ tool, pack }: { tool: PackTool; pack: string }) => {
   )
 }
 
-const LostInputs = ({ tool }: { tool: PackTool }) =>
-  tool.lostInputs.length ? (
+/** Every value the pack sets that the live tool no longer takes: an input it dropped, a value its schema refuses. */
+const InputProblems = ({ tool }: { tool: PackTool }) => {
+  const lines = problemLines(tool)
+  return lines.length ? (
     <div className="flex items-start gap-2 border border-error/40 bg-error/5 p-3 text-sm">
       <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-error" />
       <span>
-        {tool.upstream} no longer takes {tool.lostInputs.join(', ')}, which this pack fixes: calls fail until you fix
-        other inputs or drop these (Name & inputs).
+        {lines.join('; ')}. {tool.upstream} changed the tool after this pack set {lines.length === 1 ? 'it' : 'them'}:{' '}
+        {failsLine(tool)} (Name & inputs).
       </span>
     </div>
   ) : null
+}
 
 const ToolRow = ({
   tool,
   pack,
   taken,
+  variables,
   titleOf,
   labelOf,
   onRemove,
@@ -101,6 +108,7 @@ const ToolRow = ({
   tool: PackTool
   pack: string
   taken: Set<string>
+  variables: Pack['variables']
   titleOf: (playbook: string) => string
   labelOf: (upstream: string, account: string) => string | undefined
   onRemove: () => void
@@ -108,14 +116,7 @@ const ToolRow = ({
   const [editing, setEditing] = useState(false)
   const [entry, setEntry] = useState<EntryMode | null>(null)
   // An account shows by its label where the pack's connection lists it
-  const fixes = fixedLine(
-    Object.fromEntries(
-      Object.entries(tool.fixed).map(([key, value]) => [
-        key,
-        key === 'account' && typeof value === 'string' ? (labelOf(tool.upstream, value) ?? value) : value,
-      ]),
-    ),
-  )
+  const sets = inputsLine(withAccountLabels(tool, (account) => labelOf(tool.upstream, account)))
   const [draft, setDraft] = useState('')
   const save = useWording(pack)
   const shown = wordingOf(tool)
@@ -136,7 +137,7 @@ const ToolRow = ({
             size="sm"
             variant="ghost"
             disabled={!tool.live}
-            aria-label={`Name and fixed inputs of ${tool.name}`}
+            aria-label={`Name and inputs of ${tool.name}`}
             onClick={() => setEntry('edit')}
           >
             <IconAdjustmentsHorizontal /> <span className="hidden sm:inline">Name & inputs</span>
@@ -169,12 +170,22 @@ const ToolRow = ({
           </Button>
         </span>
       </div>
-      {fixes ? (
+      {sets ? (
         <p className="text-xs text-muted-foreground">
-          <span className="tracking-wide text-primary uppercase">Fixed</span> <Mono className="text-xs">{fixes}</Mono>
+          <span className="tracking-wide text-primary uppercase">Inputs</span>{' '}
+          <Mono className="text-xs break-words">{sets}</Mono>
         </p>
       ) : null}
-      {entry ? <EntryEditor pack={pack} tool={tool} mode={entry} taken={taken} onDone={() => setEntry(null)} /> : null}
+      {entry ? (
+        <EntryEditor
+          pack={pack}
+          tool={tool}
+          mode={entry}
+          taken={taken}
+          variables={variables}
+          onDone={() => setEntry(null)}
+        />
+      ) : null}
       {editing ? (
         <form
           className="flex flex-col gap-3"
@@ -226,7 +237,7 @@ const ToolRow = ({
         </div>
       )}
       <Flag tool={tool} pack={pack} />
-      <LostInputs tool={tool} />
+      <InputProblems tool={tool} />
     </li>
   )
 }
@@ -246,9 +257,7 @@ export const PackTools = ({
   onAdding: (open: boolean) => void
 }) => {
   const taken = new Set(pack.tools.map((tool) => tool.name))
-  const accountUpstreams = [
-    ...new Set(pack.tools.filter((tool) => typeof tool.fixed.account === 'string').map((tool) => tool.upstream)),
-  ]
+  const accountUpstreams = [...new Set(pack.tools.filter(setsAccount).map((tool) => tool.upstream))]
   const accounts = useQuery({
     queryKey: ['accounts', accountUpstreams],
     enabled: accountUpstreams.length > 0,
@@ -270,32 +279,36 @@ export const PackTools = ({
   const labelOf = (upstream: string, account: string) => labels.get(`${upstream}:${account}`)
   return (
     <>
-      <div className="border border-border bg-card">
-        {pack.tools.length ? (
-          <ul>
-            {pack.tools.map((tool) => (
-              <ToolRow
-                key={tool.name}
-                tool={tool}
-                pack={pack.name}
-                taken={taken}
-                titleOf={titleOf}
-                labelOf={labelOf}
-                onRemove={() => void onPatch({ remove: { tools: [tool.name] } })}
-              />
-            ))}
-          </ul>
-        ) : (
-          <p className="px-5 py-6 text-sm text-muted-foreground">
-            No tools yet. Add a playbook and the tools it uses come with it, or pick them yourself.
-          </p>
-        )}
-        <div className="border-t border-border px-5 py-3">
-          <Button size="sm" variant={pack.tools.length ? 'ghost' : 'primary'} onClick={() => onAdding(true)}>
-            <IconPlus /> Add tools
-          </Button>
+      <PackVariables pack={pack} />
+      <Section title={`Tools · ${pack.tools.length}`}>
+        <div className="border border-border bg-card">
+          {pack.tools.length ? (
+            <ul>
+              {pack.tools.map((tool) => (
+                <ToolRow
+                  key={tool.name}
+                  tool={tool}
+                  pack={pack.name}
+                  taken={taken}
+                  variables={pack.variables}
+                  titleOf={titleOf}
+                  labelOf={labelOf}
+                  onRemove={() => void onPatch({ remove: { tools: [tool.name] } })}
+                />
+              ))}
+            </ul>
+          ) : (
+            <p className="px-5 py-6 text-sm text-muted-foreground">
+              No tools yet. Add a playbook and the tools it uses come with it, or pick them yourself.
+            </p>
+          )}
+          <div className="border-t border-border px-5 py-3">
+            <Button size="sm" variant={pack.tools.length ? 'ghost' : 'primary'} onClick={() => onAdding(true)}>
+              <IconPlus /> Add tools
+            </Button>
+          </div>
         </div>
-      </div>
+      </Section>
       <AddTools
         pack={pack}
         open={adding}
