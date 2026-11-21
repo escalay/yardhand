@@ -1,4 +1,8 @@
-/** A fake embedder with a tiny vocabulary of concepts, so paraphrases land near each other without a network. */
+/**
+ * A fake embedder with a tiny vocabulary of concepts, so paraphrases land near each other without a network. A tool
+ * that carries no concept is the same vector as a question that carries none, and stands out for every such question:
+ * every tool of a suite that searches needs one.
+ */
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,6 +17,7 @@ const CONCEPTS = [
   /whisper|quiet/i,
   /item|lamp|thing/i,
   /flag|beta/i,
+  /greet|hello|welcome/i,
 ]
 
 export const vectorOf = (text: string) => {

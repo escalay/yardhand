@@ -73,12 +73,30 @@ export const ToolDetailSchema = z
   .openapi('ToolDetail', { description: 'A tool with everything needed to call it.' })
 export const ToolListSchema = z
   .object({
-    count: z.number().int(),
+    count: z.number().int().openapi({
+      description:
+        'How many tools are returned, as this caller reads them: a pack tool under two names counts twice. 0 when a search matches nothing.',
+    }),
     query: z.string().nullable(),
     hiddenForScope: z.number().int().openapi({
       description:
         'Matching tools left out because they change things and this key is read-only; the owner can grant write scope or mark a tool read-only.',
     }),
+    hint: z
+      .object({
+        pack: z.object({ name: z.string(), title: z.string() }).openapi({ description: 'The pack that was searched.' }),
+        covers: z.array(z.string()).openapi({
+          description:
+            'What the pack’s tools are for, by their groups (a connection’s title where they have none): at most six, most tools first. Empty when the pack holds no tool this key can use.',
+          example: ['Job search', 'Inbox'],
+        }),
+        more: z.number().int().openapi({ description: 'How many more groups `covers` leaves out.' }),
+      })
+      .nullable()
+      .openapi({
+        description:
+          'For a pack key whose search matched nothing in the whole pack: what the pack covers, to ask again by or to tell the person it can’t be done here. Null otherwise, also when the search was narrowed by `upstream` or `group` or its matches are hidden for scope.',
+      }),
     playbooks: z
       .array(
         z.object({
@@ -189,7 +207,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Find tools',
     description:
-      'Tools the caller may use. With `q`, a keyword search across every allowed upstream, best match first; without it, all of them by name.',
+      'Tools the caller may use. With `q`, a search by words and meaning across every allowed upstream, best match first: only tools that clearly match, so a question that matches nothing answers `count: 0` (a gateway with fewer than 50 tools, or without search by meaning, answers as before: its nearest tools and every keyword hit). Without `q`, all of them by name.',
     request: {
       query: z.object({
         q: z
@@ -213,7 +231,7 @@ export const routes = {
           .min(1)
           .max(5000)
           .default(20)
-          .openapi({ description: 'At most this many (1–5000, default 20).' }),
+          .openapi({ description: 'At most this many, counted as `count` counts them (1–5000, default 20).' }),
       }),
     },
     responses: { 200: ok('Tools.', ToolListSchema), ...problemResponses(400, 401, 403) },

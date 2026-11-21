@@ -13,11 +13,10 @@ import {
   holds,
   type Principal,
   requireOwner,
-  runsTool,
   seenBy,
   shownAs,
 } from '../clients/principals.js'
-import { fuse } from './meaning.js'
+import { fuse, KEYWORD_MIN_Z } from './meaning.js'
 
 /** Meaning counts a bit more than words: generic words like "app" match too much to lead. */
 const MEANING_WEIGHT = [1, 1.5]
@@ -27,7 +26,7 @@ import type { CatalogContent } from '../catalog/content.js'
 import { type PlaybookContent, playbookTitleOf, textOf } from '../catalog/content.js'
 import type { CatalogVersionRow } from '../catalog/schema.js'
 import { matchesEnough } from '../catalog/search.js'
-import { actsAs } from './groups.js'
+import { actsAs, coversOf } from './groups.js'
 import { toolsOpenApi } from './openapi.js'
 import { isOff, type LiveTool, needsWrite } from './repo.js'
 import { PATH, REVIEWS_PATH, type routes } from './routes.js'
@@ -182,6 +181,45 @@ export const toolsHandlers = ({
   /** A group by its key or by its title as lists show it. */
   const inGroup = (tool: LiveTool, group: string) =>
     tool.group?.key === group || tool.group?.title.toLowerCase() === group.toLowerCase()
+  /**
+   * What a search finds among the tools `mayMatch` allows, best first: a tool that stands out for the question among
+   * every tool, or carries its words and is near enough in meaning. A question that matches nothing finds nothing.
+   * Where there is no bar (a small catalog, no search by meaning, or it failed): the nearest tools and every keyword hit.
+   */
+  const searchFor = async (
+    principal: Principal,
+    words: string,
+    upstream: string | undefined,
+    mayMatch: (tool: LiveTool) => boolean,
+  ) => {
+    const within = (await upstreams.list())
+      .filter((row) => row.enabled && allows(principal, row.id) && (!upstream || row.id === upstream))
+      .map((row) => row.id)
+    const own = principal.pack
+      ? await tools.liveMany([...new Set([...principal.pack.tools.values()].map((entry) => entry.tool))])
+      : await tools.listLive({ upstreams: within, limit: 5000 })
+    const pool = new Map(own.filter(mayMatch).map((tool) => [tool.name, tool]))
+    const inPool = (name: string) => pool.has(name)
+    // A pack's tools are ranked among themselves: the best hundred of their connections can hold none of them
+    const hits = (await tools.searchNames(words, 100, within, principal.pack ? [...pool.keys()] : undefined)).filter(
+      inPool,
+    )
+    const barred = async () => {
+      if (!meaning) return null
+      const stood = await meaning.standouts(words, { limit: 100, keep: inPool })
+      // The question is embedded once: the second look reads it from the embedder's cache
+      const near =
+        stood &&
+        (await meaning.standouts(words, { limit: 100, keep: (name) => hits.includes(name), minZ: KEYWORD_MIN_Z }))
+      return stood && near ? [hits.filter((name) => near.includes(name)), stood] : null
+    }
+    const nearest = async () =>
+      meaning ? (await meaning.names(words, 5000).catch(() => [])).filter(inPool).slice(0, 100) : []
+    const lists = (await barred().catch(() => null)) ?? [hits, await nearest()]
+    // Keyword and meaning results fused by rank
+    const found = fuse(lists, 300, MEANING_WEIGHT).flatMap((name) => pool.get(name) ?? [])
+    return { found, pool: [...pool.values()] }
+  }
   const list: RouteHandler<Routes['list']> = async (c) => {
     const { q, upstream, group, limit, as } = c.req.valid('query')
     const { principal, preview } = await viewerOf(c, as)
@@ -191,28 +229,18 @@ export const toolsHandlers = ({
       (!upstream || tool.upstreamId === upstream) && (!group || inGroup(tool, group))
     const scoped = (tool: LiveTool) => visible(tool) && inUpstream(tool)
     const words = q?.trim()
-    // Both searches look only where this caller may: the best hundred of everything can hold none of its tools
-    const within = words
-      ? new Set(
-          (await upstreams.list())
-            .filter((row) => row.enabled && allows(principal, row.id) && (!upstream || row.id === upstream))
-            .map((row) => row.id),
-        )
-      : new Set<string>()
-    const byMeaning = async (asked: string) =>
-      meaning
-        ? (await meaning.names(asked, 5000).catch(() => []))
-            .filter((name) => within.has(name.slice(0, name.indexOf('.'))))
-            .slice(0, 100)
-        : []
-    // Keyword and meaning results fused by rank, then cut to what this caller may see
-    const ranked = words
-      ? fuse(await Promise.all([tools.searchNames(words, 100, [...within]), byMeaning(words)]), 300, MEANING_WEIGHT)
+    // Searched as a write key would be listed, so a read-only key can be told what its scope hides
+    const searched = words
+      ? await searchFor(principal, words, upstream, (tool) => reachable(tool) && inUpstream(tool))
       : null
-    const candidates = ranked
-      ? await tools.liveMany(ranked)
+    const candidates = searched
+      ? searched.found
       : await tools.listLive({ upstreams: upstream ? [upstream] : principal.upstreams, limit: 5000 })
-    const found = candidates.filter(scoped).slice(0, limit)
+    // A pack shows a tool once per name it gives it: `limit` and `count` are of those
+    const shown = candidates
+      .filter(scoped)
+      .flatMap((tool) => shownAs(principal, tool).map((as) => ({ tool: tool.name, as })))
+      .slice(0, limit)
     // Logged for the owner's "what agents looked for"; a failing log never fails the search
     if (words && !preview)
       await searches
@@ -220,8 +248,8 @@ export const toolsHandlers = ({
           clientId: principal.id,
           clientName: principal.name,
           query: words.slice(0, 200),
-          results: found.length,
-          tools: found.map((tool) => tool.name),
+          results: shown.length,
+          tools: [...new Set(shown.map(({ tool }) => tool))],
           via: viaOf(c),
         })
         .catch(() => {})
@@ -230,21 +258,33 @@ export const toolsHandlers = ({
       principal.scope === 'write'
         ? 0
         : candidates.filter((tool) => inUpstream(tool) && reachable(tool) && !visible(tool)).length
+    // Only when nothing in the whole pack matched: a narrowed search, or one whose matches are hidden, says so itself
+    const hint =
+      searched && principal.pack && !searched.found.length && !upstream && !group
+        ? {
+            pack: { name: principal.pack.name, title: principal.pack.title },
+            ...(await coveredBy(searched.pool.filter(visible))),
+          }
+        : null
     const origin = originOf(c)
     const extras = await extrasFor(principal)
     return c.json(
       {
-        count: found.length,
+        count: shown.length,
         query: q?.trim() || null,
         hiddenForScope,
+        hint,
         playbooks: words ? await playbooksFor(principal, words, upstream) : [],
         _links: linksOf(origin, { self: PATH, openapi: `${PATH}/openapi.json` }),
-        _embedded: {
-          tools: found.flatMap((tool) => shownAs(principal, tool)).map((tool) => cardOf(origin, tool, extras)),
-        },
+        _embedded: { tools: shown.map(({ as }) => cardOf(origin, as, extras)) },
       },
       200,
     )
+  }
+  /** What these tools cover, by their groups, with each connection under its title. */
+  const coveredBy = async (listed: LiveTool[]) => {
+    const titles = new Map((await upstreams.list()).map((row) => [row.id, row.title]))
+    return coversOf(listed, (id) => titles.get(id) ?? id)
   }
   /** Playbooks made for what was asked, offered to this caller: at most three, each matching enough of the words. */
   const playbooksFor = async (principal: Principal, words: string, upstream: string | undefined) => {

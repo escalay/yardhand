@@ -1,0 +1,248 @@
+/**
+ * Search that can say nothing, on a catalog large enough to tell a match from noise (909 tools): a key finds only what
+ * stands out among every tool, or carries the asked words and is near enough in meaning, and a pack's empty search
+ * says what the pack covers. A small catalog, and a gateway whose search by meaning fails, search as before.
+ */
+import { randomBytes } from 'node:crypto'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createApp } from '../src/app.js'
+import type { MeaningSearch } from '../src/features/tools/meaning.js'
+import { type Db, hashApiKey, testDb } from '../src/kit/index.js'
+import { fakeMeaning } from './fixtures/meaning.js'
+import { startUpstream } from './fixtures/upstream.js'
+
+const OWNER = 'owner-key-for-pack-search'
+const upstream = await startUpstream({ token: 'fixture-token', greeting: true })
+afterAll(() => upstream.close())
+
+type Init = { method?: string; body?: unknown }
+type Card = { name: string }
+/** A gateway with the fixture server connected, and its API as a key sees it. */
+const gateway = async (meaningOf: (db: Db) => MeaningSearch) => {
+  const db = await testDb()
+  const meaning = meaningOf(db)
+  const app = await createApp({
+    db,
+    env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: randomBytes(32).toString('base64') },
+    meaning,
+  })
+  const api = async (key: string, path: string, init: Init = {}) => {
+    const response = await app.request(path, {
+      method: init.method ?? 'GET',
+      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    })
+    return { status: response.status, json: (await response.json().catch(() => null)) as any }
+  }
+  const made = async (path: string, body: unknown, method = 'POST') => {
+    const answer = await api(OWNER, path, { method, body })
+    expect([path, answer.status, answer.json?.detail]).toEqual([path, method === 'POST' ? 201 : 200, undefined])
+    return answer.json
+  }
+  const keyFor = async (body: Record<string, unknown>) =>
+    (await made('/api/clients', { scope: 'write', ...body })).key as string
+  /** The names a search returns, in order. */
+  const found = async (key: string, q: string) =>
+    ((await api(key, `/api/tools?q=${encodeURIComponent(q)}`)).json._embedded.tools as Card[]).map((tool) => tool.name)
+  await made('/api/upstreams', {
+    id: 'fixture',
+    title: 'Fixture',
+    url: upstream.url,
+    trust: 'trusted',
+    auth: { type: 'bearer', value: 'fixture-token' },
+  })
+  return { app, api, made, keyFor, found, meaning }
+}
+type Gateway = Awaited<ReturnType<typeof gateway>>
+
+/** `count` GET endpoints, numbered 001 up. */
+const numbered = (count: number, endpoint: (n: number) => { name: string; description: string }) =>
+  Array.from({ length: count }, (_, index) => {
+    const one = endpoint(index + 1)
+    const name = `${one.name}_${String(index + 1).padStart(3, '0')}`
+    return { name, method: 'get', path: `/${name}`, description: one.description }
+  })
+const KIT_TOOLS = [
+  { name: 'fixture.echo' },
+  { name: 'fixture.shout' },
+  { name: 'fixture.greet', alias: 'greet_from_desk', fixed: { from: 'the desk' } },
+  { name: 'fixture.greet', alias: 'greet_from_boss', fixed: { from: 'the boss' } },
+]
+/** The pack `kit` with the fixture's tools (and `more`), a key locked to it and a key outside packs. */
+const withKit = async ({ made, keyFor }: Gateway, more: Record<string, unknown> = {}) => {
+  await made('/api/packs', { name: 'kit', title: 'Kit', description: 'Says things back.' })
+  await made('/api/packs/kit', { add: { tools: KIT_TOOLS, ...more } }, 'PATCH')
+  return {
+    kit: await keyFor({ name: 'kit-agent', pack: 'kit' }),
+    full: await keyFor({ name: 'laptop', upstreams: 'all' }),
+  }
+}
+
+const large = await gateway(fakeMeaning)
+const small = await gateway(fakeMeaning)
+const refused = () => Promise.reject(new Error('embedding refused'))
+const broken = await gateway(() => ({ refresh: async () => {}, names: refused, standouts: refused }))
+
+describe('on a large catalog', () => {
+  const { app, api, made, keyFor, found } = large
+  let kit = ''
+  let kitReader = ''
+  let notes = ''
+  let full = ''
+  beforeAll(async () => {
+    const rest = { kind: 'http', url: 'http://127.0.0.1:9/api', auth: { type: 'none' }, trust: 'trusted' }
+    // 105 tools that say the asked words better than the one the pack holds, which ranks last among them
+    await made('/api/upstreams', {
+      ...rest,
+      id: 'crowd',
+      title: 'Crowd',
+      http: {
+        endpoints: [
+          ...numbered(105, (n) => ({ name: 'lamp', description: `Warehouse lamp ${n}.` })),
+          {
+            name: 'zz_lookup',
+            method: 'get',
+            path: '/zz_lookup',
+            description:
+              'Looks up one thing kept in the warehouse by its shelf code, and answers with where it stands, who moved it last and when it is due for a check.',
+          },
+        ],
+      },
+    })
+    for (const id of ['filler-a', 'filler-b', 'filler-c', 'filler-d'])
+      await made('/api/upstreams', {
+        ...rest,
+        id,
+        http: { endpoints: numbered(200, (n) => ({ name: 'flag', description: `Reads beta flag ${n}.` })) },
+      })
+    // Playbooks elsewhere that say the asked words better than the pack's own
+    const { catalog } = app.services
+    for (const { name } of numbered(35, () => ({ name: 'say-back', description: '' }))) {
+      const id = `crowd:playbook:${name}`
+      await catalog.create({ id, upstreamId: 'crowd', kind: 'playbook', remoteName: name, name: `crowd-${name}` })
+      const content = { kind: 'playbook' as const, prompt: name, title: 'Say a topic back', arguments: [] }
+      await catalog.makeLive(
+        id,
+        await catalog.addVersion(id, { ...content, description: 'Say a topic back.' }, 'pending'),
+      )
+    }
+    ;({ kit, full } = await withKit(large, {
+      tools: [...KIT_TOOLS, { name: 'crowd.zz_lookup' }, { name: 'crowd.lamp_001' }],
+      playbooks: ['fixture-say-it-back'],
+    }))
+    kitReader = await keyFor({ name: 'kit-reader', pack: 'kit', scope: 'read' })
+    await made('/api/packs', { name: 'notes', title: 'Notes', description: 'Echo, with its manual.' })
+    await made('/api/packs/notes', { add: { tools: [{ name: 'fixture.echo' }], manuals: ['fixture'] } }, 'PATCH')
+    notes = await keyFor({ name: 'notes-agent', pack: 'notes' })
+    await large.meaning.refresh()
+    expect((await api(OWNER, '/api/tools?limit=5000')).json.count).toBe(909)
+  })
+
+  it('answers nothing for a question nothing matches, and says what the pack covers', async () => {
+    const { json } = await api(kit, '/api/tools?q=zzqx')
+    expect(json).toMatchObject({
+      count: 0,
+      hiddenForScope: 0,
+      hint: { pack: { name: 'kit', title: 'Kit' }, covers: ['Fixture', 'Crowd', 'Lamps'], more: 0 },
+      _embedded: { tools: [] },
+    })
+    // A key outside packs gets nothing too, and no hint
+    expect((await api(full, '/api/tools?q=zzqx')).json).toMatchObject({ count: 0, hint: null })
+  })
+
+  it('returns only the tool a paraphrase stands out for, not its nearest neighbours', async () => {
+    expect(await found(kit, 'parrot')).toEqual(['fixture.echo'])
+    expect(await found(full, 'parrot')).toEqual(['fixture.echo'])
+    expect((await api(full, '/api/tools?q=parrot')).json).toMatchObject({ count: 1, hint: null })
+  })
+
+  it('counts the tools as the pack names them: one tool under two names is two', async () => {
+    const { json } = await api(kit, '/api/tools?q=hello')
+    expect(json._embedded.tools.map((tool: Card) => tool.name)).toEqual(['greet_from_desk', 'greet_from_boss'])
+    expect(json.count).toBe(2)
+    expect((await api(kit, '/api/tools?q=hello&limit=1')).json).toMatchObject({
+      count: 1,
+      _embedded: { tools: [{ name: 'greet_from_desk' }] },
+    })
+    expect((await api(kit, '/api/tools?limit=5000')).json.count).toBe(6)
+  })
+
+  it('drops a keyword hit that is nowhere near in meaning: one shared word does not answer an off-topic question', async () => {
+    // echo and shout both say "text"; neither is about French
+    for (const q of ['french text', 'translate text to french'])
+      expect((await api(kit, `/api/tools?q=${q}`)).json).toMatchObject({
+        count: 0,
+        hint: { pack: { name: 'kit' } },
+        _embedded: { tools: [] },
+      })
+    expect(await found(kit, 'echo text')).toEqual(['fixture.echo'])
+    expect(await found(full, 'french text')).toEqual([])
+  })
+
+  it('keeps a keyword hit that is near enough in meaning without standing out, ranked among the pack’s own tools', async () => {
+    // 106 tools are equally about lamps, so none stands out; the pack's two carry an asked word. By words zz_lookup
+    // ranks last of its connection's 106, past the hundred a search reads there
+    expect(await found(kit, 'warehouse lamp')).toEqual(['crowd.lamp_001', 'crowd.zz_lookup'])
+    expect(await found(kit, 'lamp')).toEqual(['crowd.lamp_001'])
+    expect(await found(full, 'lamp')).toHaveLength(20)
+  })
+
+  it('tells a read-only pack key a match is hidden, not that the pack has nothing', async () => {
+    expect((await api(kitReader, '/api/tools?q=yell')).json).toMatchObject({
+      count: 0,
+      hiddenForScope: 1,
+      hint: null,
+      _embedded: { tools: [] },
+    })
+    // What it covers is what this key is listed: shout changes things
+    expect((await api(kitReader, '/api/tools?q=zzqx')).json).toMatchObject({
+      hiddenForScope: 0,
+      hint: { covers: ['Fixture', 'Crowd', 'Lamps'], more: 0 },
+    })
+  })
+
+  it('gives no hint when the search was narrowed: the rest of the pack was not asked', async () => {
+    expect((await api(kit, '/api/tools?q=zzqx&upstream=fixture')).json).toMatchObject({ count: 0, hint: null })
+    expect((await api(kit, '/api/tools?q=zzqx&upstream=crowd&group=Lamps')).json).toMatchObject({
+      count: 0,
+      hint: null,
+    })
+    expect((await api(kit, '/api/tools')).json.hint).toBeNull()
+  })
+})
+
+describe('on a catalog too small to tell a match from noise', () => {
+  let kit = ''
+  let full = ''
+  beforeAll(async () => {
+    ;({ kit, full } = await withKit(small))
+    await small.meaning.refresh()
+  })
+
+  it('searches as before: a paraphrase finds its tool, and the nearest tools follow it', async () => {
+    for (const key of [kit, full]) {
+      const { json } = await small.api(key, '/api/tools?q=parrot')
+      expect(json._embedded.tools[0].name).toBe('fixture.echo')
+      expect(json.hint).toBeNull()
+    }
+    expect(await small.found(kit, 'parrot')).toHaveLength(4)
+    expect((await small.found(kit, 'shout'))[0]).toBe('fixture.shout')
+  })
+})
+
+describe('when search by meaning fails', () => {
+  let kit = ''
+  let full = ''
+  beforeAll(async () => {
+    ;({ kit, full } = await withKit(broken))
+  })
+
+  it('still searches by words, and a pack that matches nothing still says what it covers', async () => {
+    for (const key of [kit, full]) expect(await broken.found(key, 'echoes text')).toContain('fixture.echo')
+    expect(await broken.found(kit, 'shout')).toEqual(['fixture.shout'])
+    expect((await broken.api(kit, '/api/tools?q=zzqx')).json).toMatchObject({
+      count: 0,
+      hint: { pack: { name: 'kit', title: 'Kit' }, covers: ['Fixture'], more: 0 },
+    })
+  })
+})
