@@ -87,6 +87,9 @@ export const reviewNotifier = (
 /** Discord refuses a message over 2000 characters; a notice keeps under this and says the rest on its next run. */
 const MESSAGE_ROOM = 1800
 
+/** A name on one line: what an owner or, later, a person named cannot start a line of its own in a notice. */
+const oneLine = (text: string) => text.replace(/\s*[\r\n\u2028\u2029]+\s*/g, ' ').trim()
+
 /**
  * Tells the owner once when someone's access to a pack is in its last three days (`endingAccess`), each with where to
  * extend it. An end is announced once: a key extended and ending anew is said again. `post` and `kept` as for
@@ -103,7 +106,7 @@ export const accessNotifier = (
     const told = announced
     const ending = (await endingAccess(services, now)).map(({ id, name, pack, expiresAt }) => ({
       key: `${id}:${expiresAt}`,
-      line: `• ${name}'s access to ${pack.title} ends on ${dayOf(expiresAt)}. Extend it: ${origin}/app/packs/${pack.name}?tab=people (or PATCH ${origin}/api/clients/${id} with {"expiresIn":"30d"})`,
+      line: `• ${oneLine(name)}'s access to ${oneLine(pack.title)} ends on ${dayOf(expiresAt)}. Extend it: ${origin}/app/packs/${pack.name}?tab=people (or PATCH ${origin}/api/clients/${id} with {"expiresIn":"30d"})`,
     }))
     const fresh = ending.filter(({ key }) => !told.has(key))
     const fits = (count: number) =>
@@ -135,14 +138,14 @@ export const afterSync = async (sync: () => Promise<string>, notices: Record<str
   return outcome.said
 }
 
-/** A Discord webhook as a `post` for the notifiers. */
+/** A Discord webhook as a `post` for the notifiers. Nothing in a notice pings: a name may hold `@everyone`. */
 export const discordPost = (webhookUrl: string | undefined) =>
   webhookUrl
     ? async (content: string) => {
         const response = await fetch(webhookUrl, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
         })
         if (!response.ok) throw new Error(`Discord webhook answered ${response.status}`)
       }

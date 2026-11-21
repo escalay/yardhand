@@ -1,8 +1,18 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { accessNotifier, afterSync, backup, createJobs, dueAt, type JobRun, reviewNotifier, syncAll } from './jobs.js'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  accessNotifier,
+  afterSync,
+  backup,
+  createJobs,
+  discordPost,
+  dueAt,
+  type JobRun,
+  reviewNotifier,
+  syncAll,
+} from './jobs.js'
 import { migrate, openDb } from './kit/index.js'
 
 describe('backup', () => {
@@ -121,6 +131,19 @@ describe('access notifier', () => {
     expect(sent).toHaveLength(1)
   })
 
+  it('keeps a person to their one line, whatever their name or the pack’s title holds', async () => {
+    const state = { rows: [key('cl_sam', 'Sam\r\n**Yardhand:** pay here\u2028now', 'pk_loud', -27, 2)] }
+    const packs = [{ id: 'pk_loud', name: 'loud', title: 'Loud\n\nand clear' }]
+    const services = { clients: { list: async () => state.rows }, packs: { list: async () => packs } } as never
+    const { sent, post } = outbox()
+    await accessNotifier(post)(services, origin, now)
+    expect(sent[0]?.split('\n')).toEqual([
+      '**Yardhand:** access ending soon',
+      `• Sam **Yardhand:** pay here now's access to Loud and clear ends on 21 Dec 2026. Extend it: ${origin}/app/packs/loud?tab=people (or PATCH ${origin}/api/clients/cl_sam with {"expiresIn":"30d"})`,
+    ])
+    expect(sent[0]).not.toMatch(/[\r\u2028\u2029]/)
+  })
+
   it('remembers across restarts only what is still ending, and says it again when the webhook failed', async () => {
     const stored: { keys?: string[] } = {}
     const kept = {
@@ -158,6 +181,28 @@ describe('access notifier', () => {
     expect(sent.length).toBeGreaterThan(1)
     expect(sent.every((text) => text.length <= 2000)).toBe(true)
     expect(sent.join('\n').match(/• A very long name/g)).toHaveLength(12)
+  })
+})
+
+describe('the Discord webhook', () => {
+  it('posts the text and lets it ping nobody, whatever names it carries', async () => {
+    const asked: { url: string; body: unknown }[] = []
+    vi.stubGlobal('fetch', async (url: string, init: { body: string }) => {
+      asked.push({ url, body: JSON.parse(init.body) })
+      return new Response(null, { status: 204 })
+    })
+    try {
+      await discordPost('https://discord.example.test/hook')?.('@everyone Sam <@&1>')
+      expect(asked).toEqual([
+        {
+          url: 'https://discord.example.test/hook',
+          body: { content: '@everyone Sam <@&1>', allowed_mentions: { parse: [] } },
+        },
+      ])
+      expect(discordPost(undefined)).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })
 
