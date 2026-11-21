@@ -1635,7 +1635,10 @@ export interface components {
         };
         /** @description A new API-key client, optionally locked to a pack and expiring. */
         ClientCreate: {
-            /** @example invoice-script */
+            /**
+             * @description One line; spaces around it are dropped.
+             * @example invoice-script
+             */
             name: string;
             /**
              * @description `write` lets it call tools that change things.
@@ -1688,7 +1691,10 @@ export interface components {
         };
         /** @description Fields to change. */
         ClientPatch: {
-            /** @example invoice-script */
+            /**
+             * @description One line; spaces around it are dropped.
+             * @example invoice-script
+             */
             name?: string;
             /**
              * @description `write` lets it call tools that change things. Left out, it stays as it is.
@@ -2877,7 +2883,7 @@ export interface components {
         /** @description One person to share a pack with. */
         PackShare: {
             /**
-             * @description Who it is for.
+             * @description Who it is for, on one line; spaces around it are dropped. It opens the message.
              * @example Sam
              */
             name: string;

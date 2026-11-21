@@ -5,7 +5,7 @@
 import { createRoute, z } from '@hono/zod-openapi'
 import { HAL_JSON, LinksSchema, problemResponses } from '../../kit/index.js'
 import { KEY_LIFETIMES } from '../clients/lifetimes.js'
-import { SurfaceSchema } from '../clients/routes.js'
+import { ClientName, SurfaceSchema } from '../clients/routes.js'
 import { APP_IDS, KEY_APPS } from '../clients/setup.js'
 import { ALIAS } from './entries.js'
 import { PACK_REASONS } from './schema.js'
@@ -178,7 +178,10 @@ const PackPeopleSchema = z
 
 const ShareInputSchema = z
   .object({
-    name: z.string().min(1).max(80).openapi({ description: 'Who it is for.', example: 'Sam' }),
+    name: ClientName.openapi({
+      description: 'Who it is for, on one line; spaces around it are dropped. It opens the message.',
+      example: 'Sam',
+    }),
     app: z.enum(KEY_APPS).nullable().optional().openapi({
       description:
         'The app they will paste the key into; null or left out when not sure. claude.ai is not one: it signs in and takes no key.',

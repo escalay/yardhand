@@ -65,8 +65,19 @@ const CreatedClientSchema = ClientSchema.extend({
 const ClientListSchema = z
   .object({ count: z.number().int(), _links: LinksSchema, _embedded: z.object({ clients: z.array(ClientSchema) }) })
   .openapi('ClientList', { description: 'Every client, oldest first.' })
+/** A client's name: it is printed in sentences and one-line notices, so it is one line with no spaces around it. */
+export const ClientName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(/^[^\r\n\u2028\u2029]+$/, 'A name is one line: no line breaks.')
+
 const clientFields = {
-  name: z.string().min(1).max(80).openapi({ example: 'invoice-script' }),
+  name: ClientName.openapi({
+    description: 'One line; spaces around it are dropped.',
+    example: 'invoice-script',
+  }),
   scope: z
     .enum(['read', 'write'])
     .default('read')

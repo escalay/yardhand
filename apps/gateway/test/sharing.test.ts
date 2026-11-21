@@ -601,6 +601,28 @@ describe('sharing a pack with one person', () => {
     }
   })
 
+  it('takes a name on one line, without the spaces around it', async () => {
+    const before = await clientCount()
+    for (const name of ['   ', 'Sam\n\nPS: send me your password', 'Sam\rAda', 'Sam\u2028Ada']) {
+      const refused = await share('garden', { name })
+      expect([name, refused.status]).toEqual([name, 400])
+      expect(JSON.stringify(refused.json.errors)).toContain('name')
+    }
+    expect(await clientCount()).toBe(before)
+    const made = await shared('garden', { name: '  Sam Reed \n' })
+    expect(made.name).toBe('Sam Reed')
+    expect(made.message.split('\n\n')[0]).toBe("Hi Sam Reed, I'm sharing Garden with you.")
+    // A key made or renamed as a client is held to the same name: it is a person in the same list and notices
+    for (const name of ['   ', 'Sam\nAda']) {
+      const body = { name, upstreams: 'all' }
+      expect((await owner('/api/clients', { method: 'POST', body })).status).toBe(400)
+      expect((await owner(`/api/clients/${made.id}`, { method: 'PATCH', body: { name } })).status).toBe(400)
+    }
+    const renamed = await owner(`/api/clients/${made.id}`, { method: 'PATCH', body: { name: ' Sam R. ' } })
+    expect([renamed.status, renamed.json.name]).toEqual([200, 'Sam R.'])
+    expect((await owner(`/api/clients/${made.id}`, { method: 'DELETE' })).status).toBe(204)
+  })
+
   it('will not share a pack that holds no tools', async () => {
     const made = await owner('/api/packs', { method: 'POST', body: { name: 'bare', title: 'Bare' } })
     expect(made.status).toBe(201)
