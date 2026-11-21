@@ -1,13 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
+  accessOf,
   accountAlias,
   addLabel,
   aliasOf,
+  alsoOpens,
   byConnection,
+  changesLine,
+  changingTools,
   checklistOf,
+  connectsVia,
   coversLine,
+  dayOf,
+  EXTEND_CHOICES,
   effectOf,
   emptyLine,
+  endsOf,
   expiryOf,
   fixedLine,
   freeAlias,
@@ -18,11 +26,16 @@ import {
   lineOf,
   nameProblem,
   packQueryOf,
+  parsePackTab,
   preselected,
   reasonOf,
   renameNote,
+  SHARE_APPS,
+  SHARE_DEFAULT,
+  SHARE_LIFETIMES,
   shortAddress,
   slugOf,
+  stillThere,
   stoodOutLine,
   suggestionsFor,
   toolkitOf,
@@ -254,5 +267,124 @@ describe('trying a pack', () => {
   it('shows an address without its scheme', () => {
     expect(shortAddress('https://gw.example.com/p/loud')).toBe('gw.example.com/p/loud')
     expect(shortAddress('http://localhost:4400/p/loud')).toBe('localhost:4400/p/loud')
+  })
+})
+
+describe('a pack’s page in the address', () => {
+  it('reads every part but Tools, the default', () => {
+    expect(parsePackTab({ tab: 'overview' })).toEqual({ tab: 'overview' })
+    expect(parsePackTab({ tab: 'people' })).toEqual({ tab: 'people' })
+    expect(parsePackTab({ tab: 'tools' })).toEqual({})
+    expect(parsePackTab({ tab: 'nowhere' })).toEqual({})
+    expect(parsePackTab({ add: true })).toEqual({ add: true })
+  })
+
+  it('opens People for a link kept from when it was Keys', () => {
+    expect(parsePackTab({ tab: 'keys' })).toEqual({ tab: 'people' })
+  })
+
+  it('opens the Share sheet over the part it was asked on', () => {
+    expect(parsePackTab({ share: true })).toEqual({ share: true })
+    expect(parsePackTab({ tab: 'overview', share: true })).toEqual({ tab: 'overview', share: true })
+    expect(parsePackTab({ tab: 'keys', share: true })).toEqual({ tab: 'people', share: true })
+    expect(parsePackTab({ share: 'yes' })).toEqual({})
+  })
+})
+
+describe('sharing a pack', () => {
+  const tool = (needsWrite: boolean, live = true) => ({ needsWrite, live })
+
+  it('offers 7 days, 30 days and until revoked, 30 days unless said', () => {
+    expect(SHARE_LIFETIMES.map((choice) => [choice.value, choice.label])).toEqual([
+      ['7d', '7 days'],
+      ['30d', '30 days'],
+      ['never', 'Until revoked'],
+    ])
+    expect(SHARE_DEFAULT).toBe('30d')
+  })
+
+  it('asks which app, Claude Code first, and takes not being sure', () => {
+    expect(SHARE_APPS.map((choice) => [choice.app, choice.label])).toEqual([
+      ['claude-code', 'Claude Code'],
+      ['cursor', 'Cursor'],
+      ['codex', 'Codex'],
+      ['curl', 'A script'],
+      [null, 'Not sure'],
+    ])
+    // A radio's value is text: no two choices share one
+    expect(new Set(SHARE_APPS.map((choice) => choice.value)).size).toBe(SHARE_APPS.length)
+  })
+
+  it('counts the live tools that change things: only then is what they can do asked', () => {
+    expect(changingTools({ tools: [tool(false), tool(true), tool(true)] })).toBe(2)
+    expect(changingTools({ tools: [tool(false), tool(true, false)] })).toBe(0)
+    expect(changingTools({ tools: [] })).toBe(0)
+    expect(changesLine(1)).toBe('1 tool here changes things')
+    expect(changesLine(3)).toBe('3 tools here change things')
+  })
+})
+
+describe('a pack’s people', () => {
+  const NOW = Date.parse('2026-12-01T10:00:00Z')
+  const person = (expiresAt: string | null, extra: { ending?: boolean; ended?: boolean } = {}) => ({
+    expiresAt,
+    ...extra,
+  })
+
+  it('says how a person connects', () => {
+    expect(connectsVia({ app: 'claude-code', kind: 'key' })).toBe('Claude Code · key')
+    expect(connectsVia({ app: 'curl', kind: 'key' })).toBe('A script · key')
+    expect(connectsVia({ app: 'typescript', kind: 'key' })).toBe('TypeScript · key')
+    expect(connectsVia({ app: null, kind: 'key' })).toBe('key')
+    expect(connectsVia({ app: 'claude-ai', kind: 'oauth' })).toBe('claude.ai · sign-in')
+    expect(connectsVia({ app: null, kind: 'oauth' })).toBe('sign-in')
+  })
+
+  it('says what a person can do', () => {
+    expect(accessOf('read')).toBe('read only')
+    expect(accessOf('write')).toBe('can change')
+  })
+
+  it('says when access ends: never, the day, or how soon', () => {
+    expect(endsOf(person(null), NOW)).toEqual({ text: 'never', warn: false })
+    expect(endsOf(person('2026-12-21T10:00:00Z'), NOW)).toEqual({ text: '21 Dec', warn: false })
+    expect(endsOf(person('2026-12-04T10:00:00Z', { ending: true }), NOW)).toEqual({ text: 'in 3 d', warn: true })
+    expect(endsOf(person('2026-12-02T16:00:00Z', { ending: true }), NOW)).toEqual({ text: 'in 1 d', warn: true })
+    expect(endsOf(person('2026-12-01T15:00:00Z', { ending: true }), NOW)).toEqual({ text: 'in 5 h', warn: true })
+    expect(endsOf(person('2026-12-01T10:20:00Z', { ending: true }), NOW)).toEqual({ text: 'in 20 min', warn: true })
+  })
+
+  it('says a key made for a day or less ends soon, without the warning: it was meant to', () => {
+    expect(endsOf(person('2026-12-01T18:00:00Z'), NOW)).toEqual({ text: 'in 8 h', warn: false })
+    expect(endsOf(person('2026-12-02T10:00:00Z'), NOW)).toEqual({ text: 'in 1 d', warn: false })
+  })
+
+  it('says the day access ended, in UTC as the message they were sent says it', () => {
+    expect(endsOf(person('2026-11-02T23:30:00Z', { ended: true }), NOW)).toEqual({ text: 'ended 2 Nov', warn: false })
+    // Ended since the list was read
+    expect(endsOf(person('2026-12-01T09:59:00Z'), NOW)).toEqual({ text: 'ended 1 Dec', warn: false })
+  })
+
+  it('offers the three ends Extend can set, counted from today', () => {
+    expect(EXTEND_CHOICES.map((choice) => [choice.value, choice.label])).toEqual([
+      ['7d', '7 days from today'],
+      ['30d', '30 days from today'],
+      ['never', 'Until revoked'],
+    ])
+    expect(EXTEND_CHOICES.map((choice) => choice.value)).toEqual(SHARE_LIFETIMES.map((choice) => choice.value))
+  })
+
+  it('warns that a key opens other packs, which an Extend or a revoke changes too', () => {
+    expect(alsoOpens([])).toBe('')
+    expect(alsoOpens(['desk'])).toBe('This key also opens desk: that changes too.')
+    expect(alsoOpens(['desk', 'quiet'])).toBe('This key also opens desk and quiet: that changes too.')
+    expect(alsoOpens(['desk', 'quiet', 'kit'])).toBe('This key also opens desk, quiet and kit: that changes too.')
+  })
+
+  it('says who still connects at an old address', () => {
+    expect(stillThere(0)).toBe('nobody connects there now')
+    expect(stillThere(1)).toBe('1 person still connects there')
+    expect(stillThere(2)).toBe('2 people still connect there')
+    expect(dayOf('2026-12-02T23:30:00Z')).toBe('2 Dec')
   })
 })
