@@ -123,7 +123,7 @@ test('a pack takes a playbook with the tools it uses, and issues a key that expi
   await expect(page.getByText('Added items.delete_item to Loud.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'items.delete_item' })).toBeVisible()
 
-  await page.getByRole('button', { name: /^Playbooks & manuals/ }).click()
+  await page.getByRole('button', { name: /^Playbooks & skill/ }).click()
   await page.getByRole('button', { name: 'Add a playbook' }).click()
   await page.getByRole('option', { name: /Warm up/ }).click()
   // The warm-up names no tool: echo.echo comes in by the route it calls, and is already in the pack
@@ -287,6 +287,167 @@ test('a pack sets its tools’ inputs: a fixed value, a default and a variable, 
   expect(inputSchema.required ?? []).toEqual([])
 })
 
+test('a pack’s own playbook and its skill are written in the app, checked as they are typed, and read by its keys', async ({
+  page,
+  baseURL,
+}) => {
+  // The seeded pack shows what was written for it, and its briefing sends agents to the skill first
+  await signIn(page, demo())
+  await page.goto('/app/packs/loud?tab=playbooks')
+  const part = (name: string | RegExp) => page.locator('section', { has: page.getByRole('heading', { name }) })
+  await expect(part(/^Written for this pack · 1/).getByText('Look an item up and say it')).toBeVisible()
+  await expect(part(/^Written for this pack/).getByText('2 steps · takes wanted')).toBeVisible()
+  await expect(part('Skill').getByText('All 6 sections')).toBeVisible()
+  await page.getByRole('button', { name: 'Overview' }).click()
+  await expect(
+    page.getByText('Start with the skill, read once before the tools: read_resource "skill://loud/SKILL.md".'),
+  ).toBeVisible()
+  await expect(page.getByText('Playbooks: look-up-and-say, echo-say-it-back')).toBeVisible()
+
+  // A pack of its own to write in, with one person: other tests count what Loud holds
+  const owner = await request.newContext({
+    baseURL,
+    extraHTTPHeaders: { authorization: `Bearer ${demo().ownerKey}` },
+  })
+  expect(
+    (await owner.post('/api/packs', { data: { name: 'desk', title: 'Desk', description: 'Greets guests.' } })).status(),
+  ).toBe(201)
+  expect((await owner.patch('/api/packs/desk', { data: { add: { tools: [{ name: 'echo.echo' }] } } })).status()).toBe(
+    200,
+  )
+  expect(
+    (
+      await owner.put('/api/packs/desk/variables', { data: { variables: [{ name: 'door', value: 'the side door' }] } })
+    ).status(),
+  ).toBe(200)
+  const reader = await (await owner.post('/api/clients', { data: { name: 'desk reader', pack: 'desk' } })).json()
+
+  await page.goto('/app/packs/desk')
+  await page.getByRole('button', { name: /^Playbooks & skill/ }).click()
+  await expect(page).toHaveURL(/tab=playbooks/)
+  const own = part(/^Written for this pack/)
+  await expect(own.getByText(/No playbook is written for Desk yet\./)).toBeVisible()
+  await expect(part('Skill').getByText(/Desk has no skill yet\./)).toBeVisible()
+
+  // A new playbook is named after its title, and the text it starts from passes the checks as it is
+  const passes = '✓ Every tool named is in the pack and every {{…}} resolves'
+  await page.getByRole('button', { name: 'Write a playbook' }).click()
+  await page.getByLabel('Title').fill('Say hello')
+  await expect(page.getByLabel('Name')).toHaveValue('say-hello')
+  const text = page.getByLabel('Text', { exact: true })
+  await expect(text).toHaveValue(/^---\ntitle: "Say hello"\n/)
+  const found = page.getByRole('status')
+  await expect(found.getByText(passes)).toBeVisible()
+  const save = page.getByRole('button', { name: 'Save playbook' })
+  await expect(save).toBeEnabled()
+
+  // A tool that is not in the pack and a {{word}} nobody declared: said as it is typed, and the save is held
+  const front = '---\ntitle: Say hello\narguments:\n  - name: guest\n    required: true\n---\n\n'
+  await text.fill(`${front}1. Greet {{guest}} at {{door}} with \`echo.delete_menus\`.\n2. Thank {{host}}.\n`)
+  await expect(found.getByText('2 problems to fix before it can be saved')).toBeVisible()
+  await expect(
+    found.getByText('`echo.delete_menus` is not in Desk: add it to the pack, or take it out of the text.'),
+  ).toBeVisible()
+  await expect(
+    found.getByText(/^\{\{host\}\} is neither an argument of this playbook nor a variable of Desk/),
+  ).toBeVisible()
+  await expect(save).toBeDisabled()
+  // What agents will read sits beside it, the pack's variable filled in
+  await expect(page.getByRole('region', { name: 'As agents read it' })).toContainText('at the side door with')
+
+  // Tab leaves the text for what comes next, and the focus shows
+  await text.focus()
+  await page.keyboard.press('Tab')
+  await expect(text).not.toBeFocused()
+  const cancel = page.getByRole('button', { name: 'Cancel' })
+  const resting = await cancel.evaluate((button) => getComputedStyle(button).boxShadow)
+  await cancel.focus()
+  await expect(cancel).not.toHaveCSS('box-shadow', resting)
+
+  // The editor fits a phone, open
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(text).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)
+  await page.setViewportSize({ width: 1280, height: 720 })
+
+  // Fixed, it saves, and the pack lists it
+  const first = `${front}1. Greet {{guest}} at {{door}} with \`echo.echo\`.\n`
+  await text.fill(first)
+  await expect(found.getByText(passes)).toBeVisible()
+  await save.click()
+  await expect(page.getByText('Saved say-hello. Desk’s keys read it from now on.')).toBeVisible()
+  await expect(part(/^Written for this pack · 1/).getByText('1 step · takes guest')).toBeVisible()
+  await expect(
+    page.getByRole('navigation', { name: 'Parts' }).getByRole('button', { name: /^Playbooks & skill/ }),
+  ).toContainText('1')
+
+  // A second text is a second version, and the first can be loaded back
+  await page.getByRole('button', { name: 'Edit say-hello' }).click()
+  await expect(text).toHaveValue(first)
+  await text.fill(`${first}2. Say it once more.\n`)
+  await expect(found.getByText(passes)).toBeVisible()
+  await save.click()
+  await expect(own.getByText('2 steps · takes guest')).toBeVisible()
+  await page.getByRole('button', { name: 'Edit say-hello' }).click()
+  await page.getByRole('button', { name: 'Versions of say-hello' }).click()
+  await expect(page.getByRole('menuitem')).toHaveCount(2)
+  await page.getByRole('menuitem').last().click()
+  await expect(text).toHaveValue(first)
+  await expect(page.getByText(/This is an older text, from .+\. Saving it serves it again\./)).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
+  // The skill starts from its six sections, filled with what the pack already knows
+  await page.getByRole('button', { name: 'Write the skill' }).click()
+  const starter = await text.inputValue()
+  expect(starter.match(/^## .+$/gm)).toEqual([
+    '## What it is for',
+    '## Which tool for which job',
+    '## Values already set',
+    '## Playbooks',
+    '## Gotchas',
+    "## What it can't do",
+  ])
+  expect(starter).toContain('- door: {{door}}.')
+  expect(starter).toContain('- `say-hello`')
+  await expect(found.getByText(passes)).toBeVisible()
+  await expect(
+    page.getByRole('region', { name: 'As agents read it' }).getByRole('heading', { name: 'Working with Desk' }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Save skill' }).click()
+  await expect(part('Skill').getByText('All 6 sections')).toBeVisible()
+  await expect(part('Skill').getByText('skill://desk/SKILL.md')).toBeVisible()
+
+  // A key of the pack reads both: the playbook filled in, the skill under the pack's heading
+  const theirs = await request.newContext({ baseURL, extraHTTPHeaders: { authorization: `Bearer ${reader.key}` } })
+  const listed = await (await theirs.get('/p/desk/api/playbooks')).json()
+  expect(listed._embedded.playbooks.map((playbook: { name: string }) => playbook.name)).toEqual(['say-hello'])
+  const filled = await theirs.get(
+    `/p/desk/api/playbooks/say-hello/messages?arguments=${encodeURIComponent('{"guest":"Sam"}')}`,
+  )
+  expect(filled.status()).toBe(200)
+  expect((await filled.json()).messages[0].content.text).toBe(
+    '1. Greet Sam at the side door with `echo.echo`.\n2. Say it once more.\n',
+  )
+  const skill = await theirs.get(`/p/desk/api/resources?uri=${encodeURIComponent('skill://desk/SKILL.md')}`)
+  expect(skill.status()).toBe(200)
+  const read = (await skill.json()).contents[0].text
+  expect(read).toContain('# Working with Desk\n\n## What it is for\n\nGreets guests.')
+  expect(read).toContain('- door: the side door.')
+  // And nothing written for another pack
+  expect((await theirs.get('/p/desk/api/playbooks/look-up-and-say')).status()).toBe(404)
+  await theirs.dispose()
+
+  // Removing asks first
+  await page.getByRole('button', { name: 'Remove say-hello' }).click()
+  await expect(page.getByRole('alertdialog')).toContainText('every version of it')
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click()
+  await expect(own.getByText(/No playbook is written for Desk yet\./)).toBeVisible()
+
+  expect((await owner.delete(`/api/clients/${reader.id}`)).status()).toBe(204)
+  expect((await owner.delete('/api/packs/desk')).status()).toBe(204)
+  await owner.dispose()
+})
+
 test('the frame: a window and a scope narrow the numbers, searches show what came of them, tools as a key sees them', async ({
   page,
 }) => {
@@ -420,6 +581,7 @@ const EVERY_PAGE = [
   '/app/packs',
   '/app/packs/loud',
   '/app/packs/loud?tab=overview',
+  '/app/packs/loud?tab=playbooks',
   '/app/agents',
   '/app/agents/new?pack=loud',
   '/app/activity',

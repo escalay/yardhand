@@ -178,7 +178,11 @@ const PackFlags = () => {
               <span className="line-clamp-2 text-sm text-muted-foreground">{flagLine(flag)}</span>
             </span>
             <Button asChild size="sm" variant="muted" className="shrink-0">
-              <Link to="/packs/$name" params={{ name: flag.pack }}>
+              <Link
+                to="/packs/$name"
+                params={{ name: flag.pack }}
+                search={flag.kind === 'playbook' || flag.kind === 'skill' ? { tab: 'playbooks' } : {}}
+              >
                 Open the pack
               </Link>
             </Button>
