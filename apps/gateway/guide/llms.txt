@@ -46,6 +46,8 @@ and `packs` when the key opens several). A pack is a small server of its own at 
   `/p/<pack>/docs`. They describe the pack and nothing else: with a pack key, read them rather than this guide.
 - The older ways still work: MCP at `/mcp/p/<pack>`, and REST or `/mcp` naming the pack with the `x-gateway-pack`
   header. Plain `/mcp` and `/api` serve the key's default pack.
+- A pack's address can change when its owner renames it: the old one keeps answering, and `GET /api/me` gives the
+  address it has now (`packs[].mcpUrl`).
 
 A pack key sees only the pack. Over MCP the server is named after the pack and its description opens the server
 instructions. It has the gateway's shape: `search_tools`, `describe_tool`, `call_tool` and the others work over the

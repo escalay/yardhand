@@ -96,10 +96,19 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   server at `/p/<pack>/`: MCP at `/p/<pack>/mcp` and REST under `/p/<pack>/api` (rewritten to `/mcp` and `/api` up
   front, the choice carried in `features/clients/pack-choice.ts`), with its own guide, OpenAPI document and docs page
   beside them (`features/packs/docs.ts`). `/mcp/p/<pack>` and the `x-gateway-pack` header (on REST and on `/mcp`)
-  still work; plain `/mcp` and REST serve the key's default pack. A request sees and runs only its one pack. A pack
-  connection has the gateway's shape under the pack's name: the meta-tools over the pack, and every tool of the pack
-  listed directly, or only the key's own pins. The owner asking for a pack (its address or the header) is answered as
-  a write key of that pack and refused the routes that manage the gateway (`requireOwner`).
+  still work, and each also takes a name the pack used to have (**Old name**); plain `/mcp` and REST serve the key's
+  default pack. A request sees and runs only its one pack. A pack connection has the gateway's shape under the pack's
+  name: the meta-tools over the pack, and every tool of the pack listed directly, or only the key's own pins. The
+  owner asking for a pack (its address or the header) is answered as a write key of that pack and refused the routes
+  that manage the gateway (`requireOwner`).
+- **Old name**: a name a pack had when it was renamed (`PATCH /api/packs/{name}` with `name`) while it had a key that
+  was not revoked, kept in `pack_names`. It is read as the name the pack has now in `packChoice`, after
+  authentication, at `/p/<old>/`, `/mcp/p/<old>` and `x-gateway-pack`: MCP and REST are served in place, the pack's
+  own pages answer 308 to the new address. A key that does not open the pack is refused by the name it asked for
+  (`packFor`), so an old name tells it nothing of the name now; only the owner is told where a pack went (`noPack`).
+  No pack can take an old name until the owner frees it (`DELETE /api/packs/{name}/names/{former}`) or removes the
+  pack. Each key's link to the pack notes the old name it last came by (`client_packs.came_by`), which a pack's
+  `formerNames` count.
 - **Extend**: sets a key's end anew, counted from today (`PATCH /api/clients/{id}` with `expiresIn`: 7 days, 30 days
   or never), also for a key that has ended: it works again with the same key. A revoked key does not come back.
 - **Ended**: a key past its end. Every route a pack serves (`PACK_PATHS` and the pack's pages) refuses it with a 403
