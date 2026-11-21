@@ -111,7 +111,7 @@ export interface paths {
         head?: never;
         /**
          * Change a client
-         * @description Changes a client’s name, scope, upstreams, pins, result cap or laptop-tool access (owner only).
+         * @description Changes a client’s name, scope, upstreams, pins, result cap, laptop-tool access or how long it works (owner only).
          */
         patch: operations["updateClient"];
         trace?: never;
@@ -1563,6 +1563,11 @@ export interface components {
             packs: string[];
             /** @description When the key stops working, or null for never. */
             expiresAt: string | null;
+            /**
+             * @description Where it runs, as the owner said when making it; null when not said.
+             * @enum {string|null}
+             */
+            app: "claude-code" | "cursor" | "codex" | "claude-ai" | "curl" | "typescript" | null;
             createdAt: string;
             revokedAt: string | null;
             usage: components["schemas"]["ClientUsage"];
@@ -1631,6 +1636,11 @@ export interface components {
              * @enum {string}
              */
             expiresIn?: "8h" | "1d" | "7d" | "30d" | "never";
+            /**
+             * @description The app the key will be pasted into. claude.ai is not one: it signs in and takes no key.
+             * @enum {string}
+             */
+            app?: "claude-code" | "cursor" | "codex" | "curl" | "typescript";
         };
         /** @description Fields to change. */
         ClientPatch: {
@@ -1664,6 +1674,11 @@ export interface components {
             packs?: string[];
             /** @description For a pack key: its default pack, one of the packs it opens. */
             pack?: string;
+            /**
+             * @description Extend: how long it works from now, 7 days, 30 days or until revoked (it replaces when it ends). An ended key works again with the same key; a revoked one does not.
+             * @enum {string}
+             */
+            expiresIn?: "7d" | "30d" | "never";
         };
         /** @description Paste-ready setup for every place this client can run. Never holds the key. */
         ClientSetup: {

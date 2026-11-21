@@ -153,6 +153,7 @@ export const feature: Feature = {
               (pack) => pack?.name ?? [],
             ),
             expiresAt: row.expiresAt,
+            app: row.app,
             revokedAt: row.revokedAt,
           })),
         ),

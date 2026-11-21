@@ -79,6 +79,7 @@ export const clientsHandlers = ({
       return ordered.flatMap((id) => known.get(id) ?? [])
     })(),
     expiresAt: row.expiresAt,
+    app: row.app,
     createdAt: row.createdAt,
     revokedAt: row.revokedAt,
     usage: await (async () => {
@@ -238,14 +239,15 @@ export const clientsHandlers = ({
     const { id } = c.req.valid('param')
     const row = await rowOf(id)
     if (row.revokedAt) throw new ProblemError('gone', { detail: `Client ${id} was revoked; make a new one.` })
-    const { packs: packNamesIn, pack: packName, ...change } = c.req.valid('json')
+    const { packs: packNamesIn, pack: packName, expiresIn, ...change } = c.req.valid('json')
     const repacked = packNamesIn || packName ? await repackedOf(row, packNamesIn, packName) : null
     // A pack key's pins are checked against the packs this change leaves it with
     await (row.packId
       ? checkPackPins(change.pins, repacked?.ids ?? (await clients.packsOf(row)))
       : checkTools(change.pins))
     if (repacked) await clients.setPacks(id, repacked.ids, repacked.defaultId)
-    await clients.update(id, change)
+    // Extend counts from now; a change that says nothing of it leaves the end where it was
+    await clients.update(id, expiresIn ? { ...change, expiresAt: expiryOf(expiresIn) } : change)
     // Its allowlist, scope or pins change what it sees
     listsChanged()
     return c.json(await cardOf(originOf(c), await rowOf(id)), 200)

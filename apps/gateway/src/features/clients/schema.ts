@@ -3,6 +3,7 @@
  * a pack key opens.
  */
 import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { APP_IDS } from './setup.js'
 
 export const clients = sqliteTable('clients', {
   id: text('id').primaryKey(),
@@ -19,6 +20,8 @@ export const clients = sqliteTable('clients', {
   packId: text('pack_id'),
   /** After this the key stops working; null for never. */
   expiresAt: text('expires_at'),
+  /** Where it runs, as the owner said when making it: a setup surface id; null when not said. */
+  app: text('app', { enum: APP_IDS }),
   createdAt: text('created_at').notNull(),
   revokedAt: text('revoked_at'),
 })
@@ -61,6 +64,7 @@ export const CLIENTS_MIGRATIONS = [
   `create table if not exists client_packs (client_id text not null, pack_id text not null, position integer not null,
     primary key (client_id, pack_id));
   insert into client_packs (client_id, pack_id, position) select id, pack_id, 0 from clients where pack_id is not null`,
+  'alter table clients add column app text',
 ] as const
 
 export type ClientRow = typeof clients.$inferSelect

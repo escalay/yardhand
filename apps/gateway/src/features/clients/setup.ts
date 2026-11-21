@@ -6,8 +6,13 @@
 
 export const KEY_PLACEHOLDER = '<YOUR_KEY>'
 
+/** Every place a client can run, by the id of its setup surface. */
+export const APP_IDS = ['claude-code', 'cursor', 'codex', 'claude-ai', 'curl', 'typescript'] as const
+/** The apps a key is pasted into: claude.ai signs in and takes no key. */
+export const KEY_APPS = ['claude-code', 'cursor', 'codex', 'curl', 'typescript'] as const
+
 export type Surface = {
-  id: 'claude-code' | 'cursor' | 'codex' | 'claude-ai' | 'curl' | 'typescript'
+  id: (typeof APP_IDS)[number]
   title: string
   /** Where the snippet goes. */
   where: string

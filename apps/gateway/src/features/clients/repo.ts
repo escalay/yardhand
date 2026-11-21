@@ -26,10 +26,11 @@ export type ClientDraft = {
   packIds?: string[]
   packId?: string | null
   expiresAt?: string | null
+  app?: ClientRow['app']
 }
 
 export type ClientChange = Partial<
-  Pick<ClientDraft, 'name' | 'scope' | 'upstreams' | 'pins' | 'macTools' | 'resultCap'>
+  Pick<ClientDraft, 'name' | 'scope' | 'upstreams' | 'pins' | 'macTools' | 'resultCap' | 'expiresAt'>
 >
 
 export const clientsRepo = (db: Db) => {
@@ -102,6 +103,7 @@ export const clientsRepo = (db: Db) => {
         resultCap: draft.resultCap ?? DEFAULT_RESULT_CAP,
         packId: draft.packId ?? draft.packIds?.[0] ?? null,
         expiresAt: draft.expiresAt ?? null,
+        app: draft.app ?? null,
         createdAt: new Date().toISOString(),
       })
       await setUpstreams(id, draft.upstreams)
@@ -117,6 +119,7 @@ export const clientsRepo = (db: Db) => {
         ...(change.resultCap === undefined ? {} : { resultCap: change.resultCap }),
         ...(change.upstreams === undefined ? {} : { allUpstreams: change.upstreams === 'all' }),
         ...(change.pins === undefined ? {} : { ownPins: change.pins !== null }),
+        ...(change.expiresAt === undefined ? {} : { expiresAt: change.expiresAt }),
       }
       if (Object.keys(set).length) await db.update(clients).set(set).where(eq(clients.id, id))
       if (change.upstreams !== undefined) await setUpstreams(id, change.upstreams)

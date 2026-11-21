@@ -3,6 +3,7 @@
  * told once it has ended.
  */
 import { randomBytes } from 'node:crypto'
+import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
@@ -39,6 +40,11 @@ const HOUR = 3_600_000
 const DAY = 24 * HOUR
 /** How far from now a time is, to the minute. */
 const fromNow = (iso: string | null) => Math.round((Date.parse(iso ?? '') - Date.now()) / 60_000) * 60_000
+
+/** Ends a key a moment ago, as time would. */
+const end = (id: string) =>
+  db.run(sql`update clients set expires_at = ${new Date(Date.now() - 1000).toISOString()} where id = ${id}`)
+const extend = (id: string, expiresIn: string) => owner(`/api/clients/${id}`, { method: 'PATCH', body: { expiresIn } })
 
 beforeAll(async () => {
   const created = await owner('/api/upstreams', {
@@ -83,5 +89,63 @@ describe('how long a key works', () => {
       body: { name: 'a season', pack: 'loud', expiresIn: '90d' },
     })
     expect(refused.status).toBe(400)
+  })
+})
+
+describe('Extend', () => {
+  it('counts from today and brings an ended key back', async () => {
+    const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '8h' })
+    await end(sam.id)
+    expect((await api(sam.key, '/p/loud/api/me')).status).toBe(403)
+    const week = await extend(sam.id, '7d')
+    expect(week.status).toBe(200)
+    expect(fromNow(week.json.expiresAt)).toBe(7 * DAY)
+    // The same key: the person changes nothing
+    expect((await api(sam.key, '/p/loud/api/me')).status).toBe(200)
+    expect(fromNow((await extend(sam.id, '30d')).json.expiresAt)).toBe(30 * DAY)
+    expect((await extend(sam.id, 'never')).json.expiresAt).toBeNull()
+  })
+
+  it('leaves the end alone when a change says nothing about it', async () => {
+    const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '7d' })
+    const renamed = await owner(`/api/clients/${sam.id}`, { method: 'PATCH', body: { name: 'Sam at the desk' } })
+    expect(renamed.json).toMatchObject({ name: 'Sam at the desk', expiresAt: sam.expiresAt })
+  })
+
+  it('never moves an end to a day or less', async () => {
+    const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '8h' })
+    for (const expiresIn of ['8h', '1d']) {
+      const refused = await extend(sam.id, expiresIn)
+      expect([expiresIn, refused.status]).toEqual([expiresIn, 400])
+      expect(JSON.stringify(refused.json.errors)).toContain('expiresIn')
+    }
+    expect((await owner(`/api/clients/${sam.id}`)).json.expiresAt).toBe(sam.expiresAt)
+  })
+
+  it('does not bring a revoked key back', async () => {
+    const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '7d' })
+    await owner(`/api/clients/${sam.id}`, { method: 'DELETE' })
+    expect((await extend(sam.id, '30d')).status).toBe(410)
+    expect((await api(sam.key, '/p/loud/api/me')).status).toBe(401)
+  })
+})
+
+describe('where a key runs', () => {
+  it('is kept as the owner said it, or not at all', async () => {
+    const said = await keyFor({ name: 'Ada', pack: 'loud', app: 'cursor' })
+    expect(said.app).toBe('cursor')
+    expect((await owner(`/api/clients/${said.id}`)).json.app).toBe('cursor')
+    expect((await keyFor({ name: 'Ada', pack: 'loud' })).app).toBeNull()
+    const exported = (await owner('/api/config')).json.clients as { id: string; app: string | null }[]
+    expect(exported.find((client) => client.id === said.id)?.app).toBe('cursor')
+  })
+
+  it('is never claude.ai, which signs in and takes no key', async () => {
+    const refused = await owner('/api/clients', {
+      method: 'POST',
+      body: { name: 'Ada', pack: 'loud', app: 'claude-ai' },
+    })
+    expect(refused.status).toBe(400)
+    expect(JSON.stringify(refused.json.errors)).toContain('app')
   })
 })
