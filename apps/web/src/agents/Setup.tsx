@@ -25,9 +25,10 @@ export const SetupTabs = ({
   const start = surfaces.some((surface) => surface.id === first) ? first : surfaces[0]?.id
   return (
     <Tabs defaultValue={start} className="flex flex-col gap-3">
-      <TabsList className="flex h-auto flex-wrap justify-start">
+      {/* Narrow, the tabs wrap: the row grows with them and each keeps its own height */}
+      <TabsList className="flex flex-wrap justify-start group-data-[orientation=horizontal]/tabs:h-auto">
         {surfaces.map((surface) => (
-          <TabsTrigger key={surface.id} value={surface.id}>
+          <TabsTrigger key={surface.id} value={surface.id} className="h-7">
             {surface.title}
           </TabsTrigger>
         ))}
