@@ -184,7 +184,7 @@ const AsClient = z.string().max(40).optional().openapi({
 })
 const AsPack = z.string().max(40).optional().openapi({
   description:
-    'Owner only: answer as the keys of this pack are answered (its tools under its names and wording, searched as they are searched). Not logged; the first search this way marks the pack tried (`triedAt`).',
+    'Owner only: answer as the keys of this pack are answered (its tools under its names and wording, searched as they are searched). Not logged; the first search this way that is listed a tool of the pack marks the pack tried (`triedAt`).',
   example: 'design',
 })
 

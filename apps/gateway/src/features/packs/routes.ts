@@ -103,7 +103,8 @@ export const PackSchema = PackCardSchema.extend({
   keyList: z.array(PackKeySchema),
   createdAt: z.string(),
   triedAt: z.string().nullable().openapi({
-    description: 'When the owner first searched as the pack (`GET /api/tools?pack=<name>&q=…`), or null.',
+    description:
+      'When the owner first searched as the pack (`GET /api/tools?pack=<name>&q=…`) while it listed a tool, or null.',
   }),
   lastCallAt: z.string().nullable().openapi({
     description:

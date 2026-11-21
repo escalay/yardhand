@@ -2600,7 +2600,7 @@ export interface components {
             manuals: components["schemas"]["PackItem"][];
             keyList: components["schemas"]["PackKey"][];
             createdAt: string;
-            /** @description When the owner first searched as the pack (`GET /api/tools?pack=<name>&q=…`), or null. */
+            /** @description When the owner first searched as the pack (`GET /api/tools?pack=<name>&q=…`) while it listed a tool, or null. */
             triedAt: string | null;
             /** @description The newest call in the log (90 days) by any key that opens the pack, or null. A key with several packs counts for each of them. */
             lastCallAt: string | null;
@@ -4679,7 +4679,7 @@ export interface operations {
                 /** @description Owner only: answer as this client would see it (its reach, scope, pack, pins and wording). With `pack`, or at a pack’s address, as that client in that pack; a client that doesn’t open it is a 409. Not logged. */
                 as?: string;
                 /**
-                 * @description Owner only: answer as the keys of this pack are answered (its tools under its names and wording, searched as they are searched). Not logged; the first search this way marks the pack tried (`triedAt`).
+                 * @description Owner only: answer as the keys of this pack are answered (its tools under its names and wording, searched as they are searched). Not logged; the first search this way that is listed a tool of the pack marks the pack tried (`triedAt`).
                  * @example design
                  */
                 pack?: string;
@@ -4921,7 +4921,7 @@ export interface operations {
                 /** @description Owner only: answer as this client would see it (its reach, scope, pack, pins and wording). With `pack`, or at a pack’s address, as that client in that pack; a client that doesn’t open it is a 409. Not logged. */
                 as?: string;
                 /**
-                 * @description Owner only: answer as the keys of this pack are answered (its tools under its names and wording, searched as they are searched). Not logged; the first search this way marks the pack tried (`triedAt`).
+                 * @description Owner only: answer as the keys of this pack are answered (its tools under its names and wording, searched as they are searched). Not logged; the first search this way that is listed a tool of the pack marks the pack tried (`triedAt`).
                  * @example design
                  */
                 pack?: string;

@@ -278,8 +278,9 @@ export const toolsHandlers = ({
       .filter(scoped)
       .flatMap((tool) => shownAs(principal, tool).map((as) => ({ tool: tool.name, as })))
       .slice(0, limit)
-    // The owner's first search as a pack is the pack tried, for its checklist
-    if (words && pack && principal.pack) await packs.markTried(principal.pack.id).catch(() => {})
+    // The owner's first search as a pack is the pack tried, for its checklist: once it lists this viewer a tool to try
+    if (searched && pack && principal.pack && searched.own.some(visible))
+      await packs.markTried(principal.pack.id).catch(() => {})
     // Logged for the owner's "what agents looked for"; a failing log never fails the search
     if (words && !preview)
       await searches

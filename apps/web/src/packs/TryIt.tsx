@@ -1,7 +1,7 @@
 /**
  * Try a pack as an agent would: one search of it, answered exactly as its keys are answered (the same bar, names and
  * wording, and the same word on what the pack covers when nothing fits), as the pack or as one of its keys. Never
- * logged; the first search ticks the pack's "Try it" step.
+ * logged; the first search of a pack that lists a tool ticks its "Try it" step.
  */
 import { IconPlus, IconSearch } from '@tabler/icons-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -37,7 +37,7 @@ export const TryIt = ({ pack }: { pack: Pack }) => {
     box.current?.focus({ preventScroll: true })
   }, [hash])
 
-  // The first search marks the pack tried: read the pack again so its step ticks
+  // The first search of a pack that lists a tool marks it tried: read the pack again so its step ticks
   const untried = !pack.triedAt
   const answered = Boolean(found.data)
   useEffect(() => {

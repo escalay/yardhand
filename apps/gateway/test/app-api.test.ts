@@ -436,6 +436,22 @@ describe('what the pack page stands on', () => {
     // Looking without asking anything is not trying it
     await owner('/api/tools?pack=loud')
     expect((await owner('/api/packs/loud')).json.triedAt).toBeNull()
+    // Nor is searching a pack that lists nothing: there is nothing in it to try yet
+    await owner('/api/packs', { method: 'POST', body: { name: 'bare', title: 'Bare', description: '' } })
+    const empty = await owner('/api/tools?pack=bare&q=echo')
+    expect([empty.status, empty.json.count, empty.json.hint.covers]).toEqual([200, 0, []])
+    expect((await owner('/api/packs/bare')).json.triedAt).toBeNull()
+    await owner('/api/packs/bare', { method: 'PATCH', body: { add: { tools: [{ name: 'fixture.shout' }] } } })
+    // A key that is listed none of its tools has not tried it either; the pack's own search has
+    const readOnly = (
+      await owner('/api/clients', { method: 'POST', body: { name: 'bare-reader', pack: 'bare', scope: 'read' } })
+    ).json
+    await owner(`/api/tools?pack=bare&as=${readOnly.id}&q=shout`)
+    expect((await owner('/api/packs/bare')).json.triedAt).toBeNull()
+    await owner('/api/tools?pack=bare&q=shout')
+    expect((await owner('/api/packs/bare')).json.triedAt).toBeTruthy()
+    await owner(`/api/clients/${readOnly.id}`, { method: 'DELETE' })
+    expect((await owner('/api/packs/bare', { method: 'DELETE' })).status).toBe(204)
     const searches = (await owner('/api/searches?limit=500')).json.count
     expect(names((await owner('/api/tools?pack=loud&q=echo')).json)).toContain('fixture.echo')
     const tried = (await owner('/api/packs/loud')).json
