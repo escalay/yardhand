@@ -86,3 +86,41 @@ export const offersLine = (offers: { manuals: number; playbooks: number; links: 
   ].filter(Boolean)
   return parts.length ? parts.join(', ') : null
 }
+
+/**
+ * Reads what the owner pasted after a loopback sign-in: ready to send when it carries the approval's code, else
+ * what to do instead. Empty is neither.
+ */
+export const pastedApprovalOf = (
+  text: string,
+): { ready: true; url: string } | { ready: false; problem: string | null } => {
+  const pasted = text.trim()
+  if (!pasted) return { ready: false, problem: null }
+  let url: URL
+  try {
+    url = new URL(pasted)
+  } catch {
+    return {
+      ready: false,
+      problem: 'That isn’t an address. Copy it from the address bar of the tab that couldn’t load.',
+    }
+  }
+  const refused = url.searchParams.get('error')
+  if (refused)
+    return {
+      ready: false,
+      problem: `The sign-in was refused (${url.searchParams.get('error_description') ?? refused}). Open it again and click Allow.`,
+    }
+  if (!url.searchParams.get('code'))
+    return {
+      ready: false,
+      problem: 'This address has no approval in it. Copy it after you click Allow, from the tab that couldn’t load.',
+    }
+  return { ready: true, url: pasted }
+}
+
+/** The gateway's answer to a pasted approval, in the app's words: an expired one means signing in again. */
+export const finishProblemOf = (detail: string) =>
+  /^Expired/.test(detail)
+    ? 'This approval was already used, or a newer sign-in replaced it. Open the sign-in again and paste the new address.'
+    : detail
