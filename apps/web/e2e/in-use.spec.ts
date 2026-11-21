@@ -437,6 +437,26 @@ test('a pack’s own playbook and its skill are written in the app, checked as t
   expect((await theirs.get('/p/desk/api/playbooks/look-up-and-say')).status()).toBe(404)
   await theirs.dispose()
 
+  // A tool renamed under them: both texts are flagged, Reviews leads to the tab they are on, and a text that still
+  // writes the old name is edited, not saved as it is
+  expect((await owner.patch('/api/packs/desk/tools/echo.echo', { data: { alias: 'say_back' } })).status()).toBe(200)
+  await page.goto('/app/tools/reviews')
+  const flagged = page.getByRole('listitem').filter({ hasText: 'say-hello' }).filter({ hasText: 'in Desk' })
+  await expect(flagged).toContainText('It was written for echo.echo, which changed or left the pack since.')
+  await flagged.getByRole('link', { name: 'Open the pack' }).click()
+  await expect(page).toHaveURL(/\/packs\/desk\?tab=playbooks$/)
+  await expect(page.getByText('1 playbook and the skill to recheck')).toBeVisible()
+  await expect(own.getByText('`echo.echo` is called `say_back` in Desk: write that.')).toBeVisible()
+  await expect(own.getByText(/Edit it: it can’t be saved as it is\./)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save say-hello as it is' })).toHaveCount(0)
+  await own.getByRole('button', { name: 'Edit it' }).click()
+  await expect(text).toHaveValue(/`echo\.echo`/)
+  await text.fill((await text.inputValue()).replace('echo.echo', 'say_back'))
+  await expect(found.getByText(passes)).toBeVisible()
+  await save.click()
+  await expect(page.getByText('The skill to recheck', { exact: true })).toBeVisible()
+  await expect(own.getByText(/which changed or left the pack since/)).toHaveCount(0)
+
   // Removing asks first
   await page.getByRole('button', { name: 'Remove say-hello' }).click()
   await expect(page.getByRole('alertdialog')).toContainText('every version of it')
