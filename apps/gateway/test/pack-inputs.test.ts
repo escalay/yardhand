@@ -401,6 +401,37 @@ describe('a pack’s variables', () => {
     expect(inside.json.detail).toContain('This request is for the pack lobby only')
     expect((await owner('/api/packs/nope/variables', { method: 'PUT', body })).status).toBe(404)
   })
+
+  it('stay filled in for every call that arrives while they are being saved', async () => {
+    const set = await owner('/api/packs/lobby/tools/greet_from_desk', {
+      method: 'PATCH',
+      body: { fixed: {}, defaults: { from: '{{desk}}' } },
+    })
+    expect(set.status).toBe(200)
+    // Each read starts a few turns of the loop later than the one before, so some land inside the save
+    const later = async <T>(turns: number, ask: () => Promise<T>) => {
+      for (let turn = 0; turn < turns; turn++) await Promise.resolve()
+      return ask()
+    }
+    const [saved, ...read] = await Promise.all([
+      variables([{ name: 'desk', value: 'the boss' }]).then((answer) => answer.status),
+      ...Array.from({ length: 200 }, (_, turns) =>
+        later(turns, async () => {
+          const shown = await api(lobby, '/api/tools/greet_from_desk')
+          return shown.json.inputSchema.properties.from.default as string
+        }),
+      ),
+    ])
+    expect(saved).toBe(200)
+    expect([...new Set(read)]).toEqual(['the boss'])
+    const [, ...said] = await Promise.all([
+      variables([{ name: 'desk', value: 'the boss' }]),
+      ...Array.from({ length: 40 }, (_, turns) =>
+        later(turns * 5, () => greeted(lobby, 'greet_from_desk', { to: 'Sam' })),
+      ),
+    ])
+    expect([...new Set(said)]).toEqual(['Hello Sam, from the boss'])
+  })
 })
 
 describe('a value that stops fitting its tool', () => {
