@@ -168,7 +168,8 @@ export const People = ({ pack, onShare }: { pack: Pack; onShare: () => void }) =
   const queries = useQueryClient()
   const people = useQuery(packPeopleQuery(pack.name))
   const refresh = () => {
-    for (const key of [['people'], ['pack'], ['packs'], ['clients'], ['client']])
+    // Home too: it names who is about to end
+    for (const key of [['people'], ['pack'], ['packs'], ['clients'], ['client'], ['overview']])
       void queries.invalidateQueries({ queryKey: key })
   }
   const extend = useMutation({
