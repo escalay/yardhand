@@ -400,7 +400,7 @@ describe('a pack’s people', () => {
   })
 
   it('says who still connects at an old address', () => {
-    expect(stillThere(0)).toBe('nobody connects there now')
+    expect(stillThere(0)).toBe('nobody has connected there since the rename')
     expect(stillThere(1)).toBe('1 person still connects there')
     expect(stillThere(2)).toBe('2 people still connect there')
     expect(dayOf('2026-12-02T23:30:00Z')).toBe('2 Dec')

@@ -329,4 +329,4 @@ export const alsoOpens = (otherPacks: string[]) => {
 export const stillThere = (people: number) =>
   people
     ? `${people} ${people === 1 ? 'person still connects' : 'people still connect'} there`
-    : 'nobody connects there now'
+    : 'nobody has connected there since the rename'
