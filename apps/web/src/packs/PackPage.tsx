@@ -100,20 +100,20 @@ const EditPack = ({
   const [description, setDescription] = useState(pack.description)
   const [problem, setProblem] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Opened again, by whichever button: it starts from the pack, not from what was typed or refused last time
+  const [shown, setShown] = useState(open)
+  if (open !== shown) {
+    setShown(open)
+    if (open) {
+      setName(pack.name)
+      setTitle(pack.title)
+      setDescription(pack.description)
+      setProblem(null)
+    }
+  }
   const renamed = name !== pack.name
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (next) {
-          setName(pack.name)
-          setTitle(pack.title)
-          setDescription(pack.description)
-          setProblem(null)
-        }
-        onOpenChange(next)
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{pack.title}</DialogTitle>
@@ -390,7 +390,7 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
           { id: 'activity', label: 'Activity' },
         ]}
       />
-      {patch.error ? <p className="text-sm text-error">{patch.error.message}</p> : null}
+      {patch.error && !editing ? <p className="text-sm text-error">{patch.error.message}</p> : null}
 
       {tab === 'overview' ? (
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -506,7 +506,16 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
         <EntityActivity filter={{ pack: data.name }} clientIds={data.keyList.map((key) => key.id)} />
       )}
 
-      <EditPack pack={data} open={editing} onOpenChange={setEditing} onSave={save} />
+      <EditPack
+        pack={data}
+        open={editing}
+        onOpenChange={(open) => {
+          // A save the dialog refused was said in the dialog: it is not left on the page behind it
+          if (!open) patch.reset()
+          setEditing(open)
+        }}
+        onSave={save}
+      />
       <AddPlaybook pack={data} open={addingPlaybook} onOpenChange={setAddingPlaybook} onAdd={save} />
     </Page>
   )

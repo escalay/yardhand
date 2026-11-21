@@ -268,6 +268,22 @@ test('renaming a pack moves its page, keeps the scope and keeps its old address 
   await page.getByRole('button', { name: 'Edit' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByLabel('Name')).toHaveValue('draft')
+
+  // A name another pack has is refused in the dialog, once; Cancel takes the refusal and what was typed with it
+  const taken = 'A pack is already named loud: pick another name.'
+  await dialog.getByLabel('Name').fill('loud')
+  await dialog.getByLabel('What it is for').fill('Typed, then cancelled.')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText(taken)
+  await expect(page.getByText(taken)).toHaveCount(1)
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByText(taken)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Edit' }).click()
+  await expect(dialog.getByLabel('Name')).toHaveValue('draft')
+  await expect(dialog.getByLabel('What it is for')).toHaveValue('A pack to rename.')
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+
   // One press is one request: while it is on its way, Save takes no second one
   const sent: string[] = []
   await page.route('**/api/packs/draft', async (route) => {
