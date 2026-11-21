@@ -1,6 +1,6 @@
 /**
  * A pack's own playbooks and its skill: Markdown the owner (or an agent of theirs) writes for the pack, kept in the
- * gateway with every version, and checked on every save. Nothing here reaches a pack key yet.
+ * gateway with every version, and checked on every save. How a pack's keys get them: `pack-docs-served.test.ts`.
  */
 import { randomBytes } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'

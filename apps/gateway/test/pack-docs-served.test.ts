@@ -306,6 +306,9 @@ describe('a pack’s own playbooks over REST', () => {
     })
     // An argument left out is filled with nothing
     expect((await filled(ada.key, '/api/playbooks/say-hello', { guest: 'Sam' })).text).toContain('sounding .')
+    // A read with no connection is still one of the pack's, in the owner's log of it
+    const ofPack = (await owner('/api/calls?pack=desk&kind=playbook&limit=5')).json._embedded.calls
+    expect(ofPack.map((call: { tool: string }) => call.tool)).toContain('say-hello')
   })
 
   it('refuse a use that leaves a required argument out, naming it', async () => {
@@ -473,8 +476,12 @@ describe('a renamed pack', () => {
     }
     const byHeader = await at(old.key, '/api/playbooks', { headers: { 'x-gateway-pack': 'porch' } })
     expect(namesOf(byHeader.json._embedded.playbooks)).toEqual(['say-it'])
-    // The skill moved with the pack's name: its old address leads nowhere
-    expect((await skillAt(old.key, '/p/porch/api', 'porch')).status).toBe(404)
+    // The skill moved with the pack's name: its old address says where it is now
+    const moved = await skillAt(old.key, '/p/porch/api', 'porch')
+    expect([moved.status, moved.json.detail]).toEqual([
+      404,
+      "No skill at skill://porch/SKILL.md for this client. GET /api/manuals lists the manuals you may read, and this pack's skill is skill://veranda/SKILL.md.",
+    ])
   })
 
   it('tells a key that does not open it nothing at the old address', async () => {
@@ -494,15 +501,36 @@ describe('a renamed pack', () => {
   })
 })
 
-describe('changing a pack’s variables', () => {
-  it('tells connected agents their tools, prompts and resources changed', async () => {
+describe('what connected agents are told changed', () => {
+  /** The list changes announced while this runs. */
+  const announced = async (change: () => Promise<unknown>) => {
     const seen: unknown[] = []
     const stop = app.services.events.subscribe((event) => {
       if (event.type === 'lists') seen.push(event.data)
     })
-    await variables('desk', { door: 'the front door' })
+    await change()
     stop()
-    expect(seen).toEqual([{ tools: true, prompts: true, resources: true }])
+    return seen
+  }
+
+  it('tools, prompts and resources, for a pack’s variables: its values, playbooks and skill read them', async () => {
+    expect(await announced(() => variables('desk', { door: 'the front door' }))).toEqual([
+      { tools: true, prompts: true, resources: true },
+    ])
+  })
+
+  it('tools too, when a pack’s skill is written or removed: read_resource says where the skill is', async () => {
+    await packWith('nook', 'Nook', [{ name: 'fixture.echo' }])
+    expect(
+      await announced(() => skillOf('nook', skillText('Reading in the nook.', '`fixture.echo` says it back.'))),
+    ).toEqual([{ tools: true, prompts: true, resources: true }])
+    expect(await announced(() => owner('/api/packs/nook/skill', { method: 'DELETE' }))).toEqual([
+      { tools: true, prompts: false, resources: true },
+    ])
+    // A playbook changes no tool's words
+    expect(
+      await announced(() => write('nook', 'say-it', SHOUT_IT.replace('`fixture.shout`', '`fixture.echo`'))),
+    ).toEqual([{ tools: false, prompts: true, resources: true }])
   })
 })
 

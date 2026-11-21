@@ -152,7 +152,8 @@ export const ownHandlers = ({ packs, tools, catalog, upstreams, listsChanged }: 
     const path = docPathOf(kind, name)
     throwOnRefused(judge(before, after, [path]).refused)
     await packs.saveDoc(pack.id, kind, name, { body, basedOn: basedOnOf(after, path), source: 'owner' })
-    listsChanged({ prompts: true, resources: true })
+    // A skill changes a tool's words too: read_resource says where the pack's skill is read
+    listsChanged({ tools: kind === 'skill', prompts: true, resources: true })
   }
 
   const listPlaybooks: RouteHandler<Routes['listPlaybooks']> = async (c) => {
@@ -222,7 +223,8 @@ export const ownHandlers = ({ packs, tools, catalog, upstreams, listsChanged }: 
     requireOwner(c)
     const pack = await packOf(c.req.valid('param').name)
     if (!(await packs.removeDoc(pack.id, 'skill', SKILL_DOC))) throw noSkill(pack)
-    listsChanged({ resources: true })
+    // read_resource stops naming it, so the tools read differently too
+    listsChanged({ tools: true, resources: true })
     return c.body(null, 204)
   }
 
