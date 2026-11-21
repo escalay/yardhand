@@ -38,11 +38,14 @@ export const packSetupQuery = (name: string) =>
     staleTime: Number.POSITIVE_INFINITY,
   })
 
+/** How many tools a try returns at most: what `search_tools` returns when an agent names no limit. */
+export const TRY_LIMIT = 20
+
 /** A search of the pack as its keys are searched (`as`: as that key of it). Never logged. */
 export const packTryQuery = (name: string, as: string | undefined, q: string) =>
   queryOptions({
     queryKey: ['pack', name, 'try', { as, q }],
-    queryFn: () => unwrap(api.GET('/api/tools', { params: { query: { pack: name, as, q } } })),
+    queryFn: () => unwrap(api.GET('/api/tools', { params: { query: { pack: name, as, q, limit: TRY_LIMIT } } })),
   })
 
 const LISTED_LIMIT = 200

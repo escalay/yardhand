@@ -377,7 +377,14 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
           onPatch={save}
           adding={Boolean(add)}
           onAdding={(open) =>
-            void navigate({ to: '/packs/$name', params: { name }, search: open ? { add: true } : {}, replace: true })
+            void navigate({
+              to: '/packs/$name',
+              params: { name },
+              search: open ? { add: true } : {},
+              replace: true,
+              // The button is at the foot of the list: the page stays where it is behind the dialog
+              resetScroll: false,
+            })
           }
         />
       ) : tab === 'playbooks' ? (

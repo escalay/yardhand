@@ -15,7 +15,7 @@ import { Input } from '@/ui/shadcn/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shadcn/select'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { coversLine, emptyLine, hiddenLine, lineOf, stoodOutLine } from './packs.rules'
-import { packListedQuery, packQuery, packTryQuery } from './queries'
+import { packListedQuery, packQuery, packTryQuery, TRY_LIMIT } from './queries'
 
 /** The panel's place on the Overview, for links that lead to it. */
 export const TRY_ID = 'try'
@@ -117,7 +117,8 @@ export const TryIt = ({ pack }: { pack: Pack }) => {
               ))}
             </ol>
             <p className="px-4 py-3 text-xs text-muted-foreground">
-              {stoodOutLine(tools.length, listed.data)}
+              {/* A full answer may have been cut: the tools it left out aren't ones that didn't match */}
+              {stoodOutLine(tools.length, tools.length < TRY_LIMIT ? listed.data : null)}
               {hidden ? ` · ${hiddenLine(hidden)}` : ''}
             </p>
           </>
