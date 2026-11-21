@@ -206,6 +206,86 @@ test('a pack’s Overview checks it as it is built: its steps, a search as its k
   await expect(page).toHaveURL(/\/app\/packs$/)
 })
 
+test('a pack sets its tools’ inputs: a fixed value, a default and a variable, and its keys read the tool that way', async ({
+  page,
+}) => {
+  await signIn(page, demo())
+  await page.goto('/app/packs/loud')
+  const variables = page.locator('section', { has: page.getByRole('heading', { name: /^Variables/ }) })
+  await expect(variables.getByText('{{page_size}}')).toBeVisible()
+  await expect(variables.getByText('Used by items.get_item')).toBeVisible()
+
+  // A new variable: text stays text, and nothing writes it yet
+  await variables.getByRole('button', { name: 'Add a variable' }).click()
+  await variables.getByLabel('Name').fill('Item')
+  await expect(variables.getByText(/^Start with a lowercase letter/)).toBeVisible()
+  await variables.getByLabel('Name').fill('item')
+  await variables.getByLabel('Value').fill('42')
+  await variables.getByRole('button', { name: 'Save variable' }).click()
+  await expect(variables.getByText('{{item}}')).toBeVisible()
+  await expect(variables.getByText('Not used yet')).toBeVisible()
+
+  // The seeded default shows as stored, with what is sent, and is said to fit
+  await page.getByRole('button', { name: 'Name and inputs of items.get_item' }).click()
+  const whoFills = (input: string) => page.getByRole('radiogroup', { name: `Who fills ${input}` })
+  await expect(whoFills('limit').getByRole('radio', { name: 'Default' })).toBeChecked()
+  await expect(page.getByLabel('Value of limit')).toHaveValue('{{page_size}}')
+  await expect(page.getByText('Sent as 5.')).toBeVisible()
+  await expect(page.getByText('✓ Every value fits the tool’s current schema')).toBeVisible()
+
+  // By keyboard: Tab from the name reaches the first input's modes, the focus shows, and the arrows change the mode
+  const resting = await whoFills('limit')
+    .getByRole('radio', { name: 'Fixed' })
+    .evaluate((radio) => getComputedStyle(radio).boxShadow)
+  await page.getByLabel('What its keys call it').focus()
+  await page.keyboard.press('Tab')
+  const agentDecides = whoFills('id').getByRole('radio', { name: 'Agent decides' })
+  await expect(agentDecides).toBeFocused()
+  await expect(agentDecides).not.toHaveCSS('box-shadow', resting)
+  // A key held as a hand holds it: the mode follows the focus while the arrow is down
+  await page.keyboard.press('ArrowLeft', { delay: 50 })
+  await expect(whoFills('id').getByRole('radio', { name: 'Default' })).toBeChecked()
+  await page.keyboard.press('ArrowLeft', { delay: 50 })
+  await expect(whoFills('id').getByRole('radio', { name: 'Fixed' })).toBeChecked()
+  await expect(page.getByText('Filled on every call and hidden from the pack’s keys.')).toBeVisible()
+
+  // Fixed to a variable, picked from the pack's own
+  await page.getByRole('button', { name: 'Use a variable for id' }).click()
+  await page.getByRole('menuitem', { name: /\{\{item\}\}/ }).click()
+  await expect(page.getByLabel('Value of id')).toHaveValue('{{item}}')
+  await expect(page.getByText('Sent as 42.')).toBeVisible()
+  await expect(page.getByText(/Every value fits/)).toHaveCount(0)
+
+  // A default with a plain value
+  await whoFills('verbose').getByRole('radio', { name: 'Default' }).click()
+  await page.getByLabel('Value of verbose').click()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByText(/Fixed id = \{\{item\}\} · Default .*verbose = true/)).toBeVisible()
+  await expect(variables.getByText('Used by items.get_item')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Name and inputs of items.get_item' }).click()
+  await expect(page.getByText('✓ Every value fits the tool’s current schema')).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
+  // A variable a value still writes can't go, and the card says which value
+  await variables.getByRole('button', { name: 'Remove item' }).click()
+  await expect(variables.getByText(/\{\{item\}\} is still used by items\.get_item \(id\)/)).toBeVisible()
+
+  // One change to a variable reaches the tool that writes it
+  await variables.getByRole('button', { name: 'Change page_size' }).click()
+  await variables.getByLabel('Value').fill('7')
+  await variables.getByRole('button', { name: 'Save variable' }).click()
+  await expect(variables.getByText('7', { exact: true })).toBeVisible()
+
+  // What a key of the pack reads: the fixed input is gone, the defaults are the pack's values and no longer required
+  const seen = await page.request.get('/p/loud/api/tools/items.get_item?view=full')
+  expect(seen.status()).toBe(200)
+  const { inputSchema } = await seen.json()
+  expect(inputSchema.properties.id).toBeUndefined()
+  expect(inputSchema.properties.verbose.default).toBe(true)
+  expect(inputSchema.properties.limit.default).toBe(7)
+  expect(inputSchema.required ?? []).toEqual([])
+})
+
 test('the frame: a window and a scope narrow the numbers, searches show what came of them, tools as a key sees them', async ({
   page,
 }) => {
