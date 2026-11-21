@@ -240,7 +240,7 @@ const PackPatchSchema = z
       .optional()
       .openapi({
         description:
-          'What to add, at the end; anything already in stays as it is. A tool goes in under its alias when it has one, so the same tool can go in again under another alias (with other fixed inputs or defaults).',
+          'What to add, at the end; anything already in stays as it is. A tool goes in under its alias when it has one, so the same tool can go in again under another alias (with other fixed inputs or defaults). An alias can’t be the name of one of a connection’s own tools (`search_tools`, `call_tool` and the rest).',
       }),
     remove: z
       .object({

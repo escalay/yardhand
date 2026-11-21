@@ -36,7 +36,7 @@ import {
 import type { Services } from '../services.js'
 import { VERSION } from '../version.js'
 import { manualSkills } from './skills.js'
-import { countOf, META_TOOLS, metaToolsFor, PROMPTS, promptsFor, RESOURCES } from './tools.js'
+import { countOf, META_TOOLS, metaToolsFor, OWN_NAMES, PROMPTS, promptsFor, RESOURCES } from './tools.js'
 
 const INFO = {
   name: 'yardhand',
@@ -213,9 +213,6 @@ const howToWork = (pack: NonNullable<Me['pack']>, pins: Pin[]) =>
           : 'No tool of this pack is listed here. Each is found on demand:',
         ...ON_DEMAND,
       ]
-
-/** The names this connection's own tools hold: a pack's tool of the same name is not listed beside them. */
-const OWN_NAMES = new Set([...META_TOOLS.map((tool) => tool.name), 'call_tool'])
 
 /**
  * A pack connection's instructions: the pack's own words, how to work it, then what it holds. `connections` are its

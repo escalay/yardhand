@@ -1283,13 +1283,48 @@ describe('pins inside a pack', () => {
     expect(await pinsOf(two.key, '/p/loud/api/me')).toEqual(['fixture.echo', 'fixture.shout'])
   })
 
-  it('keeps a meta-tool’s name for the meta-tool when a pack names a tool the same', async () => {
-    await owner('/api/packs', { method: 'POST', body: { name: 'clash', title: 'Clash', description: 'A name clash.' } })
-    const added = await owner('/api/packs/clash', {
+  it('refuses a new name for a pack tool that a meta-tool holds, added or renamed', async () => {
+    const added = await owner('/api/packs/loud', {
       method: 'PATCH',
-      body: { add: { tools: [{ name: 'fixture.echo', alias: 'search_tools' }, { name: 'fixture.shout' }] } },
+      body: { add: { tools: [{ name: 'fixture.greet', alias: 'search_tools' }] } },
     })
-    expect(added.status).toBe(200)
+    expect([added.status, added.json.detail]).toEqual([
+      400,
+      "search_tools is the name of a tool every pack connection has of its own, so fixture.greet can't take it in Loud: give it another alias.",
+    ])
+    const renamed = await owner('/api/packs/loud/tools/fixture.shout', {
+      method: 'PATCH',
+      body: { alias: 'call_tool' },
+    })
+    expect([renamed.status, renamed.json.detail]).toEqual([
+      400,
+      "call_tool is the name of a tool every pack connection has of its own, so fixture.shout can't take it in Loud: give it another alias.",
+    ])
+    expect(namesOf((await owner('/api/packs/loud')).json.tools)).toEqual(['fixture.echo', 'fixture.shout'])
+  })
+
+  it('keeps a meta-tool’s name for the meta-tool when a pack already names a tool the same', async () => {
+    // Such a name is refused when added now, so this pack comes in as one made before that would: with an import
+    const imported = await owner('/api/config', {
+      method: 'POST',
+      body: {
+        packs: [
+          {
+            name: 'clash',
+            title: 'Clash',
+            description: 'A name clash.',
+            tools: [{ name: 'fixture.echo', alias: 'search_tools' }, { name: 'fixture.shout' }],
+          },
+        ],
+      },
+    })
+    expect(imported.json).toMatchObject({ packs: { created: ['clash'] }, skipped: [] })
+    // It can still be changed in every other way, under the name it has
+    const kept = await owner('/api/packs/clash/tools/search_tools', {
+      method: 'PATCH',
+      body: { alias: 'search_tools', fixed: {} },
+    })
+    expect([kept.status, kept.json.name]).toEqual([200, 'search_tools'])
     const made = await keyFor({ name: 'clash-agent', pack: 'clash' })
     expect(await pinsOf(made.key)).toEqual(['search_tools', 'fixture.shout'])
     const client = await mcp(made.key)

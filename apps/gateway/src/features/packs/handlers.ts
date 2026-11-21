@@ -4,6 +4,7 @@
  */
 import type { RouteHandler } from '@hono/zod-openapi'
 import { linksOf, originOf, ProblemError } from '../../kit/index.js'
+import { OWN_NAMES } from '../../mcp/tools.js'
 import type { Services } from '../../services.js'
 import type { ManualContent, PlaybookContent } from '../catalog/content.js'
 import { playbookTitleOf } from '../catalog/content.js'
@@ -54,6 +55,14 @@ export const packsHandlers = ({
     const pack = await packs.get(name)
     if (!pack) throw new ProblemError('not_found', { detail: `No pack ${name}. GET ${PATH} lists them.` })
     return pack
+  }
+
+  /** Refuses a new name for a pack tool that every pack connection already has a tool of its own under. */
+  const checkName = (pack: PackRow, name: string, toolName: string) => {
+    if (OWN_NAMES.has(name))
+      throw new ProblemError('bad_request', {
+        detail: `${name} is the name of a tool every pack connection has of its own, so ${toolName} can't take it in ${pack.title}: give it another alias.`,
+      })
   }
 
   /**
@@ -334,6 +343,7 @@ export const packsHandlers = ({
     const adding = (add?.tools ?? []).map((tool) => ({ ...tool, as: tool.alias ?? tool.name }))
     // A name the pack already has stays as it is, so only the new ones are this request's to answer for
     const fresh = adding.filter((tool) => !have.has(tool.as))
+    for (const tool of fresh) checkName(pack, tool.as, tool.name)
     const after = withTools(
       before,
       adding.map((tool) => ({
@@ -431,10 +441,13 @@ export const packsHandlers = ({
     const { alias, fixed, defaults } = c.req.valid('json')
     const before = await packStateOf({ packs, tools }, pack)
     const next = alias === undefined ? row.name : (alias ?? row.toolName)
-    if (next !== row.name && before.tools.some((tool) => tool.name === next))
-      throw new ProblemError('conflict', {
-        detail: `${pack.title} already has a tool called ${next}: pick another alias.`,
-      })
+    if (next !== row.name) {
+      if (before.tools.some((tool) => tool.name === next))
+        throw new ProblemError('conflict', {
+          detail: `${pack.title} already has a tool called ${next}: pick another alias.`,
+        })
+      checkName(pack, next, row.toolName)
+    }
     const sets = Object.keys(fixed ?? {}).length + Object.keys(defaults ?? {}).length
     if (sets && !before.tools.find((tool) => tool.key === row.name)?.live)
       throw new ProblemError('conflict', {

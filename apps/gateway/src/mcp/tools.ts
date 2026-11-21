@@ -223,6 +223,12 @@ export const metaToolsFor = (pack?: PackWords): McpTool[] => [
 
 export const META_TOOLS: McpTool[] = metaToolsFor()
 
+/**
+ * The names a connection's own tools hold: the meta-tools and `call_tool`, which the server adds per request. A
+ * pack's tool of the same name is not listed beside them, and a pack tool can no longer be given one.
+ */
+export const OWN_NAMES = new Set([...META_TOOLS.map((tool) => tool.name), 'call_tool'])
+
 export const RESOURCES: McpResource[] = [
   mcpResource({
     name: 'upstream',
