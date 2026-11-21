@@ -46,7 +46,8 @@ using a pack key day to day showed where it stops feeling like a server of its o
   search.
 - **A keyword hit must be near too.** A tool the words found counts only when it scores z 2.0 or more against the
   whole catalog. Asking for every word instead cost right answers in the replay; this floor cost none. A tool with
-  no score yet (new since the last embedding run) is kept.
+  no score yet (new since the last embedding run) is kept. The owner's own search boxes in the app are the exception:
+  they filter on half-typed words and connection ids, which no meaning scores, so there every keyword hit counts.
 - **Small catalogs search as before.** Under 50 tools there is no bar to hold a tool to: search answers with the
   nearest tools and every keyword hit, kept to the caller's own tools. The same goes without search by meaning.
 - **An empty search helps.** `count: 0` and, for a pack, "Nothing in Career matches 'taxes'. This pack covers: job

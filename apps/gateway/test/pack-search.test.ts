@@ -19,7 +19,7 @@ const OWNER = 'owner-key-for-pack-search'
 const upstream = await startUpstream({ token: 'fixture-token', greeting: true })
 afterAll(() => upstream.close())
 
-type Init = { method?: string; body?: unknown }
+type Init = { method?: string; body?: unknown; headers?: Record<string, string> }
 type Card = { name: string }
 /** A gateway with the fixture server connected, and its API as a key sees it. */
 const gateway = async <Search extends MeaningSearch>(meaningOf: (db: Db) => Search) => {
@@ -33,7 +33,7 @@ const gateway = async <Search extends MeaningSearch>(meaningOf: (db: Db) => Sear
   const api = async (key: string, path: string, init: Init = {}) => {
     const response = await app.request(path, {
       method: init.method ?? 'GET',
-      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', ...init.headers },
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
     })
     return { status: response.status, json: (await response.json().catch(() => null)) as any }
@@ -227,6 +227,29 @@ describe('on a large catalog', () => {
       })
     expect(await found(kit, 'echo text')).toEqual(['fixture.echo'])
     expect(await found(full, 'french text')).toEqual([])
+  })
+
+  it('lets the owner filter by half-typed words in the app, and nobody else', async () => {
+    const typed = { headers: { 'x-gateway-via': 'app' } }
+    const names = async (key: string, query: string, init: Init = {}) =>
+      ((await api(key, `/api/tools?q=${query}`, init)).json._embedded.tools as Card[]).map((tool) => tool.name)
+    // A half word and a connection's id are keyword hits no meaning scores
+    expect(await names(OWNER, 'ech', typed)).toEqual(['fixture.echo'])
+    expect(await names(OWNER, 'filler-a', typed)).toHaveLength(20)
+    // The owner's scripts and agents are asked as any agent is
+    expect(await names(OWNER, 'ech')).toEqual([])
+    expect(await names(OWNER, 'filler-a')).toEqual([])
+    expect(await names(OWNER, 'french text')).toEqual([])
+    const agent = await mcp(OWNER)
+    expect(await said(agent, 'search_tools', { query: 'french text' })).toContain('No tools match.')
+    await agent.close()
+    // A key can't claim the app, and the owner looking as a key sees what that key would
+    expect(await names(full, 'ech', typed)).toEqual([])
+    const laptop = (await api(OWNER, '/api/clients')).json._embedded.clients.find(
+      (client: { name: string }) => client.name === 'laptop',
+    )
+    expect(await names(OWNER, `ech&as=${laptop.id}`, typed)).toEqual([])
+    expect(await names(OWNER, `echo&as=${laptop.id}`, typed)).toEqual(['fixture.echo'])
   })
 
   it('keeps a keyword hit that is near enough in meaning without standing out, ranked among the pack’s own tools', async () => {

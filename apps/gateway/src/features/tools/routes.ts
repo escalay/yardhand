@@ -207,7 +207,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Find tools',
     description:
-      'Tools the caller may use. With `q`, a search by words and meaning across every allowed upstream, best match first: only tools that clearly match, so a question that matches nothing answers `count: 0` (a gateway with fewer than 50 tools, or without search by meaning, answers as before: its nearest tools and every keyword hit). Without `q`, all of them by name.',
+      'Tools the caller may use. With `q`, a search by words and meaning across every allowed upstream, best match first: only tools that clearly match, so a question that matches nothing answers `count: 0` (a gateway with fewer than 50 tools, or without search by meaning, answers as before: its nearest tools and every keyword hit; so does the owner typing in the app, for its keyword hits). Without `q`, all of them by name.',
     request: {
       query: z.object({
         q: z

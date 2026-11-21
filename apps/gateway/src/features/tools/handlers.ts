@@ -189,12 +189,14 @@ export const toolsHandlers = ({
    * Where there is no bar (a small catalog, no search by meaning): the nearest tools and every keyword hit. Where
    * search by meaning fails: every keyword hit. Names are ranked first and only the ranked tools are loaded, so a
    * search costs the same however many tools the caller reaches. `own` is a pack key's tools, for what the pack covers.
+   * `typed` is the owner filtering in the app, on half-typed words and connection ids: every keyword hit counts.
    */
   const searchFor = async (
     principal: Principal,
     words: string,
     upstream: string | undefined,
     mayMatch: (tool: LiveTool) => boolean,
+    typed: boolean,
   ) => {
     const within = (await upstreams.list())
       .filter((row) => row.enabled && allows(principal, row.id) && (!upstream || row.id === upstream))
@@ -212,12 +214,15 @@ export const toolsHandlers = ({
     const barred = async () => {
       if (!meaning) return null
       const stood = await meaning.standouts(words, { limit: 100, keep: inReach })
+      if (!stood || typed) return stood && [hits, stood]
       // The question is embedded once: the second look reads it from the embedder's cache
-      const near =
-        stood &&
-        (await meaning.standouts(words, { limit: 100, keep: (name) => hits.includes(name), minZ: KEYWORD_MIN_Z }))
+      const near = await meaning.standouts(words, {
+        limit: 100,
+        keep: (name) => hits.includes(name),
+        minZ: KEYWORD_MIN_Z,
+      })
       // A hit with no vector yet (synced or approved since the last refresh) can't be scored: it is kept
-      return stood && near ? [hits.filter((name) => near.includes(name) || !meaning.has(name)), stood] : null
+      return near && [hits.filter((name) => near.includes(name) || !meaning.has(name)), stood]
     }
     const nearest = async () =>
       meaning ? (await meaning.names(words, 5000).catch(() => [])).filter(inReach).slice(0, 100) : []
@@ -238,7 +243,14 @@ export const toolsHandlers = ({
     const words = q?.trim()
     // Searched as a write key would be listed, so a read-only key can be told what its scope hides
     const searched = words
-      ? await searchFor(principal, words, upstream, (tool) => reachable(tool) && inUpstream(tool))
+      ? await searchFor(
+          principal,
+          words,
+          upstream,
+          (tool) => reachable(tool) && inUpstream(tool),
+          // Looking as a key, the owner is searched as that key: `principal` is then the key's
+          principal.owner && viaOf(c) === 'app',
+        )
       : null
     const candidates = searched
       ? searched.found

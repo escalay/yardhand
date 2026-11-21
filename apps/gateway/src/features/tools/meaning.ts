@@ -3,7 +3,8 @@
  * that only pays for new or changed descriptions, refreshed after every sync and approval. `fuse` merges it with
  * keyword search by reciprocal-rank fusion, so a name leads and a paraphrase still finds the tool. On a catalog of
  * `MIN_ROWS` tools or more a keyword hit, an exact name included, counts only from `KEYWORD_MIN_Z` up; one with no
- * vector yet can't be scored and counts. `standouts` is the search that can answer nothing; `names` always answers.
+ * vector yet can't be scored and counts, and so does every hit for the owner typing in the app. `standouts` is the
+ * search that can answer nothing; `names` always answers.
  */
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
