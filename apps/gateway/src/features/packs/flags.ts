@@ -1,12 +1,14 @@
 /**
  * Flags: something in a pack to recheck because its upstream changed the tool. Wording was written against one
  * version of a tool and the live description has moved on (the pack keeps its text for agents; the owner keeps or
- * rewrites it), or the live tool no longer takes an input the pack fixes (the call would fail until it is fixed).
+ * rewrites it), or a value the pack fixes or gives as a default no longer fits the live tool: the input is gone, or
+ * it no longer takes the value (the call fails until the owner changes it).
  */
 import type { ToolsRepo } from '../tools/repo.js'
-import { fixedOf, lostInputs } from './entries.js'
+import { defaultsOf, fixedOf, type InputProblem, inputProblems } from './entries.js'
 import type { PacksRepo } from './repo.js'
 import type { PackRow, PackToolRow } from './schema.js'
+import { type Variables, variablesFrom } from './values.js'
 
 export type Flag = { was: string; now: string }
 
@@ -19,9 +21,30 @@ export const flagOf = (
     ? { was: based.description, now: live.description }
     : null
 
+/** The flag for a tool's values that no longer fit: what the pack sets, and what is wrong with it now. */
+export const inputFlagOf = (toolName: string, problems: InputProblem[]): Flag | null => {
+  const errors = problems.filter((problem) => problem.level === 'error')
+  const [first] = errors
+  if (!first) return null
+  const inputsOf = (mode: InputProblem['mode']) => [
+    ...new Set(errors.filter((problem) => problem.mode === mode).map((problem) => problem.input)),
+  ]
+  const fixes = inputsOf('fixed')
+  const defaults = inputsOf('default')
+  const lost = [
+    ...new Set(errors.filter((problem) => problem.code === 'unknown_input').map((problem) => problem.input)),
+  ]
+  return {
+    was: [fixes.length ? `fixes ${fixes.join(', ')}` : '', defaults.length ? `defaults ${defaults.join(', ')}` : '']
+      .filter(Boolean)
+      .join(' and '),
+    now: lost.length ? `${toolName} no longer takes ${lost.join(', ')}` : first.message,
+  }
+}
+
 type Flagged = { kind: 'wording' | 'input'; pack: PackRow; tool: PackToolRow; flag: Flag }
 
-/** Every flag across packs: rewritten tools first, then fixed inputs their tool dropped. */
+/** Every flag across packs: rewritten tools first, then tools with a value that no longer fits. */
 export const packFlags = async ({ packs, tools }: { packs: PacksRepo; tools: ToolsRepo }): Promise<Flagged[]> => {
   const wording = await Promise.all(
     (await packs.reworded()).map(async ({ pack, tool }) => {
@@ -29,20 +52,20 @@ export const packFlags = async ({ packs, tools }: { packs: PacksRepo; tools: Too
       return flag ? [{ kind: 'wording' as const, pack, tool, flag }] : []
     }),
   )
+  const setting = await packs.fixing()
+  const variables = new Map<string, Variables>()
+  for (const { pack } of setting)
+    if (!variables.has(pack.id)) variables.set(pack.id, variablesFrom(await packs.variablesOf(pack.id)))
   const inputs = await Promise.all(
-    (await packs.fixing()).map(async ({ pack, tool }) => {
+    setting.map(async ({ pack, tool }) => {
       const live = await tools.live(tool.toolName)
-      const lost = live ? lostInputs(live.inputSchema, fixedOf(tool)) : []
-      return lost.length
-        ? [
-            {
-              kind: 'input' as const,
-              pack,
-              tool,
-              flag: { was: `fixes ${lost.join(', ')}`, now: `${tool.toolName} no longer takes ${lost.join(', ')}` },
-            },
-          ]
-        : []
+      const flag = live
+        ? inputFlagOf(
+            tool.toolName,
+            inputProblems(live, { fixed: fixedOf(tool), defaults: defaultsOf(tool) }, variables.get(pack.id) ?? {}),
+          )
+        : null
+      return flag ? [{ kind: 'input' as const, pack, tool, flag }] : []
     }),
   )
   return [...wording.flat(), ...inputs.flat()]

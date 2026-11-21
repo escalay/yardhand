@@ -403,6 +403,106 @@ describe('a pack’s variables', () => {
   })
 })
 
+describe('a value that stops fitting its tool', () => {
+  const flagsOf = async () => (await owner('/api/packs/flags')).json._embedded.flags as { pack: string }[]
+  beforeAll(async () => {
+    await packWith('hall', 'Hall', [
+      { name: 'fixture.greet', alias: 'greet_default', defaults: { from: 'the porter' } },
+      { name: 'fixture.greet', alias: 'greet_fixed', fixed: { from: '{{who}}' } },
+      { name: 'fixture.echo' },
+    ])
+    await owner('/api/packs/hall/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'who', value: 'the desk' }] },
+    })
+  })
+  afterAll(() => greetTakes(true))
+
+  it('is flagged when the tool drops the input a default fills', async () => {
+    expect((await flagsOf()).filter((flag) => flag.pack === 'hall')).toEqual([])
+    await greetTakes(false)
+    const pack = (await owner('/api/packs/hall')).json
+    expect(toolOf(pack, 'greet_default')).toMatchObject({ lostInputs: ['from'], defaults: { from: 'the porter' } })
+    expect(toolOf(pack, 'greet_fixed').lostInputs).toEqual(['from'])
+    expect(pack.flags).toBe(2)
+    expect(pack.findings).toEqual([
+      expect.objectContaining({ code: 'unknown_input', path: 'tools.greet_default.defaults.from' }),
+      expect.objectContaining({ code: 'unknown_input', path: 'tools.greet_fixed.fixed.from' }),
+    ])
+    const flags = await flagsOf()
+    expect(flags.filter((flag) => flag.pack === 'hall')).toEqual([
+      expect.objectContaining({
+        kind: 'input',
+        tool: 'greet_default',
+        was: 'defaults from',
+        now: 'fixture.greet no longer takes from',
+      }),
+      expect.objectContaining({ kind: 'input', tool: 'greet_fixed', was: 'fixes from' }),
+    ])
+    const nudge = (await owner('/api/overview')).json.nudges.find(
+      (found: { kind: string }) => found.kind === 'pack_wording',
+    )
+    expect(nudge.message).toBe(
+      `${flags.length} things in your packs to recheck: their servers changed the tools they were set up for.`,
+    )
+    expect((await owner('/api/packs')).json._embedded.packs).toContainEqual(
+      expect.objectContaining({ name: 'hall', flags: 2 }),
+    )
+  })
+
+  it('is flagged when the input stays and no longer takes the value', async () => {
+    await greetTakes('enum')
+    const pack = (await owner('/api/packs/hall')).json
+    expect(toolOf(pack, 'greet_default').lostInputs).toEqual([])
+    expect(inputOf(toolOf(pack, 'greet_default'), 'from')).toMatchObject({
+      mode: 'default',
+      value: 'the porter',
+      problem: 'from must be equal to one of the allowed values',
+    })
+    // The other value is one the tool still takes
+    expect(inputOf(toolOf(pack, 'greet_fixed'), 'from')).toMatchObject({ resolved: 'the desk', problem: null })
+    expect(pack.flags).toBe(1)
+    expect((await flagsOf()).filter((flag) => flag.pack === 'hall')).toEqual([
+      expect.objectContaining({
+        kind: 'input',
+        tool: 'greet_default',
+        was: 'defaults from',
+        now: 'from must be equal to one of the allowed values',
+      }),
+    ])
+  })
+
+  it('refuses a variable’s new value that an input using it no longer takes', async () => {
+    const set = await owner('/api/packs/hall/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'who', value: 'the lobby' }] },
+    })
+    expect(set.status).toBe(400)
+    expect(set.json.errors).toEqual([
+      {
+        in: 'body',
+        path: 'tools.greet_fixed.fixed.from',
+        message: 'from must be equal to one of the allowed values',
+      },
+    ])
+    const fits = await owner('/api/packs/hall/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'who', value: 'the boss' }] },
+    })
+    // The default that was already flagged stays a flag: it does not block this change
+    expect([fits.status, fits.json.flags]).toEqual([200, 1])
+  })
+
+  it('is no longer flagged once the owner sets a value that fits', async () => {
+    const fixed = await owner('/api/packs/hall/tools/greet_default', {
+      method: 'PATCH',
+      body: { defaults: { from: 'the boss' } },
+    })
+    expect(inputOf(fixed.json, 'from')).toMatchObject({ value: 'the boss', problem: null })
+    expect((await owner('/api/packs/hall')).json).toMatchObject({ flags: 0, findings: [] })
+  })
+})
+
 describe('a flag never blocks a change that leaves it alone', () => {
   afterAll(() => greetTakes(true))
 
