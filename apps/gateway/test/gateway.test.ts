@@ -570,6 +570,12 @@ describe('searching where a caller may look', () => {
     expect(await tools.searchNames('echoes text', 100, ['fixture'])).toContain('fixture.echo')
     expect(await tools.searchNames('echoes text', 100, ['elsewhere'])).toEqual([])
     expect(await tools.searchNames('echoes text', 100, [])).toEqual([])
+    // Given names, it ranks only among those: a pack's tools are never crowded out by their connection's
+    expect(await tools.searchNames('text', 100, ['fixture'])).toEqual(
+      expect.arrayContaining(['fixture.echo', 'fixture.shout']),
+    )
+    expect(await tools.searchNames('text', 100, ['fixture'], ['fixture.shout'])).toEqual(['fixture.shout'])
+    expect(await tools.searchNames('text', 100, ['fixture'], [])).toEqual([])
     const elsewhere = (await api(OWNER, '/api/tools?q=echoes text&upstream=elsewhere')).json._embedded.tools
     expect(elsewhere).toEqual([])
   })
