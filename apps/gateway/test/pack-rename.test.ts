@@ -1,5 +1,5 @@
 /**
- * Renaming a pack: its address moves, and while it has keys the old name keeps leading to it, served in place over
+ * Renaming a pack: its address moves, and when it has keys the old name keeps leading to it, served in place over
  * MCP and REST and sending a reader of its pages on. A key that does not open the pack learns nothing from the old
  * name, and no other pack can take it until the owner frees it or the pack goes.
  */

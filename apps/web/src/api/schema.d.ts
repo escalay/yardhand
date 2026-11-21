@@ -819,7 +819,7 @@ export interface paths {
         head?: never;
         /**
          * Change a pack
-         * @description Changes its name (its address moves; the old one keeps answering while it has keys), its title, what it is for, and adds or removes tools, playbooks and manuals. A name another pack has, or that still leads to one, is a 409.
+         * @description Changes its name, its title, what it is for, and adds or removes tools, playbooks and manuals. A new name moves its address; if the pack has a key that is not revoked then, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack. A name another pack has, or that still leads to one, is a 409.
          */
         patch: operations["updatePack"];
         trace?: never;
@@ -2753,7 +2753,7 @@ export interface components {
         /** @description Changes to a pack. */
         PackPatch: {
             /**
-             * @description A new name: the pack’s address becomes `/p/<name>/`. While it has a key that is not revoked, the old name keeps leading to it.
+             * @description A new name: the pack’s address becomes `/p/<name>/`. If it has a key that is not revoked when it is renamed, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack.
              * @example design
              */
             name?: string;

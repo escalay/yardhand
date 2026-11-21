@@ -175,7 +175,7 @@ const PackPatchSchema = z
   .object({
     name: PackName.optional().openapi({
       description:
-        'A new name: the pack’s address becomes `/p/<name>/`. While it has a key that is not revoked, the old name keeps leading to it.',
+        'A new name: the pack’s address becomes `/p/<name>/`. If it has a key that is not revoked when it is renamed, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack.',
     }),
     title: z.string().min(1).max(80).optional(),
     description: z.string().max(4000).optional(),
@@ -332,7 +332,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Change a pack',
     description:
-      'Changes its name (its address moves; the old one keeps answering while it has keys), its title, what it is for, and adds or removes tools, playbooks and manuals. A name another pack has, or that still leads to one, is a 409.',
+      'Changes its name, its title, what it is for, and adds or removes tools, playbooks and manuals. A new name moves its address; if the pack has a key that is not revoked then, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack. A name another pack has, or that still leads to one, is a 409.',
     request: { params: z.object({ name }), body: json(PackPatchSchema) },
     responses: { 200: ok('The pack.', PackSchema), ...problemResponses(400, 401, 403, 404, 409) },
   }),
