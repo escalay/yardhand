@@ -37,6 +37,28 @@ const api = async (key: string, path: string, init: Init = {}) => {
   return { status: response.status, json: (await response.json().catch(() => null)) as any }
 }
 const owner = (path: string, init?: Init) => api(OWNER, path, init)
+/** An answer with its headers and text, with a key or (null) without credentials. */
+const at = async (key: string | null, path: string, init: Init & { headers?: Record<string, string> } = {}) => {
+  const response = await app.request(path, {
+    method: init.method ?? 'GET',
+    headers: {
+      ...(key ? { authorization: `Bearer ${key}` } : {}),
+      'content-type': 'application/json',
+      ...init.headers,
+    },
+    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+  })
+  const text = await response.text()
+  const json = (() => {
+    try {
+      return JSON.parse(text) as any
+    } catch {
+      return null
+    }
+  })()
+  return { status: response.status, headers: response.headers, text, json }
+}
+const namesOf = (items: { name: string }[]) => items.map((item) => item.name)
 const mcp = async (key: string, path = '/mcp') => {
   const client = new Client({ name: 'test', version: '1.0.0' })
   await client.connect(
@@ -562,6 +584,88 @@ describe('a key with several packs', () => {
       'two-packs',
     )
     expect((await owner('/api/packs/desk', { method: 'DELETE' })).status).toBe(409)
+  })
+})
+
+describe('a pack at its own address', () => {
+  let key = ''
+  beforeAll(async () => {
+    key = (await keyFor({ name: 'at-address', packs: ['desk', 'loud'], pack: 'desk' })).key
+  })
+
+  it('serves REST and MCP under /p/<pack>/, beside the old address and the header', async () => {
+    expect((await api(key, '/p/loud/api/me')).json.pack.name).toBe('loud')
+    expect(namesOf((await api(key, '/p/loud/api/tools')).json._embedded.tools)).toEqual([
+      'fixture.echo',
+      'fixture.shout',
+    ])
+    const ran = await api(key, '/p/loud/api/calls', {
+      method: 'POST',
+      body: { tool: 'fixture.shout', arguments: { text: 'hey' } },
+    })
+    expect(ran.json.result.content[0].text).toBe('HEY')
+    const named = await api(key, '/p/loud/api/tools/fixture.shout/calls', { method: 'POST', body: { text: 'ho' } })
+    expect(named.json.result.content[0].text).toBe('HO')
+    // A tool of its other pack is not here
+    const other = await api(key, '/p/loud/api/calls', {
+      method: 'POST',
+      body: { tool: 'fixture.greet', arguments: { to: 'Al', from: 'me' } },
+    })
+    expect(other.status).toBe(403)
+    expect(other.json.detail).toContain('is not in Loud')
+    const client = await mcp(key, '/p/loud/mcp')
+    const listed = namesOf((await client.listTools()).tools)
+    expect(listed).toContain('fixture.shout')
+    expect(listed).not.toContain('greet_from_desk')
+    const shouted = await client.callTool({ name: 'fixture.shout', arguments: { text: 'mcp' } })
+    expect((shouted.content as { text: string }[])[0]?.text).toBe('MCP')
+    await client.close()
+    // The old address and the header answer as before
+    const legacy = await mcp(key, '/mcp/p/loud')
+    expect(namesOf((await legacy.listTools()).tools)).toContain('fixture.shout')
+    await legacy.close()
+    expect((await at(key, '/api/me', { headers: { 'x-gateway-pack': 'loud' } })).json.pack.name).toBe('loud')
+    expect((await api(key, '/api/me')).json.pack.name).toBe('desk')
+  })
+
+  it('asks for credentials at every path, for a pack that exists and one that does not alike', async () => {
+    for (const path of ['', '/', '/api', '/api/health', '/api/session', '/docs', '/llms.txt', '/openapi.json']) {
+      const real = await at(null, `/p/loud${path}`)
+      const none = await at(null, `/p/nope${path}`)
+      expect([path, real.status, real.json?.detail]).toEqual([path, 401, none.json?.detail])
+      expect(none.status).toBe(401)
+      expect(real.headers.get('link')).toBeNull()
+    }
+    const real = await at(null, '/p/loud/mcp', {
+      method: 'POST',
+      body: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    })
+    const none = await at(null, '/p/nope/mcp', {
+      method: 'POST',
+      body: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    })
+    expect([real.status, real.json.detail]).toEqual([401, none.json.detail])
+  })
+
+  it('leaves health and sign-in at the root, and counts calls against the same limit', async () => {
+    expect((await at(key, '/p/loud/api/health')).status).toBe(404)
+    expect((await at(key, '/p/loud/api/session')).status).toBe(404)
+    expect((await at(key, '/p/loud/u/fixture/mcp', { method: 'POST', body: {} })).status).toBe(404)
+    const ran = await at(key, '/p/loud/api/calls', {
+      method: 'POST',
+      body: { tool: 'fixture.echo', arguments: { text: 'counted' } },
+    })
+    expect(ran.status).toBe(200)
+    expect(ran.headers.get('ratelimit-policy')).toContain('tool-calls')
+    // The kit's pointer to the gateway's own documents is not sent from a pack's address
+    expect((await at(key, '/p/loud/api')).headers.get('link')).toBeNull()
+    expect((await at(key, '/api')).headers.get('link')).toContain('service-desc')
+  })
+
+  it('refuses a pack the key does not open', async () => {
+    const refused = await api(key, '/p/quiet/api/me')
+    expect(refused.status).toBe(403)
+    expect(refused.json.detail).toContain("doesn't open the pack quiet")
   })
 })
 

@@ -120,7 +120,7 @@ export const createApp = async ({
     oauth,
     guards: { store: await dbGuardStore(db) },
   })
-  // The pack a request asks for (`/mcp/p/<pack>` or `x-gateway-pack`), on the caller before any route reads it
+  // The pack a request asks for (its address `/p/<pack>/…` or `x-gateway-pack`), on the caller before any route reads it
   app.use('*', packChoice)
   // A pack address the key doesn't open is refused at the door, saying which packs it does open
   app.use('/mcp', async (c, next) => {
