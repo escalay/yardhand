@@ -78,8 +78,16 @@ export const toolsHandlers = ({
     const inPack = pack ?? caller?.pack
     if (as) {
       const target = await principals.ofClient(as, inPack)
-      if (typeof target === 'string') throw new ProblemError('conflict', { detail: target })
-      return { principal: target, preview: true }
+      if (typeof target !== 'string') return { principal: target, preview: true }
+      // A client that can call but doesn't open this pack: said to the owner, who is looking, not to its holder
+      const outside = inPack ? await principals.ofClient(as) : target
+      if (typeof outside === 'string') throw new ProblemError('conflict', { detail: target })
+      const opens = outside.packs.map((opened) => opened.name)
+      throw new ProblemError('conflict', {
+        detail: opens.length
+          ? `The client ${outside.name} doesn't open the pack ${inPack}. It opens ${opens.join(', ')}: look as it in one of those from the root, GET ${PATH}?as=${as}&pack=<name>.`
+          : `The client ${outside.name} doesn't open the pack ${inPack}: it isn't locked to packs. Look as it from the root, without a pack: GET ${PATH}?as=${as}.`,
+      })
     }
     const target = await principals.inPack(inPack as string)
     if (typeof target === 'string') throw new ProblemError('not_found', { detail: target })

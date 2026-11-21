@@ -393,9 +393,16 @@ describe('what the pack page stands on', () => {
     expect((await owner('/api/tools/fixture.whisper?pack=loud')).status).toBe(404)
     expect((await owner(`/api/tools/fixture.shout?pack=loud&as=${reader.id}`)).status).toBe(404)
     // A key that doesn't open the pack, a pack that isn't there, and a caller who isn't the owner
-    const stranger = await owner(`/api/tools?pack=loud&as=${agentId}`)
-    expect(stranger.status).toBe(409)
-    expect(stranger.json.detail).toMatch(/isn't locked to packs/)
+    // Said to the owner, who is looking: not what the key's holder is told when it connects
+    const strange = `doesn't open the pack loud: it isn't locked to packs. Look as it from the root, without a pack: GET /api/tools?as=${agentId}.`
+    for (const path of [`/api/tools?pack=loud&as=${agentId}`, `/p/loud/api/tools?as=${agentId}`]) {
+      const stranger = await owner(path)
+      expect([path, stranger.status]).toEqual([path, 409])
+      expect(stranger.json.detail).toMatch(/^The client \S.* doesn't open/)
+      expect(stranger.json.detail).toContain(strange)
+    }
+    const unknown = await owner('/api/tools?pack=loud&as=nobody')
+    expect([unknown.status, unknown.json.detail]).toEqual([409, 'No client nobody. GET /api/clients lists them.'])
     const none = await owner('/api/tools?pack=nope')
     expect([none.status, none.json.detail]).toEqual([404, 'No pack nope. GET /api/packs lists them.'])
     const sneaky = await api(agentKey, '/api/tools?pack=loud')

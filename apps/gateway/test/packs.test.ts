@@ -669,8 +669,9 @@ describe('a key with several packs', () => {
 
 describe('a pack at its own address', () => {
   let key = ''
+  let id = ''
   beforeAll(async () => {
-    key = (await keyFor({ name: 'at-address', packs: ['desk', 'loud'], pack: 'desk' })).key
+    ;({ key, id } = await keyFor({ name: 'at-address', packs: ['desk', 'loud'], pack: 'desk' }))
   })
 
   it('serves REST and MCP under /p/<pack>/, beside the old address and the header', async () => {
@@ -826,6 +827,19 @@ describe('a pack at its own address', () => {
     expect(refused.json.detail).toBe(
       "This key doesn't open the pack quiet. It opens desk (/p/desk/mcp), loud (/p/loud/mcp).",
     )
+    // The owner looking as that key there is told so in the owner's terms, with where to look instead
+    for (const path of [
+      `/p/quiet/api/tools?as=${id}`,
+      `/api/tools?pack=quiet&as=${id}`,
+      `/api/tools/x.y?pack=quiet&as=${id}`,
+    ]) {
+      const looked = await owner(path)
+      expect([path, looked.status, looked.json.detail]).toEqual([
+        path,
+        409,
+        `The client at-address doesn't open the pack quiet. It opens desk, loud: look as it in one of those from the root, GET /api/tools?as=${id}&pack=<name>.`,
+      ])
+    }
   })
 
   type Linked = { _links?: Record<string, { href: string }>; _embedded?: Record<string, Linked[]> }
