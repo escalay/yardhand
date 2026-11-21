@@ -32,8 +32,10 @@ using a pack key day to day showed where it stops feeling like a server of its o
 - **One address.** Everything under `/p/<pack>/`: `/p/<pack>/mcp`, `/p/<pack>/api/…`, `/p/<pack>/llms.txt`,
   `/p/<pack>/docs`. `/mcp/p/<pack>` and `x-gateway-pack` keep working.
 - **The same shape as the gateway.** The meta-tools (`search_tools`, `describe_tool`, `call_tool`, `get_result`,
-  `list_upstreams`, `read_resource`, `get_playbook`) over the pack's tools only, and only pinned tools listed directly.
-  The server name and instructions are the pack's; its `llms.txt` and docs describe the pack and its tools.
+  `list_upstreams`, `read_resource`, `get_playbook`) over the pack's tools only, and every tool of the pack listed
+  directly. Pins narrow it: a key with pins of its own lists only those, by the pack's names, and the global pins
+  never apply inside a pack. The server name and instructions are the pack's; its `llms.txt` and docs describe the
+  pack and its tools.
 - **Its own counts.** A pack key's `list_upstreams` and `GET /api/upstreams` show only the pack's connections, with
   the pack's tool, playbook and manual counts.
 - **Search that can say "nothing".** Search by meaning uses the kit's `standouts()`: every tool is scored, so the
@@ -217,7 +219,10 @@ Server: Career
 ## Alternatives not taken
 
 - **A pack lists all its tools and drops search.** Simpler and noise-free, but a pack must work like the gateway,
-  REST and docs included, and a large pack would flood an agent's context.
+  REST and docs included, and a key narrowed to its pins finds the rest of a large pack only by search.
+- **Only pinned tools listed directly, as on the gateway.** Leaner for a large pack, but every agent already
+  connected to a pack would lose the tools it calls by name. A pack lists all its tools, and pins narrow it for the
+  key that needs less.
 - **Compute the search bar over the pack.** Against the pack alone a right answer and an off-topic question score
   alike, so no bar tells them apart.
 - **A subdomain per pack.** The most "own server" feel, but a wildcard DNS name and certificate per install.
@@ -232,7 +237,9 @@ Server: Career
 
 - Every key's search changes with the standout bar; logged searches were replayed to check it, and the result is in
   the release notes.
-- Existing pack connections change shape: their tools are found by search, not all listed. The release notes say so.
+- Existing pack connections keep their tool list and take the pack's own name and words. A key is narrowed only by
+  pins of its own, which includes pins a pack key was given through the API before they counted. The release notes
+  say so.
 - A public sign-in path exists for the first time. It is its own security review before release: invites single-use
   and short-lived, Ask to join off by default, rate limits per address and per pack.
 - New tables: pack variables, per-person values, pack playbooks and skills with versions, invites, join requests,
