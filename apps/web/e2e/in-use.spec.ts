@@ -152,6 +152,11 @@ test('a pack’s Overview checks it as it is built: its steps, a search as its k
   // Described and holding tools; nobody tried it and none of its keys called
   const steps = part('Set up Loud')
   await expect(steps).toContainText('2 of 4')
+  // A step still to do shows where the keyboard is
+  const todo = steps.getByRole('link', { name: 'Try it as the pack' })
+  await page.keyboard.press('Shift')
+  await todo.focus()
+  await expect(todo).not.toHaveCSS('box-shadow', 'none')
 
   const tryIt = part('Try Loud as an agent')
   const ask = async (words: string) => {

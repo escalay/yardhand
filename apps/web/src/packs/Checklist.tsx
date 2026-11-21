@@ -9,7 +9,9 @@ import { Section } from '@/ui/Page'
 import { type ChecklistStep, checklistOf } from './packs.rules'
 import { TRY_ID } from './TryIt'
 
-const TODO = 'text-left underline underline-offset-4 hover:text-primary'
+// The app clears the browser's focus outline: these carry the ring its buttons show
+const TODO =
+  'rounded-xs text-left underline underline-offset-4 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40'
 
 const Todo = ({ step, pack, onEdit }: { step: ChecklistStep; pack: Pack; onEdit: () => void }) => {
   switch (step.id) {

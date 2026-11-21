@@ -36,7 +36,7 @@ export const AddressCard = ({ pack }: { pack: Pack }) => {
               href={local(setup.data.docsUrl)}
               target="_blank"
               rel="noreferrer"
-              className="text-foreground underline underline-offset-4 hover:text-primary"
+              className="rounded-xs text-foreground underline underline-offset-4 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
             >
               <Mono>{local(setup.data.docsUrl)}</Mono>
             </a>
