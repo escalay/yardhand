@@ -211,10 +211,12 @@ describe('trying a pack', () => {
     expect(stoodOutLine(1, 2)).toBe("1 tool stood out · 1 other didn't match")
   })
 
-  it('leaves the rest out when every tool matched or the listed count is not known', () => {
-    expect(stoodOutLine(3, 3)).toBe('3 tools stood out')
-    expect(stoodOutLine(2, null)).toBe('2 tools stood out')
-    expect(stoodOutLine(2, undefined)).toBe('2 tools stood out')
+  it('only counts what was found when no listed tool is known to have been left out', () => {
+    // A small gateway has no bar: a search there answers with the nearest tools, which can be the whole pack
+    expect(stoodOutLine(3, 3)).toBe('3 tools found')
+    expect(stoodOutLine(1, 1)).toBe('1 tool found')
+    expect(stoodOutLine(2, null)).toBe('2 tools found')
+    expect(stoodOutLine(2, undefined)).toBe('2 tools found')
   })
 
   it('says nothing matched, in the pack’s title', () => {

@@ -94,8 +94,8 @@ export const TryIt = ({ pack }: { pack: Pack }) => {
         </form>
         {!q ? (
           <p className="px-4 py-4 text-sm text-pretty text-muted-foreground">
-            {pack.title} is searched here exactly as its keys are: what stands out comes back, and nothing does when
-            nothing fits. Searches here aren't logged.
+            {pack.title} is searched here exactly as its keys are: what you see is what an agent would be answered.
+            Searches here aren't logged.
           </p>
         ) : found.isPending ? (
           <div className="p-4">

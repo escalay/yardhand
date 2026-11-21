@@ -176,12 +176,14 @@ export type ChecklistStep = ReturnType<typeof checklistOf>['steps'][number]
 
 /**
  * "2 tools stood out · 18 others didn't match": `shown` of the `listed` tools the same viewer gets without a query.
- * The rest is left out when `listed` isn't known (still loading, or cut by its limit).
+ * Only "2 tools found" when none is known to have been left out (every listed tool came back, or `listed` isn't
+ * known: still loading, or cut by its limit): a small gateway answers with the nearest tools, standing out or not.
  */
 export const stoodOutLine = (shown: number, listed: number | null | undefined) => {
-  const stood = `${countOf(shown, 'tool')} stood out`
   const rest = (listed ?? 0) - shown
-  return rest > 0 ? `${stood} · ${countOf(rest, 'other')} didn't match` : stood
+  return rest > 0
+    ? `${countOf(shown, 'tool')} stood out · ${countOf(rest, 'other')} didn't match`
+    : `${countOf(shown, 'tool')} found`
 }
 
 /** A search of a pack that found nothing, where the API sent no hint. */
