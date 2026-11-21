@@ -10,6 +10,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { EntityActivity } from '@/activity/EntityActivity'
 import { api, type Schemas, unwrap } from '@/api/client'
+import { useScope } from '@/shell/scope'
 import { Mono } from '@/ui/Code'
 import { Empty } from '@/ui/Empty'
 import { EntityHeader, EntityTabs } from '@/ui/Entity'
@@ -37,8 +38,8 @@ import { AddressCard } from './AddressCard'
 import { Checklist } from './Checklist'
 import { UpstreamChips } from './PacksPage'
 import { PackTools } from './PackTools'
-import { expiryOf, holdsLine } from './packs.rules'
-import { packQuery } from './queries'
+import { expiryOf, holdsLine, isPackName, renameNote } from './packs.rules'
+import { packQuery, packsQuery } from './queries'
 import { TRY_ID, TryIt } from './TryIt'
 
 type Pack = Schemas['Pack']
@@ -94,15 +95,20 @@ const EditPack = ({
   onOpenChange: (open: boolean) => void
   onSave: (body: Schemas['PackPatch']) => Promise<unknown>
 }) => {
+  const [name, setName] = useState(pack.name)
   const [title, setTitle] = useState(pack.title)
   const [description, setDescription] = useState(pack.description)
+  const [problem, setProblem] = useState<string | null>(null)
+  const renamed = name !== pack.name
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
         if (next) {
+          setName(pack.name)
           setTitle(pack.title)
           setDescription(pack.description)
+          setProblem(null)
         }
         onOpenChange(next)
       }}
@@ -116,9 +122,37 @@ const EditPack = ({
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault()
-            void onSave({ title: title.trim(), description: description.trim() }).then(() => onOpenChange(false))
+            setProblem(null)
+            void onSave({ ...(renamed ? { name } : {}), title: title.trim(), description: description.trim() }).then(
+              () => onOpenChange(false),
+              (error: Error) => setProblem(error.message),
+            )
           }}
         >
+          <Field
+            label="Name"
+            hint={
+              <>
+                Its address is <Mono>/p/{name || '…'}</Mono>.{renamed ? ` ${renameNote(pack.keys, pack.name)}` : null}
+              </>
+            }
+            error={
+              name && !isPackName(name)
+                ? 'Lowercase letters, digits and dashes, starting with a letter or digit.'
+                : null
+            }
+          >
+            {(id) => (
+              <Input
+                id={id}
+                required
+                className="font-mono"
+                maxLength={40}
+                value={name}
+                onChange={(e) => setName(e.target.value.toLowerCase())}
+              />
+            )}
+          </Field>
           <Field label="Title">
             {(id) => <Input id={id} required maxLength={80} value={title} onChange={(e) => setTitle(e.target.value)} />}
           </Field>
@@ -133,11 +167,16 @@ const EditPack = ({
               />
             )}
           </Field>
+          {problem ? (
+            <p role="alert" className="text-sm text-error">
+              {problem}
+            </p>
+          ) : null}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" disabled={!title.trim()}>
+            <Button type="submit" variant="primary" disabled={!title.trim() || !isPackName(name)}>
               Save
             </Button>
           </div>
@@ -225,13 +264,39 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
   const queries = useQueryClient()
   const navigate = useNavigate()
   const pack = useQuery(packQuery(name))
+  const { scope, setScope } = useScope()
   const [editing, setEditing] = useState(false)
   const [addingPlaybook, setAddingPlaybook] = useState(false)
   const patch = useMutation({
     mutationFn: (body: Schemas['PackPatch']) =>
       unwrap(api.PATCH('/api/packs/{name}', { params: { path: { name } }, body })),
-    onSuccess: (data) => {
-      queries.setQueryData(packQuery(name).queryKey, data)
+    onSuccess: async (data) => {
+      queries.setQueryData(packQuery(data.name).queryKey, data)
+      if (data.name !== name) {
+        // The saved scope is kept by name and dropped when no pack has it: the scope and the list it is checked
+        // against take the new name together
+        queries.setQueryData(
+          packsQuery.queryKey,
+          (list) =>
+            list && {
+              ...list,
+              _embedded: {
+                packs: list._embedded.packs.map((card) =>
+                  card.name === name ? { ...card, name: data.name, title: data.title } : card,
+                ),
+              },
+            },
+        )
+        if (scope.kind === 'pack' && scope.name === name) setScope({ kind: 'pack', name: data.name, title: data.title })
+        // The page moves first: asked again under its old name, the pack is a 404
+        await navigate({
+          to: '/packs/$name',
+          params: { name: data.name },
+          search: tab === 'tools' ? {} : { tab },
+          replace: true,
+        })
+        queries.removeQueries({ queryKey: ['pack', name] })
+      }
       void queries.invalidateQueries({ queryKey: ['packs'] })
     },
   })

@@ -2,7 +2,7 @@
  * A gateway after some use: what needs the owner, reviewing a third-party change, reading the call log, and the
  * screens on a phone.
  */
-import { expect, test } from '@playwright/test'
+import { expect, request, test } from '@playwright/test'
 import { demoOf, signIn } from './demo'
 
 const demo = () => demoOf(4472)
@@ -234,6 +234,67 @@ test('the frame: a window and a scope narrow the numbers, searches show what cam
   await expect(page.getByText(/Seeing what/)).toContainText('loud session on a laptop')
   await expect(page.getByRole('link', { name: /echo\.echo/ }).first()).toBeVisible()
   await expect(page.getByRole('link', { name: /echo\.delete_menus/ })).toHaveCount(0)
+})
+
+test('renaming a pack moves its page, keeps the scope and keeps its old address answering', async ({
+  page,
+  baseURL,
+}) => {
+  // A pack of its own, with one person: later tests address Loud by name
+  const owner = await request.newContext({
+    baseURL,
+    extraHTTPHeaders: { authorization: `Bearer ${demo().ownerKey}` },
+  })
+  const made = await owner.post('/api/packs', {
+    data: { name: 'draft', title: 'Draft', description: 'A pack to rename.' },
+  })
+  expect(made.status()).toBe(201)
+  expect((await owner.patch('/api/packs/draft', { data: { add: { tools: [{ name: 'echo.echo' }] } } })).status()).toBe(
+    200,
+  )
+  const reader = await (await owner.post('/api/clients', { data: { name: 'draft reader', pack: 'draft' } })).json()
+
+  await signIn(page, demo())
+  const places = page.getByRole('navigation', { name: 'Places' })
+  await places.getByRole('link', { name: /^Activity/ }).click()
+  await page.getByRole('button', { name: 'Scope' }).click()
+  await page.getByRole('menuitem', { name: 'Draft', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Scope' })).toContainText('Draft')
+
+  await places.getByRole('link', { name: /^Packs/ }).click()
+  await page.getByRole('link', { name: /Draft/ }).click()
+  await page.getByRole('button', { name: 'Overview' }).click()
+  await expect(page).toHaveURL(/\/app\/packs\/draft\?tab=overview$/)
+  await page.getByRole('button', { name: 'Edit' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByLabel('Name')).toHaveValue('draft')
+  await dialog.getByLabel('Name').fill('drafts')
+  await expect(dialog).toContainText('Its address is /p/drafts.')
+  await expect(dialog).toContainText('Its 1 person keeps working at /p/draft; new setup says the new address.')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+
+  await expect(page).toHaveURL(/\/app\/packs\/drafts\?tab=overview$/)
+  await expect(page.getByRole('heading', { name: 'Draft', exact: true })).toBeVisible()
+  const address = page.locator('section', { has: page.getByRole('heading', { name: 'Address' }) })
+  await expect(address.getByText(/^[\w.:]+\/p\/drafts$/)).toBeVisible()
+
+  // The scope is kept by the pack's name: it follows the pack to its new one
+  await places.getByRole('link', { name: /^Activity/ }).click()
+  await expect(page.getByRole('button', { name: 'Show everything' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Scope' })).toContainText('Draft')
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Scope' })).toContainText('Draft')
+
+  // The person set up with the old address changes nothing
+  const theirs = await request.newContext({ baseURL })
+  const me = await theirs.get('/p/draft/api/me', { headers: { authorization: `Bearer ${reader.key}` } })
+  expect(me.status()).toBe(200)
+  expect((await me.json()).pack.name).toBe('drafts')
+  await theirs.dispose()
+
+  expect((await owner.delete(`/api/clients/${reader.id}`)).status()).toBe(204)
+  expect((await owner.delete('/api/packs/drafts')).status()).toBe(204)
+  await owner.dispose()
 })
 
 const EVERY_PAGE = [

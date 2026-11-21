@@ -21,6 +21,12 @@ export const slugOf = (title: string) =>
 
 export const isPackName = (name: string) => /^[a-z0-9][a-z0-9-]{0,39}$/.test(name) && name !== 'flags'
 
+/** What renaming a pack means for those set up with its address: its working keys go on at the old one. */
+export const renameNote = (keys: number, from: string) =>
+  keys
+    ? `Its ${keys} ${keys === 1 ? 'person keeps' : 'people keep'} working at /p/${from}; new setup says the new address.`
+    : `Nobody has a working key to it, so nobody connects at /p/${from} now.`
+
 /** "12 tools · 3 playbooks · 1 manual", leaving out what it has none of. */
 export const holdsLine = ({ tools, playbooks, manuals }: { tools: number; playbooks: number; manuals: number }) => {
   const parts = [
