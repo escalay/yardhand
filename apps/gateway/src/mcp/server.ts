@@ -25,7 +25,7 @@ import { type AgentMcpFactory, type CallApi, mcpServerFactory, mountMcp } from '
 import type { Services } from '../services.js'
 import { VERSION } from '../version.js'
 import { manualSkills } from './skills.js'
-import { META_TOOLS, PROMPTS, RESOURCES } from './tools.js'
+import { countOf, META_TOOLS, PROMPTS, RESOURCES } from './tools.js'
 
 const INFO = {
   name: 'yardhand',
@@ -231,7 +231,7 @@ const instructionsFor = async (callApi: CallApi, auth: Auth, scope: string | und
   }
   const lines = _embedded.upstreams.map(
     (row) =>
-      `- ${row.id}: ${row.title} (${row.toolCount} tools${row.offers.playbooks ? `, ${row.offers.playbooks} playbooks` : ''})${row.offers.manuals ? ' [manual]' : ''}`,
+      `- ${row.id}: ${row.title} (${countOf(row.toolCount, 'tool')}${row.offers.playbooks ? `, ${countOf(row.offers.playbooks, 'playbook')}` : ''})${row.offers.manuals ? ' [manual]' : ''}`,
   )
   return lines.length
     ? `${INSTRUCTIONS}${readOnly}\n\nConnected for you:\n${lines.join('\n')}`

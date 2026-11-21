@@ -38,6 +38,8 @@ const cardLine = (tool: Card) =>
   `${tool.name}${tool.needsWrite ? ' [changes things]' : ''}: ${tool.title ? `${tool.title}. ` : ''}${tool.summary}`
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 const toolName = z.string().min(3).max(160)
+/** A count with its word: `1 tool`, `2 tools`. */
+export const countOf = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
 /** What a pack covers, for a search that matched nothing in it. */
 const coversLine = ({ covers, more }: Covers) =>
   covers.length
@@ -119,7 +121,7 @@ export const META_TOOLS: McpTool[] = [
       json._embedded.upstreams
         .map((row) =>
           [
-            `${row.id}: ${row.title}, ${row.toolCount} tools${row.offers.playbooks ? `, ${row.offers.playbooks} playbooks` : ''}${row.status === 'live' ? '' : ` (${row.status})`}`,
+            `${row.id}: ${row.title}, ${countOf(row.toolCount, 'tool')}${row.offers.playbooks ? `, ${countOf(row.offers.playbooks, 'playbook')}` : ''}${row.status === 'live' ? '' : ` (${row.status})`}`,
             row.offers.manuals
               ? `  Manual: read_resource "gateway://u/${row.id}/manual" before using its tools.`
               : null,

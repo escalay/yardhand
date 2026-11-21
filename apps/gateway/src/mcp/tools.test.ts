@@ -1,10 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { META_TOOLS } from './tools.js'
+import { countOf, META_TOOLS } from './tools.js'
 
 const search = META_TOOLS.find((tool) => tool.name === 'search_tools')
 const nothing = { query: 'logos', hiddenForScope: 0, hint: null, playbooks: [], _embedded: { tools: [] } }
 const kit = { name: 'kit', title: 'Kit' }
 const read = (json: object) => search?.summarize(json, { query: 'logos' } as never)
+
+describe('countOf', () => {
+  it('says one thing in the singular', () => {
+    expect([countOf(1, 'tool'), countOf(2, 'tool'), countOf(0, 'tool'), countOf(1, 'playbook')]).toEqual([
+      '1 tool',
+      '2 tools',
+      '0 tools',
+      '1 playbook',
+    ])
+  })
+})
 
 describe('search_tools, when nothing matches', () => {
   it('says what the pack covers, and how many groups it left out', () => {
