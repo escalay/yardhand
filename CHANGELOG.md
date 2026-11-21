@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/escalay/yardhand/compare/v0.3.1...v0.4.0) (2026-11-21)
+
+
+### Features
+
+* **connections:** connect servers that only sign in local apps ([#16](https://github.com/escalay/yardhand/issues/16)) ([bd0421b](https://github.com/escalay/yardhand/commit/bd0421b5ed8411128740b94c4535242a5d2e2d60))
+
 ## [0.3.1](https://github.com/escalay/yardhand/compare/v0.3.0...v0.3.1) (2026-11-12)
 
 
