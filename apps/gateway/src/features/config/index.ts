@@ -133,6 +133,7 @@ export const feature: Feature = {
   tag: { name: TAG, description: 'The gateway’s settings as one JSON document, without secrets.' },
   migrations: [],
   register: (app, { upstreams, clients, tools, sync, packs, catalog }) => {
+    const repos = { packs, tools, catalog, upstreams }
     app.openapi(route, async (c) => {
       requireOwner(c)
       const rows = await upstreams.list()
@@ -272,7 +273,7 @@ export const feature: Feature = {
         if (!pack) continue
         const held = existing ? await packs.contentsOf(existing) : null
         // Each addition is judged as a change of its own, so a problem the pack already has never keeps a good one out
-        let state = await packStateOf({ packs, tools }, pack)
+        let state = await packStateOf(repos, pack)
         // Variables first: the values of the tools that follow are checked with them filled in
         const declaring: typeof wanted.variables = []
         for (const variable of wanted.variables) {

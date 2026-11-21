@@ -53,6 +53,7 @@ export const packsHandlers = ({
   env,
   listsChanged,
 }: Services) => {
+  const repos = { packs, tools, catalog, upstreams }
   const packOf = async (name: string) => {
     const pack = await packs.get(name)
     if (!pack) throw new ProblemError('not_found', { detail: await noPack(packs, name) })
@@ -200,7 +201,7 @@ export const packsHandlers = ({
 
   const detailOf = async (origin: string, pack: PackRow) => {
     const { card, held, toolRows, keys } = await cardOf(origin, pack)
-    const state = await packStateOf({ packs, tools }, pack, held)
+    const state = await packStateOf(repos, pack, held)
     return {
       ...card,
       tools: toolRows,
@@ -375,7 +376,7 @@ export const packsHandlers = ({
     // Every check before the first write: a change that is refused leaves the pack, and its name, as they were
     if (next) await nameFree(next, pack)
     const liveTools = add ? await checkAdds(add) : new Map<string, LiveTool>()
-    const before = await packStateOf({ packs, tools }, pack)
+    const before = await packStateOf(repos, pack)
     const have = new Set(before.tools.map((tool) => tool.name))
     const adding = (add?.tools ?? []).map((tool) => ({ ...tool, as: tool.alias ?? tool.name }))
     // A name the pack already has stays as it is, so only the new ones are this request's to answer for
@@ -494,7 +495,7 @@ export const packsHandlers = ({
     const pack = await packOf(name)
     const row = await entryIn(pack, entryName)
     const { alias, fixed, defaults } = c.req.valid('json')
-    const before = await packStateOf({ packs, tools }, pack)
+    const before = await packStateOf(repos, pack)
     const next = alias === undefined ? row.name : (alias ?? row.toolName)
     if (next !== row.name) {
       if (before.tools.some((tool) => tool.name === next))
@@ -537,7 +538,7 @@ export const packsHandlers = ({
       value: variable.value,
       description: variable.description ?? null,
     }))
-    const before = await packStateOf({ packs, tools }, pack)
+    const before = await packStateOf(repos, pack)
     throwOnRefused(judge(before, withVariables(before, wanted), ['variables']).refused)
     await packs.setVariables(pack.id, wanted)
     // A new value changes the defaults the pack's keys read
