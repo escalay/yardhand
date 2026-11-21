@@ -1,9 +1,10 @@
 /**
- * Packs: the board, one pack, what a playbook uses, the pack tools to recheck, and a pack as its keys get it: where it
- * is reached, what a search of it finds, and how many tools it lists.
+ * Packs: the board, one pack, what a playbook uses, what to recheck in the packs, a pack as its keys get it (where
+ * it is reached, what a search of it finds, how many tools it lists), and what is written for it: a playbook of its
+ * own or its skill with its text and versions, and a check of a draft.
  */
 import { queryOptions } from '@tanstack/react-query'
-import { api, unwrap } from '@/api/client'
+import { api, type Schemas, unwrap } from '@/api/client'
 
 export const packsQuery = queryOptions({ queryKey: ['packs'], queryFn: () => unwrap(api.GET('/api/packs')) })
 
@@ -56,4 +57,32 @@ export const packListedQuery = (name: string, as: string | undefined) =>
     queryKey: ['pack', name, 'listed', { as }],
     queryFn: () => unwrap(api.GET('/api/tools', { params: { query: { pack: name, as, limit: LISTED_LIMIT } } })),
     select: (list) => (list.count < LISTED_LIMIT ? list.count : null),
+  })
+
+/** One of a pack's own playbooks with its text and versions: the served text, or an older version's. */
+export const packPlaybookQuery = (pack: string, playbook: string, version?: string) =>
+  queryOptions({
+    queryKey: ['pack', pack, 'playbook', playbook, version ?? 'served'],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/packs/{name}/playbooks/{playbook}', {
+          params: { path: { name: pack, playbook }, query: { version } },
+        }),
+      ),
+  })
+
+/** A pack's skill with its text and versions: the served text, or an older version's. */
+export const packSkillQuery = (pack: string, version?: string) =>
+  queryOptions({
+    queryKey: ['pack', pack, 'skill', version ?? 'served'],
+    queryFn: () => unwrap(api.GET('/api/packs/{name}/skill', { params: { path: { name: pack }, query: { version } } })),
+  })
+
+/** What a save of this draft would say, with nothing saved. Kept only while the draft is the one on screen. */
+export const packCheckQuery = (pack: string, draft: Schemas['PackCheckInput']) =>
+  queryOptions({
+    queryKey: ['pack', pack, 'check', draft],
+    queryFn: () => unwrap(api.POST('/api/packs/{name}/checks', { params: { path: { name: pack } }, body: draft })),
+    staleTime: 0,
+    gcTime: 0,
   })

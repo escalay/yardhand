@@ -30,6 +30,8 @@ import {
   preselected,
   problemLines,
   reasonOf,
+  recheckLine,
+  recheckOf,
   refusedInputs,
   refusedVariables,
   renameNote,
@@ -62,6 +64,30 @@ describe('packs', () => {
   it('says what a pack holds, leaving out what it has none of', () => {
     expect(holdsLine({ tools: 12, playbooks: 1, manuals: 0 })).toBe('12 tools · 1 playbook')
     expect(holdsLine({ tools: 0, playbooks: 0, manuals: 0 })).toBe('Nothing in it yet')
+  })
+
+  it('counts the playbooks written for a pack with the ones it holds', () => {
+    expect(holdsLine({ tools: 12, playbooks: 2, manuals: 1, ownPlaybooks: 1 })).toBe(
+      '12 tools · 3 playbooks · 1 manual',
+    )
+    expect(holdsLine({ tools: 0, playbooks: 0, manuals: 0, ownPlaybooks: 1 })).toBe('1 playbook')
+  })
+
+  it('says what there is to recheck: tools, then the playbooks and the skill written for it', () => {
+    const flag = { was: 'written for echo.echo', now: 'echo.echo is not live' }
+    const own = (flagged: boolean) => ({ flag: flagged ? flag : null })
+    const none = recheckOf({ flags: 0, ownPlaybooks: [own(false)], skill: own(false) })
+    expect(none).toEqual({ tools: 0, playbooks: 0, skill: false })
+    expect(recheckLine(none)).toBeNull()
+    // `flags` counts the pack's own texts too: what is left over is its tools
+    const all = recheckOf({ flags: 5, ownPlaybooks: [own(true), own(false), own(true)], skill: own(true) })
+    expect(all).toEqual({ tools: 2, playbooks: 2, skill: true })
+    expect(recheckLine(all)).toBe('2 tools, 2 playbooks and the skill to recheck')
+    expect(recheckLine(recheckOf({ flags: 1, ownPlaybooks: [], skill: null }))).toBe('1 tool to recheck')
+    expect(recheckLine(recheckOf({ flags: 1, ownPlaybooks: [own(true)], skill: null }))).toBe('1 playbook to recheck')
+    expect(recheckLine(recheckOf({ flags: 2, ownPlaybooks: [], skill: own(true) }))).toBe(
+      '1 tool and the skill to recheck',
+    )
   })
 
   it('says why a tool is in', () => {
