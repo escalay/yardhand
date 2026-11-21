@@ -120,6 +120,13 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   still answer it. Over MCP it still connects, to read the refusal as the instructions and from every tool
   (`principals.ended` at the `/mcp` door): safe only while every route resolves its caller through `principals` or
   `requireOwner`. The owner looking as an ended client reads `endedNote` instead.
+- **Person**: a client that opens a pack, as its People list has it (`GET /api/packs/{name}/people`); the
+  `client_packs` row is that person in that pack. `standingOf` (`features/clients/lifetimes.ts`) is the one rule for
+  where their access stands: `ending` in its last three days, `ended` and still listed for 30 days after its end,
+  then gone, as a revoked key is at once. A pack's `keys + ended` is the number People lists (`listedOf`).
+- **Share**: making one person's key for one pack (`POST /api/packs/{name}/people`): read only and 30 days unless
+  said, answered with a message ready to send (`features/packs/share.ts`), the key in it and shown once. Every key
+  client is made by `principals.issue`.
 - **Alias**: a pack's own name for one of its tools (`team_inbox_search`); the same tool can be in a pack under
   several aliases. A pack tool is keyed by that name; `entryOf` resolves it to the tool.
 - **Fixed input**: an input a pack tool fills on every call, hidden from the pack's keys; a call that sends it is a
