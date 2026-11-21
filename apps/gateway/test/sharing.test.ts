@@ -571,16 +571,14 @@ describe('sharing a pack with one person', () => {
 
   it('writes the address the owner set for people into the message, whatever address the owner asked by', async () => {
     // The same gateway with PUBLIC_HOST set, asked over the LAN
-    const reached = await createApp({
-      db,
-      env: {
-        API_KEYS: `owner:${hashApiKey(OWNER)}`,
-        GATEWAY_MASTER_KEY: MASTER_KEY,
-        PUBLIC_HOST: 'gw.example.com',
-      },
-    })
-    const ask = async (body: Record<string, unknown>) => {
-      const response = await reached.request('http://192.168.1.20:4400/api/packs/garden/people', {
+    const withHost = (host: string) =>
+      createApp({
+        db,
+        env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: MASTER_KEY, PUBLIC_HOST: host },
+      })
+    const reached = await withHost('gw.example.com')
+    const ask = async (body: Record<string, unknown>, gateway = reached) => {
+      const response = await gateway.request('http://192.168.1.20:4400/api/packs/garden/people', {
         method: 'POST',
         headers: { authorization: `Bearer ${OWNER}`, 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -594,6 +592,10 @@ describe('sharing a pack with one person', () => {
     )
     const lena = await ask({ name: 'Lena' })
     expect(lena.message).toContain(`Its address is https://gw.example.com/p/garden/mcp and your key is ${lena.key}.`)
+    // The compose file's own default names this machine alone: the address asked by is the better one
+    const local = await ask({ name: 'Ola' }, await withHost('http://localhost:8080'))
+    expect(local.message).toContain('Its address is http://192.168.1.20:4400/p/garden/mcp and your key is')
+    expect((await owner(`/api/clients/${local.id}`, { method: 'DELETE' })).status).toBe(204)
     for (const made of [sam, lena]) {
       expect(made.message).not.toContain('192.168.1.20')
       // The answer's own links stay where the owner asked
