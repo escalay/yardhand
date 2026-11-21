@@ -98,7 +98,7 @@ const ClientPatchSchema = ClientInputSchema.partial()
     }),
     expiresIn: z.enum(EXTEND_LIFETIMES).optional().openapi({
       description:
-        'Extend: how long it works from now, 7 days, 30 days or until revoked (it replaces when it ends). An ended key works again with the same key; a revoked one does not. A request it was refused with an `Idempotency-Key` keeps answering that refusal for a day: its holder sends it again with a new `Idempotency-Key`.',
+        'Extend: how long it works from now, 7 days, 30 days or until revoked (it replaces when it ends). An ended key works again with the same key; a revoked one does not. A request that was refused with an `Idempotency-Key` while the key had ended keeps answering that refusal for a day: its holder sends it again with a new `Idempotency-Key`.',
     }),
   })
   .openapi('ClientPatch', { description: 'Fields to change.' })
