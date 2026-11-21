@@ -26,7 +26,7 @@ import { Button } from '@/ui/shadcn/button'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { CallsChart } from './CallsChart'
 import { Checklist } from './Checklist'
-import { type OverviewSearch, routeOf } from './home.rules'
+import { nudgeTone, type OverviewSearch, routeOf } from './home.rules'
 import { statsQuery } from './queries'
 
 /** The page's head: what is behind the one address, and the address itself to copy into an agent. */
@@ -74,13 +74,10 @@ const Nudges = ({ nudges }: { nudges: Overview['nudges'] }) =>
       <ul className="border border-border bg-card">
         {nudges.map((nudge) => (
           <li
-            key={`${nudge.kind}${nudge.href}`}
+            key={`${nudge.kind}${nudge.href}${nudge.message}`}
             className="flex items-center gap-4 border-b border-border px-5 py-3.5 last:border-b-0"
           >
-            <Status
-              tone={nudge.kind === 'failing_upstream' ? 'error' : nudge.kind === 'reviews' ? 'warn' : 'neutral'}
-              className="sr-only"
-            >
+            <Status tone={nudgeTone(nudge.kind)} className="sr-only">
               {nudge.kind}
             </Status>
             <p className="flex-1 text-sm text-pretty">{nudge.message}</p>

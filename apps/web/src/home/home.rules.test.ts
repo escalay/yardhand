@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { barHeights, findabilityOf, routeOf } from './home.rules'
+import { barHeights, findabilityOf, nudgeTone, routeOf } from './home.rules'
 
 describe('home rules', () => {
   it('turns the API’s app hrefs into router paths', () => {
     expect(routeOf('/app/connections/new')).toBe('/connections/new')
     expect(routeOf('/app')).toBe('/')
     expect(routeOf('/app/tools?pinned=1')).toBe('/tools?pinned=1')
+  })
+  it('marks a failing server as an error, and reviews and access about to end as warnings', () => {
+    expect(nudgeTone('failing_upstream')).toBe('error')
+    expect(nudgeTone('reviews')).toBe('warn')
+    expect(nudgeTone('access_ending')).toBe('warn')
+    expect(nudgeTone('quiet_key')).toBe('neutral')
   })
   it('scales bars to the busiest hour and keeps small ones visible', () => {
     expect(barHeights([0, 1, 50, 100])).toEqual([0, 4, 50, 100])

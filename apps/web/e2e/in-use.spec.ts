@@ -326,6 +326,33 @@ test('sharing a pack: who, where and how long, a message with the key, and the p
   await expect(parts.getByRole('button', { name: /^People/ })).toHaveAttribute('aria-current', 'page')
 })
 
+test('Home says whose access is about to end, and Extend leads to the pack’s People', async ({ page }) => {
+  await signIn(page, demo())
+  // Nobody in the demo is in their last three days, so two endings are added to Home's answer on its way to the app
+  const ending = (name: string) => ({
+    kind: 'access_ending',
+    message: `${name}'s access to Loud ends in 2 days (21 Dec 2026). Extend it, or let it end.`,
+    action: 'Extend',
+    href: '/app/packs/loud?tab=people',
+  })
+  await page.route('**/api/overview', async (route) => {
+    const response = await route.fetch()
+    const overview = await response.json()
+    await route.fulfill({ response, json: { ...overview, nudges: [ending('Sam'), ending('Ada'), ...overview.nudges] } })
+  })
+  await page.goto('/app')
+  const needs = page.locator('section', { has: page.getByRole('heading', { name: 'Needs you' }) })
+  await expect(
+    needs.getByText("Ada's access to Loud ends in 2 days (21 Dec 2026). Extend it, or let it end."),
+  ).toBeVisible()
+  const sam = needs.getByRole('listitem').filter({ hasText: "Sam's access to Loud ends in 2 days" })
+  await sam.getByRole('link', { name: 'Extend' }).click()
+  await expect(page).toHaveURL(/\/app\/packs\/loud\?tab=people$/)
+  await expect(
+    page.getByRole('navigation', { name: 'Parts' }).getByRole('button', { name: /^People/ }),
+  ).toHaveAttribute('aria-current', 'page')
+})
+
 test('the frame: a window and a scope narrow the numbers, searches show what came of them, tools as a key sees them', async ({
   page,
 }) => {
