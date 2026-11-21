@@ -27,12 +27,13 @@ const RRF_K = 60
 const REFRESH_BUDGET = 0.25
 /**
  * With fewer tools than this there is no bar: too few to tell a match from noise, so search answers with the nearest,
- * as it always did. Set by replaying logged searches (the numbers are in docs/releases/0.5.0.md).
+ * as it always did. Counted in tools that have a vector. Set by replaying logged searches (what the rule cost,
+ * measured, is in docs/releases/0.5.0.md).
  */
 export const MIN_ROWS = 50
 /**
  * A keyword hit counts only when it stands at least this far above the question's mean over every tool. Set by
- * replaying logged searches (the numbers are in docs/releases/0.5.0.md).
+ * replaying logged searches (what the rule cost, measured, is in docs/releases/0.5.0.md).
  */
 export const KEYWORD_MIN_Z = 2
 
