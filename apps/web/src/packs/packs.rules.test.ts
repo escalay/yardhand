@@ -15,6 +15,7 @@ import {
   EXTEND_CHOICES,
   effectOf,
   emptyLine,
+  endLine,
   endsOf,
   expiryOf,
   fixedLine,
@@ -363,6 +364,14 @@ describe('a pack’s people', () => {
     expect(endsOf(person('2026-11-02T23:30:00Z', { ended: true }), NOW)).toEqual({ text: 'ended 2 Nov', warn: false })
     // Ended since the list was read
     expect(endsOf(person('2026-12-01T09:59:00Z'), NOW)).toEqual({ text: 'ended 1 Dec', warn: false })
+  })
+
+  it('says the same in a line beside a name', () => {
+    expect(endLine(person(null), NOW)).toBe('until revoked')
+    expect(endLine(person('2026-12-21T10:00:00Z'), NOW)).toBe('ends 21 Dec')
+    expect(endLine(person('2026-12-01T18:00:00Z'), NOW)).toBe('ends in 8 h')
+    // Ended while the page was open
+    expect(endLine(person('2026-12-01T09:59:00Z'), NOW)).toBe('ended 1 Dec')
   })
 
   it('offers the three ends Extend can set, counted from today', () => {

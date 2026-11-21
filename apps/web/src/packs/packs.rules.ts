@@ -309,6 +309,12 @@ export const endsOf = (
   return { text: `in ${Math.max(1, Math.round(left / 60_000))} min`, warn }
 }
 
+/** The same beside a name, where no column says what it is: "ends 21 Dec", "until revoked", "ended 2 Dec". */
+export const endLine = (person: Parameters<typeof endsOf>[0], now = Date.now()) => {
+  const { text } = endsOf(person, now)
+  return text === 'never' ? 'until revoked' : text.startsWith('ended') ? text : `ends ${text}`
+}
+
 /** What Extend and Revoke say of a key that opens other packs too: its end and its revoking are theirs as well. */
 export const alsoOpens = (otherPacks: string[]) => {
   if (!otherPacks.length) return ''

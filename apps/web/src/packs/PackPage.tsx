@@ -39,7 +39,7 @@ import { Checklist } from './Checklist'
 import { UpstreamChips } from './PacksPage'
 import { PackTools } from './PackTools'
 import { People } from './People'
-import { accessOf, endsOf, holdsLine, isPackName, nameProblem, type PackTab, renameNote } from './packs.rules'
+import { accessOf, endLine, holdsLine, isPackName, nameProblem, type PackTab, renameNote } from './packs.rules'
 import { packQuery, packsQuery } from './queries'
 import { ShareSheet } from './ShareSheet'
 import { TRY_ID, TryIt } from './TryIt'
@@ -227,10 +227,14 @@ const Shared = ({ pack, onShare }: { pack: Pack; onShare: () => void }) => (
       <ul>
         {pack.keyList.map((key) => (
           <li key={key.id} className="border-b border-border px-4 py-3">
-            <Link to="/agents/$id" params={{ id: key.id }} className="flex flex-col hover:text-primary">
+            <Link
+              to="/agents/$id"
+              params={{ id: key.id }}
+              className="flex flex-col rounded-xs hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
               <span className="text-sm font-medium">{key.name}</span>
               <span className="text-xs text-muted-foreground first-letter:uppercase">
-                {accessOf(key.scope)} · {key.expiresAt ? `ends ${endsOf(key).text}` : 'until revoked'}
+                {accessOf(key.scope)} · {endLine(key)}
               </span>
             </Link>
           </li>
