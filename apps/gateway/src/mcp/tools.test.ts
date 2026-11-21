@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { countOf, META_TOOLS } from './tools.js'
 
 const search = META_TOOLS.find((tool) => tool.name === 'search_tools')
-const nothing = { query: 'logos', hiddenForScope: 0, hint: null, playbooks: [], _embedded: { tools: [] } }
+const nothing = { query: 'taxes', hiddenForScope: 0, hint: null, playbooks: [], _embedded: { tools: [] } }
 const kit = { name: 'kit', title: 'Kit' }
-const read = (json: object) => search?.summarize(json, { query: 'logos' } as never)
+const read = (json: object) => search?.summarize(json, { query: 'taxes' } as never)
 
 describe('countOf', () => {
   it('says one thing in the singular', () => {
@@ -19,17 +19,17 @@ describe('countOf', () => {
 
 describe('search_tools, when nothing matches', () => {
   it('says what the pack covers, and how many groups it left out', () => {
-    expect(read({ ...nothing, hint: { pack: kit, covers: ['Inbox', 'Talks'], more: 0 } })).toBe(
-      'Nothing in Kit matches "logos". This pack covers: Inbox, Talks.',
+    expect(read({ ...nothing, hint: { pack: kit, covers: ['Inbox', 'Notes'], more: 0 } })).toBe(
+      'Nothing in Kit matches "taxes". This pack covers: Inbox, Notes.',
     )
-    expect(read({ ...nothing, hint: { pack: kit, covers: ['Inbox', 'Talks'], more: 3 } })).toBe(
-      'Nothing in Kit matches "logos". This pack covers: Inbox, Talks, and 3 more.',
+    expect(read({ ...nothing, hint: { pack: kit, covers: ['Inbox', 'Notes'], more: 3 } })).toBe(
+      'Nothing in Kit matches "taxes". This pack covers: Inbox, Notes, and 3 more.',
     )
   })
 
   it('says so when the pack holds no tool this key can use', () => {
     expect(read({ ...nothing, hint: { pack: kit, covers: [], more: 0 } })).toBe(
-      'Nothing in Kit matches "logos". This pack holds no tools this key can use.',
+      'Nothing in Kit matches "taxes". This pack holds no tools this key can use.',
     )
   })
 

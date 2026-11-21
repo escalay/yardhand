@@ -49,8 +49,8 @@ using a pack key day to day showed where it stops feeling like a server of its o
   no score yet (new since the last embedding run) is kept.
 - **Small catalogs search as before.** Under 50 tools there is no bar to hold a tool to: search answers with the
   nearest tools and every keyword hit, kept to the caller's own tools. The same goes without search by meaning.
-- **An empty search helps.** `count: 0` and, for a pack, "Nothing in Career matches 'logos'. This pack covers: job
-  search, inbox, talks." (from the groups of the pack's tools), not "try list_upstreams".
+- **An empty search helps.** `count: 0` and, for a pack, "Nothing in Career matches 'taxes'. This pack covers: job
+  search, inbox, notes." (from the groups of the pack's tools), not "try list_upstreams".
 - **Building is checked as you go.** The pack page's Overview carries a four-step checklist (describe it, add tools,
   try it, connect), a **Try it** panel that searches exactly as a pack key does, and an **Address** card with setup
   per app. The owner at a pack address is offered "See it as Sam would" instead of a refusal.
@@ -133,9 +133,9 @@ The owner's side, in order of a first pack.
 │  2  mail.search_threads         Find email threads by words or sender
 │     2 tools stood out · 18 others didn't match
 │
-│  [ logos                                                       ] [ Search ]
-│  Nothing in Career matches "logos".
-│  This pack covers: job search, inbox, talks.            [ Add tools ]
+│  [ taxes                                                       ] [ Search ]
+│  Nothing in Career matches "taxes".
+│  This pack covers: job search, inbox, notes.            [ Add tools ]
 ```
 
 ```
@@ -185,7 +185,7 @@ The other person's side.
 ```
 ┌─ gw.example.com/p/career/join/K7Q-4MD ───────────────────────────────
 │   Career
-│   Job search: find postings, read replies, prep with talks.
+│   Job search: find postings, read replies, prep with notes.
 │   Ada invited Sam · read only · until 21 Dec · city: Lisbon [ change ]
 │   Add it to:  claude.ai │ ChatGPT │ Claude Code │ Cursor
 │   1  Settings › Connectors › Add custom connector
@@ -205,10 +205,10 @@ What the agent sees:
 
 ```
 Server: Career
-> search_tools "logos"
-  Nothing in Career matches "logos". This pack covers: job search, inbox, talks.
+> search_tools "taxes"
+  Nothing in Career matches "taxes". This pack covers: job search, inbox, notes.
 > list_upstreams
-  jobs: Jobs board, 6 tools · mail: Mail, 4 tools · talks: Talks archive, 10 tools
+  jobs: Jobs board, 6 tools · mail: Mail, 4 tools · notes: Notes, 10 tools
 > call_tool …   (after 21 Dec)
   Your access to Career ended on 21 Dec. Ask Ada for a new invite.
 ```
