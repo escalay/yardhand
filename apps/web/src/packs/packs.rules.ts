@@ -199,5 +199,5 @@ export const coversLine = ({ covers, more }: Pick<NonNullable<Schemas['ToolList'
 export const hiddenLine = (count: number) =>
   `${countOf(count, 'matching tool')} ${count === 1 ? 'changes things and is' : 'change things and are'} hidden from this read-only key.`
 
-/** An address as people read it, without its scheme: `https://gw.example.com/p/career` → `gw.example.com/p/career`. */
+/** An address as people read it, without its scheme: `https://gw.example.com/p/loud` → `gw.example.com/p/loud`. */
 export const shortAddress = (url: string) => url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')

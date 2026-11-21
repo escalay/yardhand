@@ -220,7 +220,7 @@ describe('trying a pack', () => {
   })
 
   it('says nothing matched, in the pack’s title', () => {
-    expect(emptyLine('Career', 'taxes')).toBe('Nothing in Career matches “taxes”.')
+    expect(emptyLine('Loud', 'taxes')).toBe('Nothing in Loud matches “taxes”.')
   })
 
   it('says what the pack covers, as its keys are told', () => {
@@ -235,7 +235,7 @@ describe('trying a pack', () => {
   })
 
   it('shows an address without its scheme', () => {
-    expect(shortAddress('https://gw.example.com/p/career')).toBe('gw.example.com/p/career')
+    expect(shortAddress('https://gw.example.com/p/loud')).toBe('gw.example.com/p/loud')
     expect(shortAddress('http://localhost:4400/p/loud')).toBe('localhost:4400/p/loud')
   })
 })
