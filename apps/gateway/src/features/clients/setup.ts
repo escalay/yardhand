@@ -24,11 +24,11 @@ export const SERVER_NAME = 'gw'
 
 /**
  * The servers an agent adds: the gateway as `gw`, or for a key with several packs, one server per pack
- * (`gw-<pack>` at `/mcp/p/<pack>`), each turned on or off per project. One pack is still just `gw`.
+ * (`gw-<pack>` at `/p/<pack>/mcp`), each turned on or off per project. One pack is still just `gw`.
  */
 export const serversOf = (origin: string, packs: string[] = []) =>
   packs.length > 1
-    ? packs.map((pack) => ({ name: `${SERVER_NAME}-${pack}`, url: `${origin}/mcp/p/${pack}` }))
+    ? packs.map((pack) => ({ name: `${SERVER_NAME}-${pack}`, url: `${origin}/p/${pack}/mcp` }))
     : [{ name: SERVER_NAME, url: `${origin}/mcp` }]
 
 export const surfacesOf = ({

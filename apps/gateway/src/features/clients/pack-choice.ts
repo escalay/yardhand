@@ -9,6 +9,7 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MiddlewareHandler } from 'hono'
+import { originOf } from '../../kit/index.js'
 
 export const PACK_HEADER = 'x-gateway-pack'
 const NAME = '[a-z0-9][a-z0-9-]{0,39}'
@@ -77,6 +78,50 @@ export const withPackAddresses = <F extends Fetch>(fetch: F): F =>
 
 /** `/p/<pack>` when this request came by a pack's own address, else nothing: for addresses printed outside `_links`. */
 export const packBaseOf = () => chosen.getStore()?.base ?? ''
+
+type Linked = { _links?: Record<string, { href?: unknown }>; _embedded?: Record<string, unknown> }
+
+/** Moves the links the pack's address serves under it; a link to anywhere else stays as it is. */
+const relink = (resource: Linked, origin: string, base: string) => {
+  for (const link of Object.values(resource._links ?? {})) {
+    if (typeof link?.href !== 'string' || !link.href.startsWith(origin)) continue
+    const path = link.href.slice(origin.length)
+    // Without its query or template: `/api/tools?upstream=x`, `/api/tools{?as}`
+    if (insidePack(path.split(/[?#{]/)[0] ?? '')) link.href = `${origin}${base}${path}`
+  }
+}
+
+/**
+ * Keeps the links of an answer inside the pack's address when the request came by it: HAL's own `_links`, on the
+ * answer and on what it embeds, never anything inside a tool's result. The link proxy (`/u/<upstream>/r/…`) is not
+ * under a pack's address, so links in results keep theirs.
+ */
+export const packLinks: MiddlewareHandler = async (c, next) => {
+  await next()
+  const base = chosen.getStore()?.base
+  const type = c.res.headers.get('content-type') ?? ''
+  if (!base || c.res.status < 200 || c.res.status >= 300 || !/^application\/(hal\+)?json/.test(type)) return
+  const text = await c.res.text()
+  const { status, headers: sent } = c.res
+  const headers = new Headers(sent)
+  headers.delete('content-length')
+  const relinked = (() => {
+    try {
+      const body = JSON.parse(text) as Linked
+      const origin = originOf(c)
+      relink(body, origin, base)
+      for (const items of Object.values(body._embedded ?? {}))
+        for (const item of Array.isArray(items) ? items : [items])
+          if (item && typeof item === 'object') relink(item as Linked, origin, base)
+      return JSON.stringify(body)
+    } catch {
+      return text
+    }
+  })()
+  // Cleared first: assigning over a response copies its headers onto the new one
+  c.res = undefined
+  c.res = new Response(relinked, { status, headers })
+}
 
 /** Puts the chosen pack (address or header) on the caller, after authentication, for the principal to honour. */
 export const packChoice: MiddlewareHandler = async (c, next) => {

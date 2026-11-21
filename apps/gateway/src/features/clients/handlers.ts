@@ -175,7 +175,7 @@ export const clientsHandlers = ({
         resultCap: principal.resultCap,
         packs: principal.packs.map((opened, index) => ({
           ...opened,
-          mcpUrl: `${originOf(c)}/mcp/p/${opened.name}`,
+          mcpUrl: `${originOf(c)}/p/${opened.name}/mcp`,
           default: index === 0,
         })),
         pack: pack

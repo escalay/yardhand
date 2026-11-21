@@ -493,8 +493,8 @@ describe('a key with several packs', () => {
     const me = (await api(both, '/api/me')).json
     expect(me.pack.name).toBe('desk')
     expect(me.packs).toEqual([
-      { name: 'desk', title: 'Front desk', mcpUrl: 'http://localhost/mcp/p/desk', default: true },
-      { name: 'loud', title: 'Loud', mcpUrl: 'http://localhost/mcp/p/loud', default: false },
+      { name: 'desk', title: 'Front desk', mcpUrl: 'http://localhost/p/desk/mcp', default: true },
+      { name: 'loud', title: 'Loud', mcpUrl: 'http://localhost/p/loud/mcp', default: false },
     ])
     expect(me.pins.map((pin: { name: string }) => pin.name)).toContain('greet_from_desk')
   })
@@ -506,7 +506,7 @@ describe('a key with several packs', () => {
     const other = await asPack('quiet', '/api/me')
     expect(other.status).toBe(403)
     expect(other.json.detail).toBe(
-      "This key doesn't open the pack quiet. It opens desk (/mcp/p/desk), loud (/mcp/p/loud).",
+      "This key doesn't open the pack quiet. It opens desk (/p/desk/mcp), loud (/p/loud/mcp).",
     )
   })
 
@@ -554,8 +554,8 @@ describe('a key with several packs', () => {
   it('hands out one server per pack in its setup', async () => {
     const setup = (await owner(`/api/clients/${bothId}/setup`)).json
     const claude = setup.surfaces.find((surface: { id: string }) => surface.id === 'claude-code')
-    expect(claude.snippet).toContain('gw-desk http://localhost/mcp/p/desk')
-    expect(claude.snippet).toContain('gw-loud http://localhost/mcp/p/loud')
+    expect(claude.snippet).toContain('gw-desk http://localhost/p/desk/mcp')
+    expect(claude.snippet).toContain('gw-loud http://localhost/p/loud/mcp')
   })
 
   it('changes which packs it opens and its default, and only a pack key takes packs', async () => {
@@ -720,10 +720,108 @@ describe('a pack at its own address', () => {
     ).toEqual([])
   })
 
-  it('refuses a pack the key does not open', async () => {
+  it('refuses a pack the key does not open, naming the addresses of those it does', async () => {
     const refused = await api(key, '/p/quiet/api/me')
     expect(refused.status).toBe(403)
-    expect(refused.json.detail).toContain("doesn't open the pack quiet")
+    expect(refused.json.detail).toBe(
+      "This key doesn't open the pack quiet. It opens desk (/p/desk/mcp), loud (/p/loud/mcp).",
+    )
+  })
+
+  type Linked = { _links?: Record<string, { href: string }>; _embedded?: Record<string, Linked[]> }
+  /** Every link of an answer: its own and those of what it embeds. */
+  const hrefsOf = (json: Linked): string[] => [
+    ...Object.values(json._links ?? {}).map((link) => link.href),
+    ...Object.values(json._embedded ?? {}).flatMap((items) => items.flatMap(hrefsOf)),
+  ]
+
+  it('keeps the links it hands out inside the pack’s address', async () => {
+    const inside = 'http://localhost/p/loud/'
+    const paths = [
+      '/api',
+      '/api/me',
+      '/api/tools',
+      '/api/tools/fixture.echo',
+      '/api/upstreams',
+      '/api/upstreams/fixture',
+      '/api/calls',
+      '/api/playbooks',
+      '/api/manuals',
+    ]
+    for (const path of paths) {
+      const answer = await at(key, `/p/loud${path}`)
+      const hrefs = hrefsOf(answer.json)
+      expect([path, answer.status, hrefs.length > 0]).toEqual([path, 200, true])
+      expect(hrefs.filter((href) => !href.startsWith(inside))).toEqual([])
+      expect(answer.headers.get('content-type')).toContain('application/hal+json')
+      expect(answer.headers.get('link')).toBeNull()
+      // The old ways to name a pack keep the links at the root
+      const byHeader = hrefsOf((await at(key, path, { headers: { 'x-gateway-pack': 'loud' } })).json)
+      expect(byHeader.filter((href) => href.includes('/p/loud/'))).toEqual([])
+    }
+    const tools = (await api(key, '/p/loud/api/tools?upstream=fixture')).json
+    expect(tools._embedded.tools[0]._links).toMatchObject({
+      self: { href: `${inside}api/tools/fixture.echo` },
+      call: { href: `${inside}api/tools/fixture.echo/calls` },
+      upstream: { href: `${inside}api/upstreams/fixture` },
+    })
+    const ran = await api(key, '/p/loud/api/calls', {
+      method: 'POST',
+      body: { tool: 'fixture.echo', arguments: { text: 'linked' } },
+    })
+    expect(ran.json._links.self.href).toBe(`${inside}api/calls/${ran.json.id}`)
+    expect(ran.json._links.tool.href).toBe(`${inside}api/tools/fixture.echo`)
+    expect(ran.json.result.content[0].text).toBe('linked')
+    expect((await api(key, '/p/loud/api/tools/openapi.json')).json.servers).toEqual([
+      { url: 'http://localhost/p/loud' },
+    ])
+    expect((await api(key, '/api/tools/openapi.json')).json.servers).toEqual([{ url: 'http://localhost' }])
+    expect((await api(key, '/p/loud/api/me')).json.packs.map((pack: { mcpUrl: string }) => pack.mcpUrl)).toEqual([
+      'http://localhost/p/desk/mcp',
+      'http://localhost/p/loud/mcp',
+    ])
+  })
+
+  it('introduces itself as the pack at /api, and offers the owner a look as one of its keys', async () => {
+    const home = (await api(key, '/p/loud/api')).json
+    expect(home).toMatchObject({ name: 'Loud', upstreams: 1 })
+    expect(home.description).toContain('Say things back, loudly.')
+    expect(home.description).toContain('/p/loud/mcp')
+    expect(home._links).toMatchObject({
+      self: { href: 'http://localhost/p/loud/api' },
+      openapi: { href: 'http://localhost/p/loud/openapi.json' },
+      docs: { href: 'http://localhost/p/loud/docs' },
+      guide: { href: 'http://localhost/p/loud/llms.txt' },
+      mcp: { href: 'http://localhost/p/loud/mcp' },
+    })
+    expect(home._links.seeAs).toBeUndefined()
+    expect(home._links.clients).toBeUndefined()
+    const mine = (await owner('/p/loud/api')).json
+    expect(mine._links.seeAs).toEqual({
+      href: 'http://localhost/p/loud/api/tools{?as}',
+      title: 'This pack as one of its keys sees it',
+      templated: true,
+    })
+    expect((await owner('/api')).json).toMatchObject({ name: 'Yardhand' })
+    expect((await owner('/api')).json._links.seeAs).toBeUndefined()
+  })
+
+  it('links a call to its tool only under a name the pack holds', async () => {
+    // Made in the key's other pack, logged under the tool's own name, which Loud has no name for
+    await api(key, '/api/calls', { method: 'POST', body: { tool: 'greet_from_desk', arguments: { to: 'Flo' } } })
+    const log = (await api(key, '/p/loud/api/calls?limit=100')).json._embedded.calls as {
+      id: string
+      tool: string
+      _links: Record<string, { href: string } | undefined>
+    }[]
+    const greets = log.filter((call) => call.tool === 'fixture.greet')
+    expect(greets.length).toBeGreaterThan(0)
+    expect(greets.filter((call) => call._links.tool)).toEqual([])
+    const echo = log.find((call) => call.tool === 'fixture.echo')
+    expect(echo?._links.tool?.href).toBe('http://localhost/p/loud/api/tools/fixture.echo')
+    const one = (await api(key, `/p/loud/api/calls/${greets[0]?.id}`)).json
+    expect(one._links.tool).toBeUndefined()
+    expect(one._links.self.href).toBe(`http://localhost/p/loud/api/calls/${greets[0]?.id}`)
   })
 })
 

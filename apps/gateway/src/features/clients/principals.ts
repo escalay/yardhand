@@ -188,7 +188,7 @@ export const createPrincipals = ({
     if (chosen) return { id: chosen.id, opened }
     return {
       refusal: ids.length
-        ? `This key doesn't open the pack ${choice}. It opens ${opened.map((pack) => `${pack.name} (/mcp/p/${pack.name})`).join(', ')}.`
+        ? `This key doesn't open the pack ${choice}. It opens ${opened.map((pack) => `${pack.name} (/p/${pack.name}/mcp)`).join(', ')}.`
         : `This key isn't locked to packs: connect to /mcp, which serves everything it may reach.`,
     }
   }

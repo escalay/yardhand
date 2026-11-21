@@ -22,7 +22,8 @@ export const routes = {
     operationId: 'getHome',
     tags: [TAG],
     summary: 'Start here',
-    description: 'What the gateway is, and links to tools, upstreams, calls, the tools as OpenAPI, the guide and MCP.',
+    description:
+      'What the gateway is, and links to tools, upstreams, calls, the tools as OpenAPI, the guide and MCP. Inside a pack (its key, or its address `/p/<pack>/api`) it is the pack: its title, what it is for, and at its address links that stay under it.',
     responses: {
       200: { content: { [HAL_JSON]: { schema: HomeSchema } }, description: 'The entry point.' },
       ...problemResponses(401, 403),

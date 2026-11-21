@@ -39,8 +39,8 @@ describe('setup snippets', () => {
       oauth: false,
       packs: ['acme', 'support'],
     })
-    expect(surfaces[0]?.snippet).toContain('gw-acme https://mcp.example.test/mcp/p/acme')
-    expect(surfaces[0]?.snippet).toContain('gw-support https://mcp.example.test/mcp/p/support')
+    expect(surfaces[0]?.snippet).toContain('gw-acme https://mcp.example.test/p/acme/mcp')
+    expect(surfaces[0]?.snippet).toContain('gw-support https://mcp.example.test/p/support/mcp')
     expect(Object.keys(JSON.parse(surfaces[1]?.snippet ?? '{}').mcpServers)).toEqual(['gw-acme', 'gw-support'])
     expect(surfaces[2]?.snippet).toContain('[mcp_servers.gw-support]')
     // One pack is still just gw

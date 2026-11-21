@@ -6,7 +6,7 @@ import type { ToolResult } from '../../adapters/index.js'
 import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import { decodeCursor, pageOf } from '../../kit/pagination/index.js'
 import type { Services } from '../../services.js'
-import { callerOf, type Principal, requireOwner } from '../clients/principals.js'
+import { callerOf, type Principal, reaches, requireOwner } from '../clients/principals.js'
 import { progressSink } from './progress.js'
 import { PATH, type routes } from './routes.js'
 import type { CallRow } from './schema.js'
@@ -110,7 +110,7 @@ export const callsHandlers = ({ pipeline, principals, calls, events, clients, pa
       held,
       _links: linksOf(originOf(c), {
         self: `${PATH}/${outcome.id}`,
-        tool: `/api/tools/${outcome.tool}`,
+        tool: toolLink(principal, outcome.tool),
         ...(held ? { more: `${PATH}/${outcome.id}/result?page=2` } : {}),
       }),
     }
@@ -145,7 +145,9 @@ export const callsHandlers = ({ pipeline, principals, calls, events, clients, pa
     }
   }
   const tracesUrlFor = async (principal: Principal) => (principal.owner && traces ? await traces.tracesUrl() : null)
-  const recordOf = (origin: string, row: CallRow, tracesUrl: string | null = null) => ({
+  /** A call is logged under the tool's own name: a pack caller is linked to it only when its pack has that name. */
+  const toolLink = (principal: Principal, tool: string) => (reaches(principal, tool) ? `/api/tools/${tool}` : null)
+  const recordOf = (origin: string, row: CallRow, principal: Principal, tracesUrl: string | null = null) => ({
     id: row.id,
     client: row.clientName,
     clientId: row.clientId,
@@ -159,7 +161,7 @@ export const callsHandlers = ({ pipeline, principals, calls, events, clients, pa
     resultBytes: row.resultBytes,
     createdAt: row.createdAt,
     traceUrl: traceUrlOf(tracesUrl, row),
-    _links: linksOf(origin, { self: `${PATH}/${row.id}`, tool: `/api/tools/${row.tool}` }),
+    _links: linksOf(origin, { self: `${PATH}/${row.id}`, tool: toolLink(principal, row.tool) }),
   })
   const ownCall = async (principal: Principal, id: string) => {
     const row = await calls.get(id)
@@ -193,7 +195,7 @@ export const callsHandlers = ({ pipeline, principals, calls, events, clients, pa
         path: PATH,
         query,
         name: 'calls',
-        items: items.map((row) => recordOf(origin, row, tracesUrl)),
+        items: items.map((row) => recordOf(origin, row, principal, tracesUrl)),
         next: rows.length > query.limit && last ? { createdAt: last.createdAt, id: last.id } : null,
       }),
       200,
@@ -202,7 +204,7 @@ export const callsHandlers = ({ pipeline, principals, calls, events, clients, pa
   const get: RouteHandler<Routes['get']> = async (c) => {
     const principal = await principalOf(c)
     const row = await ownCall(principal, c.req.valid('param').id)
-    return c.json(recordOf(originOf(c), row, await tracesUrlFor(principal)), 200)
+    return c.json(recordOf(originOf(c), row, principal, await tracesUrlFor(principal)), 200)
   }
   const exportCsv: RouteHandler<Routes['export']> = async (c) => {
     requireOwner(c)

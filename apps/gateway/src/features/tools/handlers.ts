@@ -5,6 +5,7 @@ import type { Context } from 'hono'
 import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { VIA_HEADER } from '../calls/handlers.js'
+import { packBaseOf } from '../clients/pack-choice.js'
 import {
   allows,
   callerOf,
@@ -173,7 +174,7 @@ export const toolsHandlers = ({
       .update(live.map((tool) => tool.versionId).join(','))
       .digest('hex')
       .slice(0, 12)
-    const doc = toolsOpenApi({ origin: originOf(c), tools: live, version })
+    const doc = toolsOpenApi({ origin: `${originOf(c)}${packBaseOf()}`, tools: live, version })
     // Its own media type, not HAL: it is a document for generators, not a resource to browse
     return new Response(JSON.stringify(doc, null, 1), {
       status: 200,
