@@ -538,6 +538,47 @@ describe('what the pack page stands on', () => {
     expect((await owner(`/api/clients/${key.id}`, { method: 'DELETE' })).status).toBe(204)
     expect((await owner('/api/packs/drafts', { method: 'DELETE' })).status).toBe(204)
   })
+
+  it('shares a pack and tends its people, as the Share sheet and the People tab do', async () => {
+    const made = await owner('/api/packs', { method: 'POST', body: { name: 'plot', title: 'Plot' } })
+    expect(made.json).toMatchObject({ keys: 0, ending: 0, ended: 0 })
+    await owner('/api/packs/plot', { method: 'PATCH', body: { add: { tools: [{ name: 'fixture.echo' }] } } })
+    // The sheet sends who, where, what they can do and how long; the message it shows holds the key, this once
+    const shared = await owner('/api/packs/plot/people', {
+      method: 'POST',
+      body: { name: 'Sam', app: 'claude-code', scope: 'read', expiresIn: '30d' },
+    })
+    expect(shared.status).toBe(201)
+    expect(shared.json).toMatchObject({ name: 'Sam', app: 'claude-code', scope: 'read', ending: false, ended: false })
+    expect(shared.json.message).toContain("Hi Sam, I'm sharing Plot with you.")
+    expect(shared.json.message).toContain(`gw-plot http://localhost/p/plot/mcp`)
+    expect(shared.json.message).toContain(`Bearer ${shared.json.key}`)
+    const { id, key } = shared.json as { id: string; key: string }
+    expect((await api(key, '/p/plot/api/me')).json.pack.name).toBe('plot')
+    // The tab lists them, and the pack counts what the tab lists
+    const people = await owner('/api/packs/plot/people')
+    expect(people.status).toBe(200)
+    expect(people.json.count).toBe(1)
+    expect(people.json._embedded.people[0]).toMatchObject({
+      id,
+      name: 'Sam',
+      kind: 'key',
+      calls7d: 0,
+      lastCallAt: null,
+      otherPacks: [],
+      oldAddress: null,
+    })
+    expect(JSON.stringify(people.json)).not.toContain(key)
+    expect((await owner('/api/packs/plot')).json).toMatchObject({ keys: 1, ending: 0, ended: 0 })
+    // Extend and Revoke are the client's own routes
+    const extended = await owner(`/api/clients/${id}`, { method: 'PATCH', body: { expiresIn: 'never' } })
+    expect([extended.status, extended.json.expiresAt]).toEqual([200, null])
+    expect((await owner('/api/packs/plot/people')).json._embedded.people[0].expiresAt).toBeNull()
+    expect((await owner(`/api/clients/${id}`, { method: 'DELETE' })).status).toBe(204)
+    expect((await owner('/api/packs/plot/people')).json).toMatchObject({ count: 0, _embedded: { people: [] } })
+    expect((await api(agentKey, '/api/packs/plot/people')).status).toBe(403)
+    expect((await owner('/api/packs/plot', { method: 'DELETE' })).status).toBe(204)
+  })
 })
 
 describe('the gateway itself', () => {

@@ -1,7 +1,12 @@
-/** Pack routes (owner only): curate packs, word their tools, see what a playbook uses, and the wording to recheck. */
+/**
+ * Pack routes (owner only): curate packs, word their tools, see what a playbook uses, the wording to recheck, and a
+ * pack's people: who it is shared with, and sharing it with one more.
+ */
 import { createRoute, z } from '@hono/zod-openapi'
 import { HAL_JSON, LinksSchema, problemResponses } from '../../kit/index.js'
+import { KEY_LIFETIMES } from '../clients/lifetimes.js'
 import { SurfaceSchema } from '../clients/routes.js'
+import { APP_IDS, KEY_APPS } from '../clients/setup.js'
 import { ALIAS } from './entries.js'
 import { PACK_REASONS } from './schema.js'
 
@@ -101,6 +106,11 @@ export const PackSchema = PackCardSchema.extend({
   playbooks: z.array(PackItemSchema),
   manuals: z.array(PackItemSchema),
   keyList: z.array(PackKeySchema),
+  ending: z.number().int().openapi({ description: 'People whose access ends within three days.' }),
+  ended: z.number().int().openapi({
+    description:
+      'People whose access ended in the last 30 days: still listed under People, so it can be extended. `keys` and this are everyone `GET /api/packs/{name}/people` lists.',
+  }),
   createdAt: z.string(),
   triedAt: z.string().nullable().openapi({
     description:
@@ -123,6 +133,69 @@ export const PackSchema = PackCardSchema.extend({
         'Names it used to have that still lead to it, newest first, each with how many of its people last connected there. `DELETE /api/packs/{name}/names/{former}` frees one.',
     }),
 }).openapi('Pack', { description: 'A pack with everything in it, in order.' })
+
+const PersonSchema = z
+  .object({
+    id: z
+      .string()
+      .openapi({ description: 'The client’s id: Extend and Revoke are `PATCH` and `DELETE /api/clients/{id}`.' }),
+    name: z.string(),
+    kind: z.enum(['key', 'oauth']),
+    app: z.enum(APP_IDS).nullable().openapi({
+      description: 'The app the key was made for, as said when sharing; null when not said.',
+    }),
+    scope: z.enum(['read', 'write']),
+    createdAt: z.string(),
+    expiresAt: z.string().nullable().openapi({ description: 'When its access ends, or null for until revoked.' }),
+    ending: z.boolean().openapi({ description: 'Its access ends within three days.' }),
+    ended: z.boolean().openapi({ description: 'Its access ended in the last 30 days: Extend brings it back.' }),
+    lastCallAt: z.string().nullable().openapi({ description: 'Its newest call in the log (90 days), or null.' }),
+    calls7d: z.number().int().openapi({
+      description: 'Calls in the last 7 days. A key that opens several packs counts its calls in all of them.',
+    }),
+    otherPacks: z.array(z.string()).openapi({
+      description: 'Other packs the same key opens: its end, an Extend and a revoke are theirs too.',
+    }),
+    oldAddress: z
+      .object({
+        name: z.string().openapi({ description: 'The old name: it connects at `/p/<name>/`.' }),
+        lastAt: z.string().openapi({ description: 'When it was last noted there (noted at most hourly).' }),
+      })
+      .nullable()
+      .openapi({ description: 'The old name of the pack it last connected by; null once it uses the name now.' }),
+    _links: LinksSchema,
+  })
+  .openapi('Person', { description: 'Someone a pack is shared with: one client that opens it.' })
+
+const PackPeopleSchema = z
+  .object({ count: z.number().int(), _links: LinksSchema, _embedded: z.object({ people: z.array(PersonSchema) }) })
+  .openapi('PackPeople', {
+    description: 'Everyone a pack is shared with: who can use it first, oldest first, then whose access ended.',
+  })
+
+const ShareInputSchema = z
+  .object({
+    name: z.string().min(1).max(80).openapi({ description: 'Who it is for.', example: 'Sam' }),
+    app: z.enum(KEY_APPS).nullable().optional().openapi({
+      description:
+        'The app they will paste the key into; null or left out when not sure. claude.ai is not one: it signs in and takes no key.',
+    }),
+    scope: z.enum(['read', 'write']).default('read').openapi({
+      description: '`write` lets them run the pack’s tools that change things.',
+    }),
+    expiresIn: z.enum(KEY_LIFETIMES).default('30d').openapi({
+      description: 'How long it works: 8 hours, a day, 7 days, 30 days, or `never` for until revoked.',
+    }),
+  })
+  .openapi('PackShare', { description: 'One person to share a pack with.' })
+
+const SharedPackSchema = PersonSchema.extend({
+  key: z.string().openapi({ description: 'Their API key. Shown once: store it now.' }),
+  message: z.string().openapi({
+    description:
+      'Ready to send to the person: what the pack is, what they can do, until when, and the setup for their app with the key in it. Shown once.',
+  }),
+}).openapi('SharedPack', { description: 'The new person, with their key and the message to send them, this once.' })
 
 const PackSetupSchema = z
   .object({
@@ -364,6 +437,31 @@ export const routes = {
       }),
     },
     responses: { 204: { description: 'Freed.' }, ...problemResponses(401, 403, 404) },
+  }),
+  people: createRoute({
+    method: 'get',
+    path: `${PATH}/{name}/people`,
+    operationId: 'listPackPeople',
+    tags: [TAG],
+    summary: 'A pack’s people',
+    description:
+      'Everyone the pack is shared with, one row per client that opens it: the app they connect with, what they can do, when it ends, their last call and their calls in 7 days, and the old address they still use after a rename. Someone whose access ended stays listed for 30 days, to be extended (`PATCH /api/clients/{id}` with `expiresIn`); a revoked key is not listed.',
+    request: { params: z.object({ name }) },
+    responses: { 200: ok('The people.', PackPeopleSchema), ...problemResponses(401, 403, 404) },
+  }),
+  share: createRoute({
+    method: 'post',
+    path: `${PATH}/{name}/people`,
+    operationId: 'sharePack',
+    tags: [TAG],
+    summary: 'Share a pack with a person',
+    description:
+      'Makes one person’s key for this pack alone, read only and for 30 days unless said, and answers with a message ready to send them: what the pack is, what they can do, until when, and the setup for their app with the key in it. The key and the message are shown this once. Extend and Revoke are the client’s own routes (`PATCH` and `DELETE /api/clients/{id}`). A pack that holds no tools is a 409.',
+    request: { params: z.object({ name }), body: json(ShareInputSchema) },
+    responses: {
+      201: ok('The person, their key and the message.', SharedPackSchema),
+      ...problemResponses(400, 401, 403, 404, 409),
+    },
   }),
   wording: createRoute({
     method: 'put',

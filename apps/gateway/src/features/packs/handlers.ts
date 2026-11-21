@@ -4,7 +4,7 @@ import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import type { ManualContent, PlaybookContent } from '../catalog/content.js'
 import { playbookTitleOf } from '../catalog/content.js'
-import { dayOf } from '../clients/lifetimes.js'
+import { dayOf, standingOf } from '../clients/lifetimes.js'
 import { OWNER, requireOwner } from '../clients/principals.js'
 import { KEY_PLACEHOLDER, surfacesOf } from '../clients/setup.js'
 import { summaryOf } from '../tools/handlers.js'
@@ -12,6 +12,7 @@ import { needsWrite } from '../tools/repo.js'
 import { type Fixed, fixedOf, fixedProblems, lostInputs } from './entries.js'
 import { flagOf, packFlags } from './flags.js'
 import { noPack } from './names.js'
+import { listedOf } from './people.js'
 import type { PackContents } from './repo.js'
 import { FLAGS_PATH, PATH, type routes } from './routes.js'
 import type { PackRow, PackToolRow } from './schema.js'
@@ -129,7 +130,7 @@ export const packsHandlers = ({
         keys: live.length,
         flags: toolRows.filter((tool) => tool.flag || tool.lostInputs.length).length,
         updatedAt: pack.updatedAt,
-        _links: linksOf(origin, { self: `${PATH}/${pack.name}`, list: PATH }),
+        _links: linksOf(origin, { self: `${PATH}/${pack.name}`, people: `${PATH}/${pack.name}/people`, list: PATH }),
       },
       held,
       toolRows,
@@ -162,6 +163,9 @@ export const packsHandlers = ({
 
   const detailOf = async (origin: string, pack: PackRow) => {
     const { card, held, toolRows, keys } = await cardOf(origin, pack)
+    const now = new Date()
+    // As People lists them: `keys` counts those that work, `ended` the rest
+    const standings = listedOf(await clients.ofPack(pack.id), now).map((row) => standingOf(row, now))
     return {
       ...card,
       tools: toolRows,
@@ -174,6 +178,8 @@ export const packsHandlers = ({
         expiresAt: key.expiresAt,
         createdAt: key.createdAt,
       })),
+      ending: standings.filter((standing) => standing === 'ending').length,
+      ended: standings.filter((standing) => standing === 'ended').length,
       createdAt: pack.createdAt,
       triedAt: pack.triedAt,
       lastCallAt: await lastCallOf(pack),

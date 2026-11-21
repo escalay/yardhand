@@ -1,6 +1,6 @@
 /**
- * Sharing a pack with key-based apps: how long a key works, moving its end, and what its holder and the owner are
- * told once it has ended.
+ * Sharing a pack with key-based apps: how long a key works, moving its end, what its holder and the owner are
+ * told once it has ended, sharing it with one person and the people it is shared with.
  */
 import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
@@ -9,7 +9,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
-import { dayOf } from '../src/features/clients/lifetimes.js'
+import { dayOf, KEY_LIFETIMES } from '../src/features/clients/lifetimes.js'
 import { PACK_PATHS } from '../src/features/packs/docs.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
 import { startUpstream } from './fixtures/upstream.js'
@@ -36,7 +36,7 @@ const api = async (key: string, path: string, init: Init = {}) => {
     headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', ...init.headers },
     ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
   })
-  return { status: response.status, json: (await response.json().catch(() => null)) as any }
+  return { status: response.status, headers: response.headers, json: (await response.json().catch(() => null)) as any }
 }
 const owner = (path: string, init?: Init) => api(OWNER, path, init)
 const META = [
@@ -432,5 +432,298 @@ describe('a key that has ended, over MCP', () => {
     const client = await mcp(sam.key, '/p/desk/mcp')
     expect(client.getInstructions()).toBe(endedIn('Loud', day))
     await client.close()
+  })
+})
+
+type Person = {
+  id: string
+  name: string
+  kind: string
+  app: string | null
+  scope: string
+  createdAt: string
+  expiresAt: string | null
+  ending: boolean
+  ended: boolean
+  lastCallAt: string | null
+  calls7d: number
+  otherPacks: string[]
+  oldAddress: { name: string; lastAt: string } | null
+  _links: Record<string, { href: string }>
+}
+type Shared = Person & { key: string; message: string }
+/** A pack with the fixture's two tools: `echo` reads, `shout` changes things. */
+const packOf = async (name: string, title: string) => {
+  const made = await owner('/api/packs', {
+    method: 'POST',
+    body: { name, title, description: `What ${title} is for.\n\nMore, for agents.`, playbook: 'fixture-say-it-back' },
+  })
+  expect([made.status, made.json.counts.tools]).toEqual([201, 2])
+}
+const share = (pack: string, body: Record<string, unknown>) =>
+  owner(`/api/packs/${pack}/people`, { method: 'POST', body })
+const shared = async (pack: string, body: Record<string, unknown>) => {
+  const made = await share(pack, body)
+  expect(made.status).toBe(201)
+  return made.json as Shared
+}
+const peopleOf = async (pack: string) => {
+  const listed = await owner(`/api/packs/${pack}/people`)
+  expect(listed.status).toBe(200)
+  return listed.json as { count: number; _embedded: { people: Person[] }; _links: Record<string, { href: string }> }
+}
+const clientCount = async () => (await owner('/api/clients')).json.count as number
+const toolNames = async (key: string, pack: string) =>
+  ((await api(key, `/p/${pack}/api/tools`)).json._embedded.tools as { name: string }[]).map((tool) => tool.name)
+/** A grant as time would have left it: made `made` ago, ending `ends` from now (in the past when negative). */
+const aged = (id: string, made: number, ends: number) =>
+  db.run(
+    sql`update clients set created_at = ${new Date(Date.now() - made).toISOString()}, expires_at = ${new Date(Date.now() + ends).toISOString()} where id = ${id}`,
+  )
+
+describe('sharing a pack with one person', () => {
+  beforeAll(() => packOf('garden', 'Garden'))
+
+  it('is read only for 30 days unless said, and answers a message ready to send', async () => {
+    const made = await share('garden', { name: 'Sam', app: 'claude-code' })
+    expect(made.status).toBe(201)
+    const sam = made.json as Shared
+    expect(sam).toMatchObject({
+      name: 'Sam',
+      kind: 'key',
+      app: 'claude-code',
+      scope: 'read',
+      ending: false,
+      ended: false,
+      calls7d: 0,
+      lastCallAt: null,
+      otherPacks: [],
+      oldAddress: null,
+    })
+    expect(fromNow(sam.expiresAt)).toBe(30 * DAY)
+    expect(sam.key).toMatch(/^gw_/)
+    expect(made.headers.get('location')).toBe(`/api/clients/${sam.id}`)
+    expect(sam._links).toMatchObject({
+      self: { href: `http://localhost/api/clients/${sam.id}` },
+      calls: { href: `http://localhost/api/calls?client=${sam.id}` },
+      pack: { href: 'http://localhost/api/packs/garden' },
+    })
+    expect(sam.message.split('\n\n')).toEqual([
+      "Hi Sam, I'm sharing Garden with you.",
+      'What Garden is for.',
+      `You can read with it, but not change anything. It works until ${dayOf(sam.expiresAt ?? '')}.`,
+      'Add it to Claude Code (a terminal on the machine that runs Claude Code):',
+      `claude mcp add --transport http --scope user gw-garden http://localhost/p/garden/mcp \\\n  --header "Authorization: Bearer ${sam.key}"`,
+      expect.stringContaining('gw-garden'),
+      'The key is yours alone: keep it to yourself. When it stops working, ask me for a new invite.',
+    ])
+    // The key is a client like any other, locked to the pack: it opens it, and nothing that changes things
+    expect((await owner(`/api/clients/${sam.id}`)).json).toMatchObject({
+      pack: 'garden',
+      packs: ['garden'],
+      pins: null,
+    })
+    const me = await api(sam.key, '/p/garden/api/me')
+    expect([me.status, me.json.pack.name, me.json.scope]).toEqual([200, 'garden', 'read'])
+    expect(await toolNames(sam.key, 'garden')).toEqual(['fixture.echo'])
+    expect((await api(sam.key, '/p/loud/api/me')).status).toBe(403)
+
+    const ada = await shared('garden', { name: 'Ada', app: 'cursor', scope: 'write' })
+    expect(ada.scope).toBe('write')
+    expect(ada.message).toContain('You can read and change things with it.')
+    expect(await toolNames(ada.key, 'garden')).toEqual(['fixture.echo', 'fixture.shout'])
+  })
+
+  it('takes 7 days, 30 days and until revoked, and the short ones still', async () => {
+    const MS = { '8h': 8 * HOUR, '1d': DAY, '7d': 7 * DAY, '30d': 30 * DAY }
+    for (const expiresIn of KEY_LIFETIMES) {
+      const made = await shared('garden', { name: `for ${expiresIn}`, expiresIn })
+      if (expiresIn === 'never') {
+        expect(made.expiresAt).toBeNull()
+        expect(made.message).toContain('It works until I end it.')
+      } else expect([expiresIn, fromNow(made.expiresAt)]).toEqual([expiresIn, MS[expiresIn]])
+      expect((await owner(`/api/clients/${made.id}`, { method: 'DELETE' })).status).toBe(204)
+    }
+    const refused = await share('garden', { name: 'a season', expiresIn: '90d' })
+    expect(refused.status).toBe(400)
+    expect(JSON.stringify(refused.json.errors)).toContain('expiresIn')
+  })
+
+  it('takes only an app a key is pasted into, or none', async () => {
+    const before = await clientCount()
+    const refused = await share('garden', { name: 'Lena', app: 'claude-ai' })
+    expect(refused.status).toBe(400)
+    expect(JSON.stringify(refused.json.errors)).toContain('app')
+    expect((await share('garden', { app: 'cursor' })).status).toBe(400)
+    expect(await clientCount()).toBe(before)
+
+    for (const body of [{ name: 'Lena', app: null }, { name: 'Lena' }]) {
+      const made = await shared('garden', body)
+      expect(made.app).toBeNull()
+      expect(made.message).toContain(
+        `Its address is http://localhost/p/garden/mcp and your key is ${made.key}. Add it to your app as an MCP server and send the key as a bearer token: Authorization: Bearer ${made.key}`,
+      )
+      expect((await api(made.key, '/p/garden/api/me')).status).toBe(200)
+      expect((await owner(`/api/clients/${made.id}`, { method: 'DELETE' })).status).toBe(204)
+    }
+  })
+
+  it('will not share a pack that holds no tools', async () => {
+    const made = await owner('/api/packs', { method: 'POST', body: { name: 'bare', title: 'Bare' } })
+    expect(made.status).toBe(201)
+    const before = await clientCount()
+    const refused = await share('bare', { name: 'Sam' })
+    expect([refused.status, refused.json.detail]).toEqual([
+      409,
+      'Bare holds no tools yet, so a key to it would reach nothing: add tools first.',
+    ])
+    expect(await clientCount()).toBe(before)
+    expect((await owner('/api/packs/bare', { method: 'DELETE' })).status).toBe(204)
+  })
+
+  it('is for the owner only, outside a pack, and for a pack that is there', async () => {
+    const before = await clientCount()
+    const reader = await keyFor({ name: 'a key of the pack', pack: 'garden' })
+    for (const init of [undefined, { method: 'POST', body: { name: 'Sam' } }]) {
+      const byKey = await api(reader.key, '/api/packs/garden/people', init)
+      expect([byKey.status, byKey.json.detail]).toEqual([
+        403,
+        'Only the owner manages the gateway: use an owner key or /app.',
+      ])
+      const inside = await owner('/p/garden/api/packs/garden/people', init)
+      expect([inside.status, inside.json.detail]).toEqual([
+        403,
+        'This request is for the pack garden only: manage the gateway at /api or in /app, without a pack.',
+      ])
+      const nowhere = await owner('/api/packs/nope/people', init)
+      expect([nowhere.status, nowhere.json.detail]).toEqual([404, 'No pack nope. GET /api/packs lists them.'])
+    }
+    expect((await owner(`/api/clients/${reader.id}`, { method: 'DELETE' })).status).toBe(204)
+    expect(await clientCount()).toBe(before + 1)
+  })
+})
+
+describe('the people a pack is shared with', () => {
+  let sam: Shared
+  let ola: Shared
+  let lena: Shared
+  const namesOf = (people: Person[]) => people.map((person) => person.name)
+
+  beforeAll(async () => {
+    await packOf('orchard', 'Orchard')
+    sam = await shared('orchard', { name: 'Sam', app: 'claude-code' })
+    ola = await shared('orchard', { name: 'Ola', app: 'cursor', scope: 'write' })
+    lena = await shared('orchard', { name: 'Lena' })
+  })
+
+  it('lists one row per person: how they connect, what they can do, when it ends and how much they call', async () => {
+    for (const text of ['one', 'two'])
+      expect(
+        (
+          await api(sam.key, '/p/orchard/api/calls', {
+            method: 'POST',
+            body: { tool: 'fixture.echo', arguments: { text } },
+          })
+        ).status,
+      ).toBe(200)
+    // Ola has two of her 30 days left, Lena's ended two days ago
+    await aged(ola.id, 28 * DAY, 2 * DAY)
+    await aged(lena.id, 32 * DAY, -2 * DAY)
+    // Not people of the pack any more: access that ended 31 days ago, and a revoked key
+    const longGone = await shared('orchard', { name: 'long gone' })
+    await aged(longGone.id, 61 * DAY, -31 * DAY)
+    const revoked = await shared('orchard', { name: 'revoked' })
+    expect((await owner(`/api/clients/${revoked.id}`, { method: 'DELETE' })).status).toBe(204)
+    // One key for two packs: what is done to it is done in both
+    const both = await keyFor({ name: 'Sam at work', packs: ['orchard', 'desk'], scope: 'read' })
+
+    const listed = await peopleOf('orchard')
+    // Who can use it first, oldest first; whose access ended last
+    expect(namesOf(listed._embedded.people)).toEqual(['Ola', 'Sam', 'Sam at work', 'Lena'])
+    expect(listed.count).toBe(4)
+    expect(listed._links).toMatchObject({
+      self: { href: 'http://localhost/api/packs/orchard/people' },
+      pack: { href: 'http://localhost/api/packs/orchard' },
+    })
+    const [olaRow, samRow, bothRow, lenaRow] = listed._embedded.people
+    expect(samRow).toMatchObject({
+      id: sam.id,
+      name: 'Sam',
+      kind: 'key',
+      app: 'claude-code',
+      scope: 'read',
+      expiresAt: sam.expiresAt,
+      ending: false,
+      ended: false,
+      calls7d: 2,
+      otherPacks: [],
+      oldAddress: null,
+      _links: {
+        self: { href: `http://localhost/api/clients/${sam.id}` },
+        calls: { href: `http://localhost/api/calls?client=${sam.id}` },
+        pack: { href: 'http://localhost/api/packs/orchard' },
+      },
+    })
+    expect(samRow?.lastCallAt).toBe((await owner(`/api/clients/${sam.id}`)).json.usage.lastCallAt)
+    expect(samRow?.lastCallAt).toBeTruthy()
+    expect(olaRow).toMatchObject({ id: ola.id, app: 'cursor', scope: 'write', ending: true, ended: false, calls7d: 0 })
+    expect(olaRow?.lastCallAt).toBeNull()
+    expect(bothRow).toMatchObject({ id: both.id, app: null, otherPacks: ['desk'], ending: false, ended: false })
+    expect(lenaRow).toMatchObject({ id: lena.id, app: null, ending: false, ended: true })
+    // Never the key, nor anything it could be made from
+    expect(JSON.stringify(listed)).not.toContain(sam.key)
+    expect(Object.keys(samRow ?? {})).not.toContain('key')
+
+    // The pack counts the same people: its keys that work, and those that ended and can be extended
+    const pack = (await owner('/api/packs/orchard')).json
+    expect(pack).toMatchObject({ keys: 3, ending: 1, ended: 1 })
+    expect(pack.keys + pack.ended).toBe(listed.count)
+    expect(pack._links.people.href).toBe('http://localhost/api/packs/orchard/people')
+    // In the other pack the same key is a person too, with this one beside it
+    expect((await peopleOf('desk'))._embedded.people.find((person) => person.id === both.id)?.otherPacks).toEqual([
+      'orchard',
+    ])
+    expect((await owner(`/api/clients/${both.id}`, { method: 'DELETE' })).status).toBe(204)
+  })
+
+  it('shows someone just extended as neither ending nor ended', async () => {
+    for (const id of [ola.id, lena.id]) expect((await extend(id, '7d')).status).toBe(200)
+    const listed = await peopleOf('orchard')
+    expect(namesOf(listed._embedded.people)).toEqual(['Lena', 'Ola', 'Sam'])
+    for (const person of listed._embedded.people)
+      expect([person.name, person.ending, person.ended]).toEqual([person.name, false, false])
+    expect((await owner('/api/packs/orchard')).json).toMatchObject({ keys: 3, ending: 0, ended: 0 })
+    // The same key as before
+    expect((await api(lena.key, '/p/orchard/api/me')).status).toBe(200)
+  })
+
+  it('notes who still connects at an address the pack used to have', async () => {
+    expect((await owner('/api/packs/orchard', { method: 'PATCH', body: { name: 'grove' } })).status).toBe(200)
+    expect((await api(sam.key, '/p/orchard/api/me')).json.pack.name).toBe('grove')
+    expect((await api(ola.key, '/p/grove/api/me')).status).toBe(200)
+    const byName = async () =>
+      Object.fromEntries((await peopleOf('grove'))._embedded.people.map((person) => [person.name, person.oldAddress]))
+    const noted = await byName()
+    expect(noted).toEqual({ Sam: { name: 'orchard', lastAt: expect.any(String) }, Ola: null, Lena: null })
+    expect(Date.parse(noted.Sam?.lastAt ?? '')).toBeGreaterThan(Date.now() - 60_000)
+    expect((await owner('/api/packs/grove')).json.formerNames).toEqual([
+      { name: 'orchard', until: expect.any(String), people: 1 },
+    ])
+    const gone = await owner('/api/packs/orchard/people')
+    expect([gone.status, gone.json.detail]).toEqual([
+      404,
+      'No pack orchard: it was renamed to grove. GET /api/packs/grove.',
+    ])
+    // Set up with the new address, the note goes
+    expect((await api(sam.key, '/p/grove/api/me')).status).toBe(200)
+    expect((await byName()).Sam).toBeNull()
+  })
+
+  it('is empty once everyone is revoked', async () => {
+    for (const person of [sam, ola, lena])
+      expect((await owner(`/api/clients/${person.id}`, { method: 'DELETE' })).status).toBe(204)
+    const listed = await peopleOf('grove')
+    expect([listed.count, listed._embedded.people]).toEqual([0, []])
+    expect((await owner('/api/packs/grove')).json).toMatchObject({ keys: 0, ending: 0, ended: 0 })
   })
 })
