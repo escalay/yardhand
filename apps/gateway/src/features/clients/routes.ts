@@ -36,7 +36,7 @@ export const ClientSchema = z
         'The key’s default pack (plain /mcp and REST serve it), or null for a key that reaches its allowlist.',
     }),
     packs: z.array(z.string()).openapi({
-      description: 'Every pack the key opens, the default first; each is its own connection at /mcp/p/<name>.',
+      description: 'Every pack the key opens, the default first; each is its own connection at /p/<name>/mcp.',
     }),
     expiresAt: z.string().nullable().openapi({ description: 'When the key stops working, or null for never.' }),
     createdAt: z.string(),
@@ -112,7 +112,7 @@ const ClientCreateSchema = z
       .optional()
       .openapi({
         description:
-          'Lock the key to these packs: each is its own connection at /mcp/p/<name>, and `pack` (else the first) is the default.',
+          'Lock the key to these packs: each is its own connection at /p/<name>/mcp, and `pack` (else the first) is the default.',
         example: ['acme', 'support'],
       }),
     expiresIn: z
@@ -121,7 +121,7 @@ const ClientCreateSchema = z
       .openapi({ description: 'How long the key works: 8 hours, a day, a week, or until revoked (the default).' }),
   })
   .openapi('ClientCreate', { description: 'A new API-key client, optionally locked to a pack and expiring.' })
-const SurfaceSchema = z
+export const SurfaceSchema = z
   .object({
     id: z.enum(['claude-code', 'cursor', 'codex', 'claude-ai', 'curl', 'typescript']),
     title: z.string(),
@@ -192,7 +192,9 @@ const MeSchema = z
         z.object({
           name: z.string(),
           title: z.string(),
-          mcpUrl: z.string().openapi({ description: 'Where to connect to this pack alone.' }),
+          mcpUrl: z.string().openapi({
+            description: 'Where to connect to this pack alone: `/p/<name>/mcp`, with REST, docs and guide beside it.',
+          }),
           default: z.boolean().openapi({ description: 'Served at plain /mcp and to REST without x-gateway-pack.' }),
         }),
       )

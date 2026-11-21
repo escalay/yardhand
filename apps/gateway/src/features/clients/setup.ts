@@ -36,6 +36,7 @@ export const surfacesOf = ({
   kind,
   oauth,
   packs = [],
+  pack,
 }: {
   origin: string
   kind: 'key' | 'oauth'
@@ -43,10 +44,14 @@ export const surfacesOf = ({
   oauth: boolean
   /** The packs a pack key opens, the default first. */
   packs?: string[]
+  /** One pack at its own address (`/p/<pack>/`), whatever key opens it: every snippet then points there. */
+  pack?: string
 }): Surface[] => {
   const mcp = `${origin}/mcp`
-  const name = SERVER_NAME
-  const servers = serversOf(origin, packs)
+  // A pack's address takes keys only, so nothing signs in to it from claude.ai
+  const base = pack ? `${origin}/p/${pack}` : origin
+  const servers = pack ? [{ name: `${SERVER_NAME}-${pack}`, url: `${base}/mcp` }] : serversOf(origin, packs)
+  const name = servers.length === 1 ? (servers[0]?.name ?? SERVER_NAME) : SERVER_NAME
   const claudeAi: Surface = {
     id: 'claude-ai',
     title: 'claude.ai',
@@ -102,17 +107,17 @@ export const surfacesOf = ({
         .join('\n\n'),
       note: `And in ~/.zshrc: export YARDHAND_KEY="${KEY_PLACEHOLDER}"`,
     },
-    ...(oauth ? [claudeAi] : []),
+    ...(oauth && !pack ? [claudeAi] : []),
     {
       id: 'curl',
       title: 'curl',
       where: 'Any shell',
       format: 'shell',
       snippet: [
-        `curl -s "${origin}/api/tools?q=what+you+want+to+do" \\\n  -H "Authorization: Bearer ${KEY_PLACEHOLDER}"`,
-        `curl -s ${origin}/api/calls -H "Authorization: Bearer ${KEY_PLACEHOLDER}" \\\n  -H 'content-type: application/json' -d '{"tool": "<name>", "arguments": {}}'`,
+        `curl -s "${base}/api/tools?q=what+you+want+to+do" \\\n  -H "Authorization: Bearer ${KEY_PLACEHOLDER}"`,
+        `curl -s ${base}/api/calls -H "Authorization: Bearer ${KEY_PLACEHOLDER}" \\\n  -H 'content-type: application/json' -d '{"tool": "<name>", "arguments": {}}'`,
       ].join('\n\n'),
-      note: 'Every tool is also an OpenAPI operation at /api/tools/openapi.json.',
+      note: `Every tool is also an OpenAPI operation at ${pack ? `/p/${pack}` : ''}/api/tools/openapi.json.`,
     },
     {
       id: 'typescript',
@@ -122,7 +127,7 @@ export const surfacesOf = ({
       snippet: [
         "import { createGateway, textOf } from '@yardhand/client'",
         '',
-        `const gateway = createGateway({ url: '${origin}', key: process.env.YARDHAND_KEY! })`,
+        `const gateway = createGateway({ url: '${base}', key: process.env.YARDHAND_KEY! })`,
         "const [tool] = await gateway.tools.search('what you want to do')",
         'console.log(textOf(await gateway.call(tool.name, {})))',
       ].join('\n'),

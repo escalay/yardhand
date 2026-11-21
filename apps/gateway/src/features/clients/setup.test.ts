@@ -32,6 +32,22 @@ describe('setup snippets', () => {
     ])
   })
 
+  it('hands out a pack’s own address in every snippet, and no claude.ai: a pack takes keys only', () => {
+    const surfaces = surfacesOf({ origin: 'https://gw.example.com', kind: 'key', oauth: true, pack: 'desk' })
+    expect(surfaces.map((surface) => surface.id)).toEqual(['claude-code', 'cursor', 'codex', 'curl', 'typescript'])
+    expect(surfaces[0]?.snippet).toContain('--scope user gw-desk https://gw.example.com/p/desk/mcp')
+    expect(surfaces[0]?.note).toContain('gw-desk')
+    expect(JSON.parse(surfaces[1]?.snippet ?? '{}').mcpServers['gw-desk'].url).toBe('https://gw.example.com/p/desk/mcp')
+    expect(surfaces[2]?.snippet).toContain('[mcp_servers.gw-desk]\nurl = "https://gw.example.com/p/desk/mcp"')
+    expect(surfaces[3]?.snippet).toContain('"https://gw.example.com/p/desk/api/tools?q=')
+    expect(surfaces[3]?.snippet).toContain('https://gw.example.com/p/desk/api/calls')
+    expect(surfaces[3]?.note).toContain('/p/desk/api/tools/openapi.json')
+    expect(surfaces[4]?.snippet).toContain("createGateway({ url: 'https://gw.example.com/p/desk'")
+    // Nothing in it points at the root
+    for (const surface of surfaces)
+      expect(surface.snippet.replaceAll('https://gw.example.com/p/desk', '')).not.toContain('gw.example.com')
+  })
+
   it('gives a key with several packs one server per pack, the same key in each', () => {
     const surfaces = surfacesOf({
       origin: 'https://mcp.example.test',

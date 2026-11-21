@@ -252,6 +252,19 @@ describe('on a large catalog', () => {
     expect(await names(OWNER, `echo&as=${laptop.id}`, typed)).toEqual(['fixture.echo'])
   })
 
+  it('previews a pack for the owner exactly as its keys are searched, and keeps the preview out of the log', async () => {
+    const preview = (query: string, init: Init = {}) =>
+      api(OWNER, `/api/tools?pack=kit&q=${encodeURIComponent(query)}`, init)
+    const logged = async () => (await api(OWNER, '/api/searches?limit=500')).json.count as number
+    const before = await logged()
+    expect((await preview('echo text')).json._embedded.tools.map((tool: Card) => tool.name)).toEqual(['fixture.echo'])
+    const empty = { count: 0, hint: { pack: { name: 'kit', title: 'Kit' } }, _embedded: { tools: [] } }
+    expect((await preview('french text')).json).toMatchObject(empty)
+    // Typed in the app, a preview is still searched as the pack's keys are: no keyword hit comes back
+    expect((await preview('french text', { headers: { 'x-gateway-via': 'app' } })).json).toMatchObject(empty)
+    expect(await logged()).toBe(before)
+  })
+
   it('keeps a keyword hit that is near enough in meaning without standing out, ranked among the pack’s own tools', async () => {
     // 106 tools are equally about lamps, so none stands out; the pack's two carry an asked word. By words zz_lookup
     // ranks last of its connection's 106, past the hundred a search reads there

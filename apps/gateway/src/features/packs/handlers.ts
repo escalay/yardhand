@@ -5,6 +5,7 @@ import type { Services } from '../../services.js'
 import type { ManualContent, PlaybookContent } from '../catalog/content.js'
 import { playbookTitleOf } from '../catalog/content.js'
 import { OWNER, requireOwner } from '../clients/principals.js'
+import { KEY_PLACEHOLDER, surfacesOf } from '../clients/setup.js'
 import { summaryOf } from '../tools/handlers.js'
 import { needsWrite } from '../tools/repo.js'
 import { type Fixed, fixedOf, fixedProblems, lostInputs } from './entries.js'
@@ -36,9 +37,11 @@ export const packsHandlers = ({
   tools,
   catalog,
   clients,
+  calls,
   upstreams,
   reads,
   meaning,
+  env,
   listsChanged,
 }: Services) => {
   const packOf = async (name: string) => {
@@ -128,6 +131,18 @@ export const packsHandlers = ({
     }
   }
 
+  /** The newest call by any key that opens the pack, live or revoked. */
+  const lastCallOf = async (pack: PackRow) => {
+    const ids = new Set(await clients.idsOfPack(pack.id))
+    return (
+      (await calls.lastByClient())
+        .filter((row) => ids.has(row.clientId))
+        .map((row) => row.lastAt)
+        .sort()
+        .at(-1) ?? null
+    )
+  }
+
   const detailOf = async (origin: string, pack: PackRow) => {
     const { card, held, toolRows, keys } = await cardOf(origin, pack)
     return {
@@ -143,6 +158,8 @@ export const packsHandlers = ({
         createdAt: key.createdAt,
       })),
       createdAt: pack.createdAt,
+      triedAt: pack.triedAt,
+      lastCallAt: await lastCallOf(pack),
     }
   }
 
@@ -231,6 +248,28 @@ export const packsHandlers = ({
   const get: RouteHandler<Routes['get']> = async (c) => {
     requireOwner(c)
     return c.json(await detailOf(originOf(c), await packOf(c.req.valid('param').name)), 200)
+  }
+
+  const setup: RouteHandler<Routes['setup']> = async (c) => {
+    requireOwner(c)
+    const pack = await packOf(c.req.valid('param').name)
+    const origin = originOf(c)
+    const baseUrl = `${origin}/p/${pack.name}`
+    return c.json(
+      {
+        pack: pack.name,
+        title: pack.title,
+        baseUrl,
+        mcpUrl: `${baseUrl}/mcp`,
+        apiUrl: `${baseUrl}/api`,
+        docsUrl: `${baseUrl}/docs`,
+        guideUrl: `${baseUrl}/llms.txt`,
+        keyPlaceholder: KEY_PLACEHOLDER,
+        surfaces: surfacesOf({ origin, kind: 'key', oauth: Boolean(env.OAUTH_SIGNING_KEY), pack: pack.name }),
+        _links: linksOf(origin, { self: `${PATH}/${pack.name}/setup`, pack: `${PATH}/${pack.name}` }),
+      },
+      200,
+    )
   }
 
   /** Throws 400 naming every fixed value its live tool refuses. */
@@ -395,5 +434,5 @@ export const packsHandlers = ({
     )
   }
 
-  return { flags, list, create, get, update, remove, wording, entry, uses }
+  return { flags, list, create, get, setup, update, remove, wording, entry, uses }
 }

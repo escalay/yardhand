@@ -369,6 +369,104 @@ describe('what agents looked for', () => {
   })
 })
 
+describe('what the pack page stands on', () => {
+  const names = (json: { _embedded: { tools: { name: string }[] } }) => json._embedded.tools.map((tool) => tool.name)
+  let reader = { id: '', key: '' }
+  it('previews a pack as its keys see it, and as one of them', async () => {
+    const made = await owner('/api/packs', {
+      method: 'POST',
+      body: { name: 'loud', title: 'Loud', description: 'Say things back, loudly.' },
+    })
+    expect(made.status).toBe(201)
+    expect(made.json).toMatchObject({ triedAt: null, lastCallAt: null })
+    await owner('/api/packs/loud', {
+      method: 'PATCH',
+      body: { add: { tools: [{ name: 'fixture.echo' }, { name: 'fixture.shout' }] } },
+    })
+    reader = (await owner('/api/clients', { method: 'POST', body: { name: 'loud-reader', pack: 'loud' } })).json
+    const whole = await owner('/api/tools?pack=loud')
+    expect(names(whole.json)).toEqual(['fixture.echo', 'fixture.shout'])
+    // As a key of the pack: no week's calls, and every tool of the pack listed directly
+    expect(whole.json._embedded.tools[0]).toMatchObject({ calls7d: null, pinned: true })
+    expect(names((await owner(`/api/tools?pack=loud&as=${reader.id}`)).json)).toEqual(['fixture.echo'])
+    expect((await owner('/api/tools/fixture.shout?pack=loud')).status).toBe(200)
+    expect((await owner('/api/tools/fixture.whisper?pack=loud')).status).toBe(404)
+    expect((await owner(`/api/tools/fixture.shout?pack=loud&as=${reader.id}`)).status).toBe(404)
+    // A key that doesn't open the pack, a pack that isn't there, and a caller who isn't the owner
+    const stranger = await owner(`/api/tools?pack=loud&as=${agentId}`)
+    expect(stranger.status).toBe(409)
+    expect(stranger.json.detail).toMatch(/isn't locked to packs/)
+    const none = await owner('/api/tools?pack=nope')
+    expect([none.status, none.json.detail]).toEqual([404, 'No pack nope. GET /api/packs lists them.'])
+    const sneaky = await api(agentKey, '/api/tools?pack=loud')
+    expect([sneaky.status, sneaky.json.detail]).toEqual([
+      403,
+      'Only the owner can look as another client or as a pack.',
+    ])
+    // At the pack's own address the owner looks as one of its keys, and only at that pack
+    expect(names((await owner('/p/loud/api/tools')).json)).toEqual(['fixture.echo', 'fixture.shout'])
+    expect(names((await owner(`/p/loud/api/tools?as=${reader.id}`)).json)).toEqual(['fixture.echo'])
+    expect((await owner('/p/loud/api/tools?pack=loud')).status).toBe(200)
+    const elsewhere = await owner('/p/loud/api/tools?pack=quiet')
+    expect([elsewhere.status, elsewhere.json.detail]).toEqual([
+      400,
+      'This request is for the pack loud: look at quiet from the root, GET /api/tools?pack=quiet.',
+    ])
+    expect((await api(reader.key, `/p/loud/api/tools?as=${reader.id}`)).status).toBe(403)
+  })
+
+  it('notes when the owner first tried a pack, and when its keys last called', async () => {
+    const before = (await owner('/api/packs/loud')).json
+    expect(before).toMatchObject({ triedAt: null, lastCallAt: null })
+    // Looking without asking anything is not trying it
+    await owner('/api/tools?pack=loud')
+    expect((await owner('/api/packs/loud')).json.triedAt).toBeNull()
+    const searches = (await owner('/api/searches?limit=500')).json.count
+    expect(names((await owner('/api/tools?pack=loud&q=echo')).json)).toContain('fixture.echo')
+    const tried = (await owner('/api/packs/loud')).json
+    expect(Date.parse(tried.triedAt)).toBeGreaterThan(Date.now() - 60_000)
+    expect(tried.updatedAt).toBe(before.updatedAt)
+    // A preview is not what agents looked for
+    expect((await owner('/api/searches?limit=500')).json.count).toBe(searches)
+    await owner(`/api/tools?pack=loud&as=${reader.id}&q=shout`)
+    expect((await owner('/api/packs/loud')).json.triedAt).toBe(tried.triedAt)
+    await api(reader.key, '/api/calls', { method: 'POST', body: { tool: 'fixture.echo', arguments: { text: 'hi' } } })
+    const used = (await owner('/api/packs/loud')).json
+    expect(used.lastCallAt).toBe((await owner(`/api/clients/${reader.id}`)).json.usage.lastCallAt)
+    expect(used.lastCallAt).toBeTruthy()
+  })
+
+  it('hands out the pack’s address and paste-ready setup for it', async () => {
+    const { status, json } = await owner('/api/packs/loud/setup')
+    expect(status).toBe(200)
+    expect(json).toMatchObject({
+      pack: 'loud',
+      title: 'Loud',
+      baseUrl: 'http://localhost/p/loud',
+      mcpUrl: 'http://localhost/p/loud/mcp',
+      apiUrl: 'http://localhost/p/loud/api',
+      docsUrl: 'http://localhost/p/loud/docs',
+      guideUrl: 'http://localhost/p/loud/llms.txt',
+      keyPlaceholder: '<YOUR_KEY>',
+    })
+    const snippets = Object.fromEntries(
+      json.surfaces.map((surface: { id: string; snippet: string }) => [surface.id, surface.snippet]),
+    )
+    expect(Object.keys(snippets)).toEqual(['claude-code', 'cursor', 'codex', 'curl', 'typescript'])
+    expect(snippets['claude-code']).toContain('gw-loud http://localhost/p/loud/mcp')
+    expect(snippets['claude-code']).toContain('Bearer <YOUR_KEY>')
+    expect(snippets.curl).toContain('http://localhost/p/loud/api/tools?q=')
+    expect(snippets.typescript).toContain("url: 'http://localhost/p/loud'")
+    expect(JSON.stringify(json)).not.toContain(reader.key)
+    expect(json._links).toMatchObject({
+      self: { href: 'http://localhost/api/packs/loud/setup' },
+      pack: { href: 'http://localhost/api/packs/loud' },
+    })
+    expect((await api(agentKey, '/api/packs/loud/setup')).status).toBe(403)
+    expect((await owner('/api/packs/nope/setup')).status).toBe(404)
+  })
+})
+
 describe('the gateway itself', () => {
   it('reports its version, storage and which optional parts are on', async () => {
     const { json } = await owner('/api/system')

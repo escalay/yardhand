@@ -11,10 +11,12 @@ export const packs = sqliteTable('packs', {
   id: text('id').primaryKey(),
   name: text('name').notNull().unique(),
   title: text('title').notNull(),
-  /** What the pack is for, as agents read it: it becomes the server instructions for its keys. */
+  /** What the pack is for, as agents read it: it opens the instructions, guide and docs of the pack's connection. */
   description: text('description').notNull(),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
+  /** When the owner first searched as the pack (`GET /api/tools?pack=`), for its checklist; null until then. */
+  triedAt: text('tried_at'),
 })
 
 export const PACK_REASONS = ['picked', 'named', 'route', 'meaning'] as const
@@ -68,6 +70,7 @@ export const PACKS_MIGRATIONS = [
     select pack_id, tool_name, tool_name, position, description, based_on, reason, via, null from pack_tools;
   drop table pack_tools;
   alter table pack_tools_next rename to pack_tools`,
+  'alter table packs add column tried_at text',
 ] as const
 
 export type PackRow = typeof packs.$inferSelect
