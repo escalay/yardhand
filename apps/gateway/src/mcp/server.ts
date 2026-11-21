@@ -4,6 +4,7 @@
  * names the upstreams this client may use in the server instructions. A pack connection has the same shape under the
  * pack's own name: the meta-tools over the pack, and every tool of the pack listed (or only its key's own pins).
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
   type CallToolResult,
@@ -21,10 +22,11 @@ import { z } from 'zod'
 import { VIA_HEADER } from '../features/calls/handlers.js'
 import { progressSink } from '../features/calls/progress.js'
 import type { Principal } from '../features/clients/principals.js'
-import { pathWith } from '../kit/index.js'
+import { MODERN_PROTOCOL_VERSION, originOf, pathWith } from '../kit/index.js'
 import {
   type AgentMcpFactory,
   type CallApi,
+  FORWARDED,
   type McpPrompt,
   type McpServerInfo,
   type McpTool,
@@ -408,9 +410,16 @@ type Pin = {
   annotations: Record<string, unknown>
 }
 
-export const gatewayMcpFactory = (app: OpenAPIHono, services: Services): AgentMcpFactory => {
+type Served = { info: McpServerInfo; instructions: string; tools: McpTool[]; prompts: McpPrompt[] }
+
+/**
+ * A pack's name and instructions for the kit's own answer to `initialize`, which reads them off the factory and not
+ * off a server built for the request.
+ */
+const packGreeting = new AsyncLocalStorage<Pick<Served, 'info' | 'instructions'>>()
+
+const gatewayMcp = (app: OpenAPIHono, services: Services) => {
   const callApi = viaMcp(app)
-  type Served = { info: McpServerInfo; instructions: string; tools: McpTool[]; prompts: McpPrompt[] }
   const build = ({ info, instructions, tools, prompts }: Served) =>
     mcpServerFactory({ info, instructions, tools, resources: RESOURCES, prompts, callApi })
   const gateway = {
@@ -431,8 +440,8 @@ export const gatewayMcpFactory = (app: OpenAPIHono, services: Services): AgentMc
     prompts: promptsFor(pack),
   })
   const base = build({ ...gateway, instructions: INSTRUCTIONS })
-  const factory = async (ctx: McpRequestContext) => {
-    const auth = ctx.authInfo
+  /** What this caller is served: the gateway, or its pack under the pack's own name. */
+  const servedFor = async (auth: Auth) => {
     const me = await callApi({ path: '/api/me' }, auth)
     const caller = me.ok ? ((await me.json()) as Me) : null
     const pack = caller?.pack ?? null
@@ -446,7 +455,12 @@ export const gatewayMcpFactory = (app: OpenAPIHono, services: Services): AgentMc
             connections,
           })
         : instructionsFor(connections, caller?.scope)
-    const server = (await build({ ...(pack ? packServed(pack) : gateway), instructions })(ctx)) as McpServer
+    return { caller, pack, served: { ...(pack ? packServed(pack) : gateway), instructions } }
+  }
+  const factory = async (ctx: McpRequestContext) => {
+    const auth = ctx.authInfo
+    const { caller, pack, served } = await servedFor(auth)
+    const server = (await build(served)(ctx)) as McpServer
     server.registerTool(
       'call_tool',
       {
@@ -524,17 +538,48 @@ export const gatewayMcpFactory = (app: OpenAPIHono, services: Services): AgentMc
     }
     return server
   }
-  return Object.assign(factory, {
-    info: base.info,
-    tools: base.tools,
-    resources: base.resources,
-    instructions: base.instructions,
-    prompts: base.prompts,
-  }) as unknown as AgentMcpFactory
+  // Read per request, so a pack connection's greeting is the pack's; everything else is the gateway's
+  Object.defineProperties(factory, {
+    info: { enumerable: true, get: () => packGreeting.getStore()?.info ?? base.info },
+    instructions: { enumerable: true, get: () => packGreeting.getStore()?.instructions ?? base.instructions },
+  })
+  return {
+    factory: Object.assign(factory, {
+      tools: base.tools,
+      resources: base.resources,
+      prompts: base.prompts,
+    }) as unknown as AgentMcpFactory,
+    servedFor,
+  }
 }
 
 export const mountGatewayMcp = (
   app: OpenAPIHono,
   services: Services,
   { allowedHostnames }: { allowedHostnames: string[] },
-) => mountMcp(app, { factory: gatewayMcpFactory(app, services), allowedHostnames })
+) => {
+  const { factory, servedFor } = gatewayMcp(app, services)
+  // A 2026-07-28 client that still opens with `initialize` is greeted by the kit from the factory: as the pack, when
+  // the caller is served one. Only that one request pays for the look.
+  app.use('/mcp', async (c, next) => {
+    if (c.req.method !== 'POST' || c.req.header('mcp-protocol-version') !== MODERN_PROTOCOL_VERSION) return next()
+    const message = (await c.req.raw
+      .clone()
+      .json()
+      .catch(() => null)) as { method?: string } | null
+    if (message?.method !== 'initialize') return next()
+    const origin = new URL(originOf(c))
+    const forwarded = FORWARDED.flatMap((name) => {
+      const value = c.req.header(name)
+      return value ? [[name, value]] : []
+    })
+    const headers = {
+      ...Object.fromEntries(forwarded),
+      'x-forwarded-proto': origin.protocol.slice(0, -1),
+      'x-forwarded-host': origin.host,
+    }
+    const { pack, served } = await servedFor({ extra: { headers } } as unknown as Auth)
+    return pack ? packGreeting.run({ info: served.info, instructions: served.instructions }, next) : next()
+  })
+  return mountMcp(app, { factory, allowedHostnames })
+}

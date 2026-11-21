@@ -39,7 +39,7 @@ export const pins = sqliteTable(
   (table) => [primaryKey({ columns: [table.clientId, table.toolName] })],
 )
 
-/** Every pack a key opens, each at `/mcp/p/<pack>`; `clients.pack_id` names the default among them. */
+/** Every pack a key opens, each at `/p/<pack>/`; `clients.pack_id` names the default among them. */
 export const clientPacks = sqliteTable(
   'client_packs',
   {

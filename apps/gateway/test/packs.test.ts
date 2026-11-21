@@ -921,6 +921,35 @@ describe('a pack at its own address', () => {
     await root.close()
   })
 
+  it('greets a client that still opens with initialize as the pack, too', async () => {
+    // A 2026-07-28 client has no initialize; one sent out of habit is answered with what server/discover would say
+    const greeted = async (bearer: string, path: string) => {
+      const answer = await at(bearer, path, {
+        method: 'POST',
+        headers: { accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2026-07-28' },
+        body: {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 't', version: '1' } },
+        },
+      })
+      expect(answer.status).toBe(200)
+      return answer.json.result as { serverInfo: { name: string; title: string }; instructions: string }
+    }
+    const loud = await greeted(key, '/p/loud/mcp')
+    expect(loud.serverInfo).toMatchObject({ name: 'loud', title: 'Loud' })
+    expect(loud.instructions).toMatch(/^Loud: Say things back, loudly\./)
+    expect(loud.instructions).toContain('- fixture: Fixture (2 tools, 1 playbook) [manual]')
+    expect(loud.instructions).toContain('no initialize or session is needed')
+    expect((await greeted(key, '/mcp/p/loud')).serverInfo.name).toBe('loud')
+    expect((await greeted(key, '/mcp')).serverInfo.name).toBe('desk')
+    expect((await greeted(OWNER, '/p/loud/mcp')).serverInfo.name).toBe('loud')
+    const root = await greeted(OWNER, '/mcp')
+    expect(root.serverInfo).toMatchObject({ name: 'yardhand', title: 'Yardhand' })
+    expect(root.instructions).toMatch(/^Yardhand: one MCP server in front of many\./)
+  })
+
   it('introduces itself as the pack at /api, and offers the owner a look as one of its keys', async () => {
     const home = (await api(key, '/p/loud/api')).json
     expect(home).toMatchObject({ name: 'Loud', upstreams: 1 })
