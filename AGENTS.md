@@ -124,6 +124,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   `client_packs` row is that person in that pack. `standingOf` (`features/clients/lifetimes.ts`) is the one rule for
   where their access stands: `ending` in its last three days, `ended` and still listed for 30 days after its end,
   then gone, as a revoked key is at once. A pack's `keys + ended` is the number People lists (`listedOf`).
+  `endingAccess` (`features/clients/ending.ts`) is everyone `ending`, each by their default pack: Home's
+  `access_ending` nudge and the hourly webhook notice (`accessNotifier` in `jobs.ts`, once per end) both read it.
 - **Share**: making one person's key for one pack (`POST /api/packs/{name}/people`): read only and 30 days unless
   said, answered with a message ready to send (`features/packs/share.ts`), the key in it and shown once. Every key
   client is made by `principals.issue`.
