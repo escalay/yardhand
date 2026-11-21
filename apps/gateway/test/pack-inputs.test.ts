@@ -113,6 +113,13 @@ describe('the three modes of an input', () => {
   })
   afterAll(() => client.close())
 
+  it('tells the pack’s keys, in the pack’s own guide, how the inputs it sets read to them', async () => {
+    const guide = await app.request('/p/desk/llms.txt', { headers: { authorization: `Bearer ${desk}` } })
+    const text = (await guide.text()).replace(/\s+/g, ' ')
+    expect(text).toContain("An input the pack fills itself is not in the tool's schema")
+    expect(text).toContain('An input the pack gives a default shows that default in the schema')
+  })
+
   it('tells the owner the mode of every input, in the tool’s own order', async () => {
     const pack = (await owner('/api/packs/desk')).json
     expect(pack.variables).toEqual([])
