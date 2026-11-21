@@ -295,6 +295,65 @@ describe('a key locked to a pack', () => {
     expect(refused.json.detail).toContain('quiet-agent')
   })
 
+  it('has its own guide: the pack’s tools in its wording, and nothing of the gateway’s', async () => {
+    const guide = await at(quiet, '/p/quiet/llms.txt')
+    expect(guide.status).toBe(200)
+    expect(guide.headers.get('content-type')).toContain('text/markdown')
+    expect(guide.headers.get('cache-control')).toBe('private, no-cache')
+    expect(guide.text).toMatch(/^# Quiet\n\nOnly echo\./)
+    expect(guide.text).toContain('- `fixture.echo`: Says your words back. Use it to check the line.')
+    expect(guide.text).toContain('- `fixture-warm-up`')
+    expect(guide.text).toContain('http://localhost/p/quiet/mcp')
+    expect(guide.text).toContain('http://localhost/p/quiet/api')
+    expect(guide.text).not.toContain('fixture.shout')
+    expect(guide.text).not.toContain('/api/clients')
+    expect(guide.text).not.toContain('## Manuals')
+    // The owner reads it too, at the pack's address
+    expect((await at(OWNER, '/p/quiet/llms.txt')).text).toMatch(/^# Quiet/)
+  })
+
+  it('has its own OpenAPI document and docs page', async () => {
+    const doc = await at(quiet, '/p/quiet/openapi.json')
+    expect(doc.status).toBe(200)
+    expect(doc.headers.get('cache-control')).toBe('private, no-cache')
+    expect(doc.json.info).toMatchObject({ title: 'Quiet' })
+    expect(doc.json.info.description).toContain('Only echo.')
+    expect(doc.json.servers[0].url).toBe('http://localhost/p/quiet')
+    expect(doc.json.paths['/api/tools/fixture.echo/calls'].post.description).toBe(
+      'Says your words back. Use it to check the line.',
+    )
+    const paths = Object.keys(doc.json.paths)
+    expect(paths).toEqual(expect.arrayContaining(['/api', '/api/tools', '/api/calls', '/api/playbooks']))
+    expect(paths.filter((path) => /clients|packs|pins|system|shout/.test(path))).toEqual([])
+    const docs = await at(quiet, '/p/quiet/docs')
+    expect(docs.status).toBe(200)
+    expect(docs.headers.get('content-type')).toContain('text/html')
+    expect(docs.headers.get('cache-control')).toBe('private, no-cache')
+    expect(docs.text).toContain('/p/quiet/openapi.json')
+    expect(docs.text).toContain('Quiet — API')
+    for (const path of ['/p/quiet', '/p/quiet/']) {
+      const front = await at(quiet, path)
+      expect([front.status, front.headers.get('location')]).toEqual([302, '/p/quiet/docs'])
+    }
+  })
+
+  it('keeps a pack’s pages to those who open it', async () => {
+    const outside = await keyFor({ name: 'not-in-packs', upstreams: 'all' })
+    for (const path of ['/p/Quiet/docs', `/p/${'q'.repeat(41)}/docs`, '/p/quiet/docs/more'])
+      for (const key of [quiet, outside.key, OWNER]) expect([path, (await at(key, path)).status]).toEqual([path, 404])
+    // A key that doesn't open the pack is told which it does; a pack that isn't there, that it isn't
+    for (const path of ['/p/loud', '/p/loud/docs', '/p/loud/llms.txt', '/p/loud/openapi.json']) {
+      const refused = await at(quiet, path)
+      expect([path, refused.status]).toEqual([path, 403])
+      expect(refused.json.detail).toContain("doesn't open the pack loud")
+    }
+    expect((await at(outside.key, '/p/quiet/llms.txt')).status).toBe(403)
+    expect((await at(OWNER, '/p/nope/docs')).json.detail).toBe('No pack nope. GET /api/packs lists them.')
+    // The gateway's own guide and docs stay where they were
+    expect((await at(quiet, '/llms.txt')).text).not.toMatch(/^# Quiet/)
+    await owner(`/api/clients/${outside.id}`, { method: 'DELETE' })
+  })
+
   it('stops working when it expires, and says so', async () => {
     await db.run(
       sql`update clients set expires_at = ${new Date(Date.now() - 1000).toISOString()} where id = ${quietId}`,
@@ -884,6 +943,40 @@ describe('a pack at its own address', () => {
     })
     expect((await owner('/api')).json).toMatchObject({ name: 'Yardhand' })
     expect((await owner('/api')).json._links.seeAs).toBeUndefined()
+  })
+
+  it('can be walked from /p/<pack>/api without ever leaving the pack’s address', async () => {
+    const inside = 'http://localhost/p/loud/'
+    const seen = new Set<string>()
+    const queue = [`${inside}api`]
+    const left: string[] = []
+    const failed: [string, number][] = []
+    while (queue.length) {
+      const href = queue.shift() as string
+      if (seen.has(href)) continue
+      seen.add(href)
+      if (!href.startsWith(inside)) {
+        left.push(href)
+        continue
+      }
+      const answer = await at(key, href.slice('http://localhost'.length))
+      if (answer.status !== 200) failed.push([href, answer.status])
+      const links = [
+        answer.json ?? {},
+        ...Object.values((answer.json?._embedded ?? {}) as Record<string, object[]>).flat(),
+      ]
+        .flatMap((item: Linked & { _links?: Record<string, { href: string; templated?: boolean }> }) =>
+          Object.entries(item._links ?? {}),
+        )
+        .filter(([rel, link]) => rel !== 'call' && rel !== 'mcp' && !link.templated)
+      queue.push(...links.map(([, link]) => link.href))
+    }
+    expect(left).toEqual([])
+    expect(failed).toEqual([])
+    // The pack's documents were among them
+    for (const page of ['openapi.json', 'docs', 'llms.txt', 'api/tools/openapi.json', 'api/calls'])
+      expect(seen).toContain(`${inside}${page}`)
+    expect(seen.size).toBeGreaterThan(15)
   })
 
   it('links a call to its tool only under a name the pack holds', async () => {

@@ -12,6 +12,7 @@ import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { packChoice, packLinks, withPackAddresses } from './features/clients/pack-choice.js'
 import { callerOf } from './features/clients/principals.js'
 import { FEATURES } from './features/index.js'
+import { mountPackDocs } from './features/packs/docs.js'
 import { createSessionAuth, sessionFeature, type Unclaimed } from './features/session/index.js'
 import { sessionsRepo } from './features/session/repo.js'
 import type { MeaningSearch } from './features/tools/meaning.js'
@@ -143,6 +144,8 @@ export const createApp = async ({
   app.use('/api/*', (c, next) => traceContext.run(parseTraceparent(c.req.header('traceparent')), next))
   for (const feature of features) feature.register(app, services)
   serveGuide(app, { files: GUIDE_FILES, vars: () => ({}), full: ['llms.txt'] })
+  // Each pack's own guide, OpenAPI document and docs page, at its address
+  mountPackDocs(app, services)
   const mcp = mountGatewayMcp(app, services, {
     allowedHostnames: [new URL(services.publicOrigin).hostname, 'localhost', '127.0.0.1'],
   })
