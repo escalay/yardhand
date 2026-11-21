@@ -90,16 +90,16 @@ export const recheckOf = (pack: { flags: number; ownPlaybooks: Flagged[]; skill:
   return { tools: Math.max(0, pack.flags - playbooks - (skill ? 1 : 0)), playbooks, skill }
 }
 
-/** "2 tools, 1 playbook and the skill to recheck", or null when nothing is flagged. */
+/** "2 tools, 1 playbook and the skill to recheck", "The skill to recheck", or null when nothing is flagged. */
 export const recheckLine = ({ tools, playbooks, skill }: ReturnType<typeof recheckOf>) => {
   const parts = [
     ...(tools ? [countOf(tools, 'tool')] : []),
     ...(playbooks ? [countOf(playbooks, 'playbook')] : []),
     ...(skill ? ['the skill'] : []),
   ]
-  return parts.length
-    ? `${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]} to recheck`
-    : null
+  if (!parts.length) return null
+  const listed = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : `${parts[0]}`
+  return `${listed.charAt(0).toUpperCase()}${listed.slice(1)} to recheck`
 }
 
 /** Why a tool is in the pack, in words: who put it there. */

@@ -85,6 +85,7 @@ describe('packs', () => {
     expect(recheckLine(all)).toBe('2 tools, 2 playbooks and the skill to recheck')
     expect(recheckLine(recheckOf({ flags: 1, ownPlaybooks: [], skill: null }))).toBe('1 tool to recheck')
     expect(recheckLine(recheckOf({ flags: 1, ownPlaybooks: [own(true)], skill: null }))).toBe('1 playbook to recheck')
+    expect(recheckLine(recheckOf({ flags: 1, ownPlaybooks: [], skill: own(true) }))).toBe('The skill to recheck')
     expect(recheckLine(recheckOf({ flags: 2, ownPlaybooks: [], skill: own(true) }))).toBe(
       '1 tool and the skill to recheck',
     )

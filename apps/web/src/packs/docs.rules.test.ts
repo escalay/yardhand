@@ -212,14 +212,21 @@ describe('what the checks found, in words', () => {
     expect(findingsLine([notInPack, notInPack])).toBe('2 problems to fix before it can be saved')
   })
 
-  it('says each as a sentence, and a long playbook in the app’s own words', () => {
+  it('says each as a sentence, a name left as it is written, and a long playbook in the app’s own words', () => {
+    // A sentence that opens with a name or a place keeps its case: names are told apart by it
+    expect(findingText(finding('error', 'bad_front_matter', 'guest is an argument twice: keep one'))).toBe(
+      'guest is an argument twice: keep one.',
+    )
+    expect(
+      findingText(finding('warning', 'missing_section', 'no section Gotchas: add each as a `## ` heading.', 'skill')),
+    ).toBe('No section Gotchas: add each as a `## ` heading.')
     expect(findingText(notInPack)).toBe(notInPack.message)
     expect(
       findingText(finding('error', 'empty', 'the playbook has no text under its front matter: write its steps.')),
     ).toBe('The playbook has no text under its front matter: write its steps.')
     expect(
       findingText(finding('error', 'bad_front_matter', 'arguments.0 has no name: give it one, like `name: guest`')),
-    ).toBe('Arguments.0 has no name: give it one, like `name: guest`.')
+    ).toBe('arguments.0 has no name: give it one, like `name: guest`.')
     expect(
       findingText(finding('error', 'unresolved', '{{guest}} is no variable of Loud: declare it, or take it out.')),
     ).toBe('{{guest}} is no variable of Loud: declare it, or take it out.')
@@ -245,7 +252,7 @@ describe('a flag on a playbook or the skill', () => {
   it('can be cleared by saving the text as it is when its tool only changed', () => {
     expect(flagAdvice([])).toEqual({
       keep: true,
-      text: 'Agents keep reading it as it is. Read it again: saving it, changed or not, clears this.',
+      text: 'Agents keep reading it as it is. Read it again: saving it, changed or not, clears this, unless a tool it names is not live.',
     })
     expect(flagAdvice([needsWrite]).keep).toBe(true)
   })

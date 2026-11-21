@@ -148,12 +148,14 @@ export const findingsLine = (findings: Finding[]) => {
   ].join(' · ')
 }
 
+/** The findings whose sentence opens with a plain word; any other may open with a name, which keeps its case. */
+const OPENS_PLAIN = new Set(['empty', 'missing_section'])
+
 /** One finding as a sentence. A playbook past its steps is said in the app's words, with the gateway's count. */
 export const findingText = ({ code, message }: Pick<Finding, 'code' | 'message'>) => {
   const steps = code === 'split' ? /^(\d+) steps/.exec(message)?.[1] : undefined
-  return steps
-    ? `This playbook has ${steps} steps. Agents follow about 12 well: split it in two.`
-    : stop(`${message.charAt(0).toUpperCase()}${message.slice(1)}`)
+  if (steps) return `This playbook has ${steps} steps. Agents follow about 12 well: split it in two.`
+  return stop(OPENS_PLAIN.has(code) ? `${message.charAt(0).toUpperCase()}${message.slice(1)}` : message)
 }
 
 /** A refused save as lines to show: each problem it lists, or its own sentence when it lists none. */
@@ -164,7 +166,8 @@ export const refusedLines = (refused: { message: string; errors: { path: string;
 
 /**
  * What a flagged text asks of the owner, from what the checks find in it as stored: saving it as it is clears the
- * flag, unless it still names a tool the pack no longer has, which that save refuses.
+ * flag, unless it still names a tool the pack no longer has, which that save refuses. A tool that is not live keeps
+ * the flag whatever is saved, and nothing in the pack answer tells that case apart.
  */
 export const flagAdvice = (findings: Finding[]) =>
   findings.some((finding) => finding.level === 'error')
@@ -174,7 +177,7 @@ export const flagAdvice = (findings: Finding[]) =>
       }
     : {
         keep: true,
-        text: 'Agents keep reading it as it is. Read it again: saving it, changed or not, clears this.',
+        text: 'Agents keep reading it as it is. Read it again: saving it, changed or not, clears this, unless a tool it names is not live.',
       }
 
 /** "3 steps · takes guest, door". */

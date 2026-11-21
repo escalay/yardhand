@@ -115,7 +115,9 @@ describe('what is written for a pack', () => {
     show({ ownPlaybooks: [{ ...sayHello, flag: changed }] as never })
     expect(screen.getByText('It was written for echo.echo, which changed or left the pack since')).toBeTruthy()
     expect(screen.getByText('echo.echo now reads: Echoes, loudly.')).toBeTruthy()
-    expect(screen.getByText(/Read it again: saving it, changed or not, clears this\./)).toBeTruthy()
+    expect(
+      screen.getByText(/Read it again: saving it, changed or not, clears this, unless a tool it names is not live\./),
+    ).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Save say-hello as it is' }))
     await waitFor(() =>
       expect(PUT).toHaveBeenCalledWith('/api/packs/{name}/playbooks/{playbook}', {
