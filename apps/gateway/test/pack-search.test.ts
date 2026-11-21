@@ -545,7 +545,8 @@ describe('on a gateway with more tools than one list reads', () => {
     full = await keyFor({ name: 'laptop', upstreams: 'all' })
     elsewhere = await keyFor({ name: 'tablet', upstreams: ['bulk-001'] })
     expect((await api(OWNER, '/api/tools?upstream=bulk-025&limit=1')).json.count).toBe(1)
-  })
+    // 5,001 tools take longer to write than a hook is given by default, on a slow machine
+  }, 60_000)
 
   it('finds a tool wherever its name sorts, by its words and by meaning', async () => {
     expect(await found(full, 'whispers a quiet note')).toEqual(['zed.whisper_note'])
