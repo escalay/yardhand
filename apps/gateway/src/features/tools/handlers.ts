@@ -260,11 +260,13 @@ export const toolsHandlers = ({
           via: viaOf(c),
         })
         .catch(() => {})
-    // Matches a read-only key can't see, counted so it knows they exist and why
+    // Matches a read-only key can't see, counted as it would read them, so it knows they exist and why
     const hiddenForScope =
       principal.scope === 'write'
         ? 0
-        : candidates.filter((tool) => inUpstream(tool) && reachable(tool) && !visible(tool)).length
+        : candidates
+            .filter((tool) => inUpstream(tool) && reachable(tool) && !visible(tool))
+            .flatMap((tool) => shownAs(principal, tool)).length
     // Only when nothing in the whole pack matched: a narrowed search, or one whose matches are hidden, says so itself
     const hint =
       searched && principal.pack && !searched.found.length && !upstream && !group

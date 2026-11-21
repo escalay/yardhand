@@ -45,6 +45,16 @@ describe('search_tools, when nothing matches', () => {
     expect(said).toMatch(/kit-warm-up: Kit · Warm up\. A first call\.$/)
   })
 
+  it('says how many matches a read-only key is not shown, one in the singular', () => {
+    const plain = 'Try other words, or list_upstreams to see what is connected.'
+    expect(read({ ...nothing, hiddenForScope: 1 })).toBe(
+      `No tools match.\n\n1 more matching tool changes things and is hidden from this read-only key. ${plain}`,
+    )
+    expect(read({ ...nothing, hiddenForScope: 2 })).toBe(
+      `No tools match.\n\n2 more matching tools change things and are hidden from this read-only key. ${plain}`,
+    )
+  })
+
   it('keeps its plain answer without a hint', () => {
     expect(read(nothing)).toBe('No tools match. Try other words, or list_upstreams to see what is connected.')
   })

@@ -73,7 +73,7 @@ export const META_TOOLS: McpTool[] = [
     }),
     summarize: (json: Found) => {
       const hidden = json.hiddenForScope
-        ? `\n\n${json.hiddenForScope} more matching tools change things and are hidden from this read-only key.`
+        ? `\n\n${countOf(json.hiddenForScope, 'more matching tool')} ${json.hiddenForScope === 1 ? 'changes things and is' : 'change things and are'} hidden from this read-only key.`
         : ''
       const playbooks = json.playbooks.length
         ? `\n\nPlaybooks made for this (step-by-step ways to do it with these tools; get_playbook):\n${json.playbooks.map((playbook) => `${playbook.name}: ${playbook.title}. ${playbook.description}`).join('\n')}`

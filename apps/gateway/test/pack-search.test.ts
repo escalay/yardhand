@@ -290,7 +290,7 @@ describe('on a large catalog', () => {
     await agent.close()
     const reader = await mcp(kitReader)
     expect(await said(reader, 'search_tools', { query: 'yell' })).toBe(
-      `No tools match.\n\n1 more matching tools change things and are hidden from this read-only key. ${plain}`,
+      `No tools match.\n\n1 more matching tool changes things and is hidden from this read-only key. ${plain}`,
     )
     await reader.close()
     const outside = await mcp(full)
@@ -389,6 +389,19 @@ describe('on a catalog too small to tell a match from noise', () => {
     }
     expect(await small.found(kit, 'parrot')).toHaveLength(4)
     expect((await small.found(kit, 'shout'))[0]).toBe('fixture.shout')
+  })
+
+  it('counts what a read-only key is not shown as the pack names it: one tool under two names is two', async () => {
+    const tools = [
+      { name: 'fixture.shout', alias: 'shout_once' },
+      { name: 'fixture.shout', alias: 'shout_twice' },
+    ]
+    await small.made('/api/packs', { name: 'loud', title: 'Loud', description: 'Shouts.' })
+    await small.made('/api/packs/loud', { add: { tools } }, 'PATCH')
+    const writer = await small.keyFor({ name: 'loud-agent', pack: 'loud' })
+    const reader = await small.keyFor({ name: 'loud-reader', pack: 'loud', scope: 'read' })
+    expect((await small.api(writer, '/api/tools?q=shout')).json).toMatchObject({ count: 2, hiddenForScope: 0 })
+    expect((await small.api(reader, '/api/tools?q=shout')).json).toMatchObject({ count: 0, hiddenForScope: 2 })
   })
 })
 

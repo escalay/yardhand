@@ -80,7 +80,7 @@ export const ToolListSchema = z
     query: z.string().nullable(),
     hiddenForScope: z.number().int().openapi({
       description:
-        'Matching tools left out because they change things and this key is read-only; the owner can grant write scope or mark a tool read-only.',
+        'Matching tools left out because they change things and this key is read-only, counted as `count` counts them; the owner can grant write scope or mark a tool read-only.',
     }),
     hint: z
       .object({

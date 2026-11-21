@@ -1988,7 +1988,7 @@ export interface components {
             /** @description How many tools are returned, as this caller reads them: a pack tool under two names counts twice. 0 when a search matches nothing. */
             count: number;
             query: string | null;
-            /** @description Matching tools left out because they change things and this key is read-only; the owner can grant write scope or mark a tool read-only. */
+            /** @description Matching tools left out because they change things and this key is read-only, counted as `count` counts them; the owner can grant write scope or mark a tool read-only. */
             hiddenForScope: number;
             /** @description For a pack key whose search matched nothing in the whole pack: what the pack covers, to ask again by or to tell the person it can’t be done here. Null otherwise, also when the search was narrowed by `upstream` or `group` or its matches are hidden for scope. */
             hint: {
