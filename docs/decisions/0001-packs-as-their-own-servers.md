@@ -229,7 +229,7 @@ Server: Career
 
 ## Consequences
 
-- Every key's search changes with the standout bar; logged searches are replayed to pick it, and the result goes in
+- Every key's search changes with the standout bar; logged searches were replayed to check it, and the result is in
   the release notes.
 - Existing pack connections change shape: their tools are found by search, not all listed. The release notes say so.
 - A public sign-in path exists for the first time. It is its own security review before release: invites single-use
