@@ -197,6 +197,14 @@ describe('renaming a pack', () => {
       body: { packs: ['shed', 'desk', 'nope'] },
     })
     expect([repacked.status, repacked.json.detail]).toEqual([400, `${moved} ${unknown('nope')}`])
+    // Looking as a client in a pack: the old name is not one it opens, and the owner is told why
+    const looked = await owner(`/api/tools?as=${sam.id}&pack=shed`)
+    expect([looked.status, looked.json.detail]).toEqual([404, moved])
+    const nowhere = await owner(`/api/tools?as=${sam.id}&pack=nope`)
+    expect([nowhere.status, nowhere.json.detail]).toEqual([
+      409,
+      `The client Sam doesn't open the pack nope. It opens garden: look as it in one of those from the root, GET /api/tools?as=${sam.id}&pack=<name>.`,
+    ])
     // A key is told nothing of the kind: these are the owner's routes
     const asked = await at(sam.key, '/api/packs/shed')
     expect(asked.status).toBe(403)
@@ -402,6 +410,18 @@ describe('the old address of a renamed pack', () => {
       'This request is for the pack garden only: manage the gateway at /api or in /app, without a pack.',
     ])
     expect((await owner('/p/nope/api/me')).json.detail).toBe(unknown('nope'))
+    // `pack` may say the name the address was asked by, or the one it has now: both are this pack
+    const byNow = await owner('/p/shed/api/tools?pack=garden')
+    expect([byNow.status, namesOf(byNow.json._embedded.tools)]).toEqual([200, ['fixture.echo', 'fixture.shout']])
+    for (const query of ['pack=shed', `as=${sam.id}&pack=shed`]) {
+      const byOld = await owner(`/p/shed/api/tools?${query}`)
+      expect([query, byOld.status, byOld.json._embedded]).toEqual([query, 200, byNow.json._embedded])
+    }
+    const other = await owner('/p/shed/api/tools?pack=desk')
+    expect([other.status, other.json.detail]).toEqual([
+      400,
+      'This request is for the pack garden: look at desk from the root, GET /api/tools?pack=desk.',
+    ])
   })
 
   it('notes who still comes by it, until they come by the new one', async () => {
