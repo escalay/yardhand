@@ -10,8 +10,9 @@ using a pack key day to day showed where it stops feeling like a server of its o
 
 - **Search returns noise.** Search by meaning ranks every tool with no floor (`nearest()`), keeps the top 100 of the
   caller's *connections*, then fuses with keyword hits by rank. On a full catalog real matches bury the noise; in a
-  20-tool pack the noise is all there is. A nonsense query returns seven tools, and a pack tool that ranks below 100
-  inside a 1,000-tool connection is lost even when it is the right one.
+  20-tool pack the noise is all there is. A nonsense query returns seven tools. The noise comes from the missing
+  floor, not from the cut at 100: replaying logged searches, the cut only ever dropped weak rows, never a right
+  answer, so it is removed and nothing is lost with it.
 - **Counts leak the catalog.** `list_upstreams` and `GET /api/upstreams` give a pack key a connection's full tool,
   playbook and manual counts (1,036 tools where the pack holds ten).
 - **It is still called Yardhand**, its docs (`/llms.txt`, `/docs`) describe the whole gateway, and MCP, REST and docs
@@ -37,11 +38,20 @@ using a pack key day to day showed where it stops feeling like a server of its o
   the pack's tool, playbook and manual counts.
 - **Search that can say "nothing".** Search by meaning uses the kit's `standouts()`: every tool is scored, so the
   spread is the whole catalog's, and `keep` then limits it to the tools this caller is listed (`seenBy`), not to their
-  connections. Never compute the bar over the pack alone: 20 rows can't reach z 3.5. `names()` stays as it is for smart
-  inclusion, which wants an answer every time. The bar (`minZ`, `minScore`) is chosen by replaying logged searches
-  (the search log behind "agents looked for") before release, since it changes every key's search.
-- **An empty search helps.** `count: 0` and, for a pack, "Nothing in Career matches 'logos'. This pack covers: job
-  search, inbox, talks." (from the groups of the pack's tools), not "try list_upstreams".
+  connections. Never compute the bar over the pack alone: scored against the pack's own tools, right answers and
+  off-topic questions score alike (medians about z 2.0 to 2.4), while against the whole catalog the same right answers
+  score about 4.9 to 6.2. `names()` stays as it is for smart inclusion, which wants an answer every time. The bar is
+  the kit's own, which rises with the catalog (3.5 at the size replayed), with no `minZ` or `minScore` set: logged
+  searches (the search log behind "agents looked for") were replayed before release, since it changes every key's
+  search.
+- **A keyword hit must be near too.** A tool the words found counts only when it scores z 2.0 or more against the
+  whole catalog. Asking for every word instead cost right answers in the replay; this floor cost none. A tool with
+  no score yet (new since the last embedding run) is kept. The owner's own search boxes in the app are the exception:
+  they filter on half-typed words and connection ids, which no meaning scores, so there every keyword hit counts.
+- **Small catalogs search as before.** Under 50 tools there is no bar to hold a tool to: search answers with the
+  nearest tools and every keyword hit, kept to the caller's own tools. The same goes without search by meaning.
+- **An empty search helps.** `count: 0` and, for a pack, "Nothing in Career matches 'taxes'. This pack covers: job
+  search, inbox, notes." (from the groups of the pack's tools), not "try list_upstreams".
 - **Building is checked as you go.** The pack page's Overview carries a four-step checklist (describe it, add tools,
   try it, connect), a **Try it** panel that searches exactly as a pack key does, and an **Address** card with setup
   per app. The owner at a pack address is offered "See it as Sam would" instead of a refusal.
@@ -124,9 +134,9 @@ The owner's side, in order of a first pack.
 │  2  mail.search_threads         Find email threads by words or sender
 │     2 tools stood out · 18 others didn't match
 │
-│  [ logos                                                       ] [ Search ]
-│  Nothing in Career matches "logos".
-│  This pack covers: job search, inbox, talks.            [ Add tools ]
+│  [ taxes                                                       ] [ Search ]
+│  Nothing in Career matches "taxes".
+│  This pack covers: job search, inbox, notes.            [ Add tools ]
 ```
 
 ```
@@ -176,7 +186,7 @@ The other person's side.
 ```
 ┌─ gw.example.com/p/career/join/K7Q-4MD ───────────────────────────────
 │   Career
-│   Job search: find postings, read replies, prep with talks.
+│   Job search: find postings, read replies, prep with notes.
 │   Ada invited Sam · read only · until 21 Dec · city: Lisbon [ change ]
 │   Add it to:  claude.ai │ ChatGPT │ Claude Code │ Cursor
 │   1  Settings › Connectors › Add custom connector
@@ -196,10 +206,10 @@ What the agent sees:
 
 ```
 Server: Career
-> search_tools "logos"
-  Nothing in Career matches "logos". This pack covers: job search, inbox, talks.
+> search_tools "taxes"
+  Nothing in Career matches "taxes". This pack covers: job search, inbox, notes.
 > list_upstreams
-  jobs: Jobs board, 6 tools · mail: Mail, 4 tools · talks: Talks archive, 10 tools
+  jobs: Jobs board, 6 tools · mail: Mail, 4 tools · notes: Notes, 10 tools
 > call_tool …   (after 21 Dec)
   Your access to Career ended on 21 Dec. Ask Ada for a new invite.
 ```
@@ -208,7 +218,8 @@ Server: Career
 
 - **A pack lists all its tools and drops search.** Simpler and noise-free, but a pack must work like the gateway,
   REST and docs included, and a large pack would flood an agent's context.
-- **Compute the search bar over the pack.** Twenty rows give no stable spread; nearly every query would return nothing.
+- **Compute the search bar over the pack.** Against the pack alone a right answer and an off-topic question score
+  alike, so no bar tells them apart.
 - **A subdomain per pack.** The most "own server" feel, but a wildcard DNS name and certificate per install.
 - **Keep the sign-in behind the owner's front door and add each person to it.** Strong, but per-install work for
   every share, and installs without such a door get nothing.
@@ -219,7 +230,7 @@ Server: Career
 
 ## Consequences
 
-- Every key's search changes with the standout bar; logged searches are replayed to pick it, and the result goes in
+- Every key's search changes with the standout bar; logged searches were replayed to check it, and the result is in
   the release notes.
 - Existing pack connections change shape: their tools are found by search, not all listed. The release notes say so.
 - A public sign-in path exists for the first time. It is its own security review before release: invites single-use

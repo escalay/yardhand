@@ -119,7 +119,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Playbooks',
     description:
-      'Prompts the upstreams you may use offer, as playbooks: a ready-made way to do one task. Search with `q` (what you want to do).',
+      'Prompts the upstreams you may use offer, as playbooks: a ready-made way to do one task. Search with `q` (what you want to do), among the playbooks you may read: a pack key searches its pack’s own.',
     request: {
       query: z.object({
         q: z.string().max(200).optional().openapi({ description: 'What you want to do.', example: 'plan a dinner' }),
@@ -197,7 +197,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Kinds of links',
     description:
-      'The resource templates and listed resources of the upstreams you may use: the links their tools return, which GET /api/resources?uri=… reads.',
+      'The resource templates and listed resources of the upstreams you may use: the links their tools return, which GET /api/resources?uri=… reads. Empty for a pack key, which opens only the links its tools returned in the last day.',
     request: { query: z.object({ upstream: upstreamFilter }) },
     responses: { 200: ok('Links.', LinkListSchema), ...problemResponses(400, 401, 403) },
   }),

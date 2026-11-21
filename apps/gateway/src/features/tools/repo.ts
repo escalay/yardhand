@@ -271,16 +271,21 @@ export const toolsRepo = (db: Db) => {
         .insert(effectSwitches)
         .values({ upstreamId, effect, off })
         .onConflictDoUpdate({ target: [effectSwitches.upstreamId, effectSwitches.effect], set: { off } }),
-    /** Keyword search over the live tools of these upstreams: names ranked by BM25, best first. */
-    searchNames: async (q: string, limit: number, upstreams: string[]) => {
+    /**
+     * Keyword search over the live tools of these upstreams: names ranked by BM25, best first. With `names`, only
+     * among those, so a pack's few tools are never cut behind the rest of a large connection.
+     */
+    searchNames: async (q: string, limit: number, upstreams: string[], names?: string[]) => {
       const match = ftsQuery(q)
-      if (!match || !upstreams.length) return []
-      const within = sql.join(
-        upstreams.map((id) => sql`${id}`),
-        sql`, `,
-      )
+      if (!match || !upstreams.length || names?.length === 0) return []
+      const listOf = (values: string[]) =>
+        sql.join(
+          values.map((value) => sql`${value}`),
+          sql`, `,
+        )
+      const named = names ? sql`and name in (${listOf(names)})` : sql``
       const rows = await db.all<unknown>(
-        sql`select name, bm25(tools_fts, 4.0, 2.0, 3.0, 1.0) as score from tools_fts where tools_fts match ${match} and upstream in (${within}) order by score limit ${limit}`,
+        sql`select name, bm25(tools_fts, 4.0, 2.0, 3.0, 1.0) as score from tools_fts where tools_fts match ${match} and upstream in (${listOf(upstreams)}) ${named} order by score limit ${limit}`,
       )
       return rows.map((row) => (Array.isArray(row) ? String(row[0]) : String((row as { name: string }).name)))
     },

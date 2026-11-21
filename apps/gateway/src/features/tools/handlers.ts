@@ -11,13 +11,13 @@ import {
   describe,
   entryOf,
   holds,
+  OWNER,
   type Principal,
   requireOwner,
-  runsTool,
   seenBy,
   shownAs,
 } from '../clients/principals.js'
-import { fuse } from './meaning.js'
+import { fuse, KEYWORD_MIN_Z } from './meaning.js'
 
 /** Meaning counts a bit more than words: generic words like "app" match too much to lead. */
 const MEANING_WEIGHT = [1, 1.5]
@@ -27,7 +27,7 @@ import type { CatalogContent } from '../catalog/content.js'
 import { type PlaybookContent, playbookTitleOf, textOf } from '../catalog/content.js'
 import type { CatalogVersionRow } from '../catalog/schema.js'
 import { matchesEnough } from '../catalog/search.js'
-import { actsAs } from './groups.js'
+import { actsAs, coversOf } from './groups.js'
 import { toolsOpenApi } from './openapi.js'
 import { isOff, type LiveTool, needsWrite } from './repo.js'
 import { PATH, REVIEWS_PATH, type routes } from './routes.js'
@@ -182,6 +182,56 @@ export const toolsHandlers = ({
   /** A group by its key or by its title as lists show it. */
   const inGroup = (tool: LiveTool, group: string) =>
     tool.group?.key === group || tool.group?.title.toLowerCase() === group.toLowerCase()
+  /**
+   * What a search finds among the tools `mayMatch` allows, best first: a tool that stands out for the question among
+   * every tool, or carries its words and is near enough in meaning (or has no vector yet to be scored by). A question
+   * that matches nothing finds nothing.
+   * Where there is no bar (a small catalog, no search by meaning): the nearest tools and every keyword hit. Where
+   * search by meaning fails: every keyword hit. Names are ranked first and only the ranked tools are loaded, so a
+   * search costs the same however many tools the caller reaches. `own` is a pack key's tools, for what the pack covers.
+   * `typed` is the owner filtering in the app, on half-typed words and connection ids: every keyword hit counts.
+   */
+  const searchFor = async (
+    principal: Principal,
+    words: string,
+    upstream: string | undefined,
+    mayMatch: (tool: LiveTool) => boolean,
+    typed: boolean,
+  ) => {
+    const within = (await upstreams.list())
+      .filter((row) => row.enabled && allows(principal, row.id) && (!upstream || row.id === upstream))
+      .map((row) => row.id)
+    const reach = new Set(within)
+    // A pack's tools are ranked among themselves: the best hundred of their connections can hold none of them
+    const own = principal.pack
+      ? (await tools.liveMany([...new Set([...principal.pack.tools.values()].map((entry) => entry.tool))])).filter(
+          mayMatch,
+        )
+      : null
+    const packed = own && new Set(own.map((tool) => tool.name))
+    const inReach = (name: string) => (packed ? packed.has(name) : reach.has(name.slice(0, name.indexOf('.'))))
+    const hits = await tools.searchNames(words, 100, within, packed ? [...packed] : undefined)
+    const barred = async () => {
+      if (!meaning) return null
+      const stood = await meaning.standouts(words, { limit: 100, keep: inReach })
+      if (!stood || typed) return stood && [hits, stood]
+      // The question is embedded once: the second look reads it from the embedder's cache
+      const near = await meaning.standouts(words, {
+        limit: 100,
+        keep: (name) => hits.includes(name),
+        minZ: KEYWORD_MIN_Z,
+      })
+      // A hit with no vector yet (synced or approved since the last refresh) can't be scored: it is kept
+      return near && [hits.filter((name) => near.includes(name) || !meaning.has(name)), stood]
+    }
+    const nearest = async () =>
+      meaning ? (await meaning.names(words, 5000).catch(() => [])).filter(inReach).slice(0, 100) : []
+    // A question that could not be embedded is not sent again for its nearest tools: the words answer alone
+    const lists = (await barred().catch(() => [hits])) ?? [hits, await nearest()]
+    // Keyword and meaning results fused by rank, then cut to what this search may show
+    const found = (await tools.liveMany(fuse(lists, 300, MEANING_WEIGHT))).filter(mayMatch)
+    return { found, own: own ?? [] }
+  }
   const list: RouteHandler<Routes['list']> = async (c) => {
     const { q, upstream, group, limit, as } = c.req.valid('query')
     const { principal, preview } = await viewerOf(c, as)
@@ -191,28 +241,25 @@ export const toolsHandlers = ({
       (!upstream || tool.upstreamId === upstream) && (!group || inGroup(tool, group))
     const scoped = (tool: LiveTool) => visible(tool) && inUpstream(tool)
     const words = q?.trim()
-    // Both searches look only where this caller may: the best hundred of everything can hold none of its tools
-    const within = words
-      ? new Set(
-          (await upstreams.list())
-            .filter((row) => row.enabled && allows(principal, row.id) && (!upstream || row.id === upstream))
-            .map((row) => row.id),
+    // Searched as a write key would be listed, so a read-only key can be told what its scope hides
+    const searched = words
+      ? await searchFor(
+          principal,
+          words,
+          upstream,
+          (tool) => reachable(tool) && inUpstream(tool),
+          // Looking as a key, the owner is searched as that key: `principal` is then the key's
+          principal.owner && viaOf(c) === 'app',
         )
-      : new Set<string>()
-    const byMeaning = async (asked: string) =>
-      meaning
-        ? (await meaning.names(asked, 5000).catch(() => []))
-            .filter((name) => within.has(name.slice(0, name.indexOf('.'))))
-            .slice(0, 100)
-        : []
-    // Keyword and meaning results fused by rank, then cut to what this caller may see
-    const ranked = words
-      ? fuse(await Promise.all([tools.searchNames(words, 100, [...within]), byMeaning(words)]), 300, MEANING_WEIGHT)
       : null
-    const candidates = ranked
-      ? await tools.liveMany(ranked)
+    const candidates = searched
+      ? searched.found
       : await tools.listLive({ upstreams: upstream ? [upstream] : principal.upstreams, limit: 5000 })
-    const found = candidates.filter(scoped).slice(0, limit)
+    // A pack shows a tool once per name it gives it: `limit` and `count` are of those
+    const shown = candidates
+      .filter(scoped)
+      .flatMap((tool) => shownAs(principal, tool).map((as) => ({ tool: tool.name, as })))
+      .slice(0, limit)
     // Logged for the owner's "what agents looked for"; a failing log never fails the search
     if (words && !preview)
       await searches
@@ -220,47 +267,67 @@ export const toolsHandlers = ({
           clientId: principal.id,
           clientName: principal.name,
           query: words.slice(0, 200),
-          results: found.length,
-          tools: found.map((tool) => tool.name),
+          results: shown.length,
+          tools: [...new Set(shown.map(({ tool }) => tool))],
           via: viaOf(c),
         })
         .catch(() => {})
-    // Matches a read-only key can't see, counted so it knows they exist and why
+    // Matches a read-only key can't see, counted as it would read them, so it knows they exist and why
     const hiddenForScope =
       principal.scope === 'write'
         ? 0
-        : candidates.filter((tool) => inUpstream(tool) && reachable(tool) && !visible(tool)).length
+        : candidates
+            .filter((tool) => inUpstream(tool) && reachable(tool) && !visible(tool))
+            .flatMap((tool) => shownAs(principal, tool)).length
+    // Only when nothing in the whole pack matched: a narrowed search, or one whose matches are hidden, says so itself
+    const hint =
+      searched && principal.pack && !searched.found.length && !upstream && !group
+        ? {
+            pack: { name: principal.pack.name, title: principal.pack.title },
+            ...(await coveredBy(searched.own.filter(visible))),
+          }
+        : null
     const origin = originOf(c)
     const extras = await extrasFor(principal)
     return c.json(
       {
-        count: found.length,
+        count: shown.length,
         query: q?.trim() || null,
         hiddenForScope,
+        hint,
         playbooks: words ? await playbooksFor(principal, words, upstream) : [],
         _links: linksOf(origin, { self: PATH, openapi: `${PATH}/openapi.json` }),
-        _embedded: {
-          tools: found.flatMap((tool) => shownAs(principal, tool)).map((tool) => cardOf(origin, tool, extras)),
-        },
+        _embedded: { tools: shown.map(({ as }) => cardOf(origin, as, extras)) },
       },
       200,
     )
   }
-  /** Playbooks made for what was asked, offered to this caller: at most three, each matching enough of the words. */
+  /** What these tools cover, by their groups, with each connection under its title. */
+  const coveredBy = async (listed: LiveTool[]) => {
+    const titles = new Map((await upstreams.list()).map((row) => [row.id, row.title]))
+    return coversOf(listed, (id) => titles.get(id) ?? id)
+  }
+  /**
+   * Playbooks made for what was asked, offered to this caller: at most three, each matching enough of the words. They
+   * are searched among the ones it may read, so better matches it can't read never push its own off the page.
+   */
   const playbooksFor = async (principal: Principal, words: string, upstream: string | undefined) => {
-    const rows = new Map((await upstreams.list()).map((row) => [row.id, row]))
-    const items = (await catalog.liveByIds(await catalog.searchIds(words, 30))).filter((item) => {
-      const row = rows.get(item.upstreamId)
-      return (
-        item.kind === 'playbook' &&
-        row?.enabled &&
-        (row.playbooks || principal.pack) &&
-        allows(principal, item.upstreamId) &&
-        holds(principal, item) &&
-        (!upstream || item.upstreamId === upstream)
+    const offering = (await upstreams.list())
+      .filter(
+        (row) =>
+          row.enabled &&
+          (row.playbooks || principal.pack) &&
+          allows(principal, row.id) &&
+          (!upstream || row.id === upstream),
       )
+      .map((row) => row.id)
+    const ids = await catalog.searchIds(words, 30, {
+      kind: 'playbook',
+      upstreams: offering,
+      names: principal.pack ? [...principal.pack.playbooks] : undefined,
     })
-    return items
+    return (await catalog.liveByIds(ids))
+      .filter((item) => holds(principal, item))
       .map((item) => ({ item, content: item.content as PlaybookContent }))
       .filter(({ item, content }) => matchesEnough(words, `${item.name} ${content.title ?? ''} ${content.description}`))
       .slice(0, 3)
@@ -270,9 +337,12 @@ export const toolsHandlers = ({
         description: summaryOf(content.description),
       }))
   }
-  const detailOf = async (origin: string, tool: LiveTool, view: 'full' | 'brief' = 'full') => {
+  const detailOf = async (origin: string, tool: LiveTool, principal: Principal, view: 'full' | 'brief' = 'full') => {
     const upstream = await upstreams.get(tool.upstreamId)
-    const manuals = await catalog.listLive({ kinds: ['manual'], upstreams: [tool.upstreamId] })
+    // Only a manual this caller may read: a pack key is pointed at one its pack holds
+    const manuals = (await catalog.listLive({ kinds: ['manual'], upstreams: [tool.upstreamId] })).filter((item) =>
+      holds(principal, item),
+    )
     const instructions = upstream?.instructions ?? null
     return {
       name: tool.name,
@@ -308,7 +378,10 @@ export const toolsHandlers = ({
       throw new ProblemError('not_found', {
         detail: `No tool ${name} for this client: search_tools (MCP) or GET ${PATH}?q=<what you want to do> finds the ones you may use.`,
       })
-    return c.json(await detailOf(originOf(c), describe(principal, tool, name), c.req.valid('query').view), 200)
+    return c.json(
+      await detailOf(originOf(c), describe(principal, tool, name), principal, c.req.valid('query').view),
+      200,
+    )
   }
   const setAccess: RouteHandler<Routes['setAccess']> = async (c) => {
     requireOwner(c)
@@ -318,7 +391,7 @@ export const toolsHandlers = ({
     await tools.setAccess(name, c.req.valid('json').access)
     listsChanged({ tools: true })
     const tool = await tools.live(name)
-    return c.json(await detailOf(originOf(c), tool!), 200)
+    return c.json(await detailOf(originOf(c), tool!, OWNER), 200)
   }
   const reviews: RouteHandler<Routes['reviews']> = async (c) => {
     requireOwner(c)
@@ -350,6 +423,11 @@ export const toolsHandlers = ({
     state: approve ? ('live' as const) : ('rejected' as const),
     _links: linksOf(origin, { item: itemLink(row.kind, row.name, row.upstream), reviews: REVIEWS_PATH }),
   })
+  /** After an approval: agents list again, and an approved tool is embedded so search by meaning finds it. */
+  const approved = (rows: { kind: string }[]) => {
+    if (rows.length) listsChanged()
+    if (rows.some((row) => row.kind === 'tool')) void meaning?.refresh()
+  }
   const decide: RouteHandler<Routes['decide']> = async (c) => {
     requireOwner(c)
     const { versionId } = c.req.valid('param')
@@ -362,7 +440,7 @@ export const toolsHandlers = ({
         : new ProblemError('not_found', { detail: `No version ${versionId}. GET ${REVIEWS_PATH} lists pending ones.` })
     }
     await (decision === 'approve' ? row.approve() : row.reject())
-    if (decision === 'approve') listsChanged()
+    if (decision === 'approve') approved([row])
     return c.json(decidedOf(originOf(c), row, decision === 'approve'), 200)
   }
   const decideAll: RouteHandler<Routes['decideAll']> = async (c) => {
@@ -373,7 +451,7 @@ export const toolsHandlers = ({
       (row) => (!wanted || wanted.has(row.versionId)) && (!upstream || row.upstream === upstream),
     )
     for (const row of chosen) await (decision === 'approve' ? row.approve() : row.reject())
-    if (decision === 'approve' && chosen.length) listsChanged()
+    if (decision === 'approve') approved(chosen)
     const origin = originOf(c)
     const decided = chosen.map((row) => decidedOf(origin, row, decision === 'approve'))
     return c.json(

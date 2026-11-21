@@ -341,7 +341,7 @@ export interface paths {
         };
         /**
          * Find tools
-         * @description Tools the caller may use. With `q`, a keyword search across every allowed upstream, best match first; without it, all of them by name.
+         * @description Tools the caller may use. With `q`, a search by words and meaning across every allowed upstream, best match first: only tools that clearly match, so a question that matches nothing answers `count: 0` (a gateway with fewer than 50 tools, or without search by meaning, answers as before: its nearest tools and every keyword hit; so does the owner typing in the app, for its keyword hits). Without `q`, all of them by name.
          */
         get: operations["listTools"];
         put?: never;
@@ -621,7 +621,7 @@ export interface paths {
         };
         /**
          * Playbooks
-         * @description Prompts the upstreams you may use offer, as playbooks: a ready-made way to do one task. Search with `q` (what you want to do).
+         * @description Prompts the upstreams you may use offer, as playbooks: a ready-made way to do one task. Search with `q` (what you want to do), among the playbooks you may read: a pack key searches its pack’s own.
          */
         get: operations["listPlaybooks"];
         put?: never;
@@ -721,7 +721,7 @@ export interface paths {
         };
         /**
          * Kinds of links
-         * @description The resource templates and listed resources of the upstreams you may use: the links their tools return, which GET /api/resources?uri=… reads.
+         * @description The resource templates and listed resources of the upstreams you may use: the links their tools return, which GET /api/resources?uri=… reads. Empty for a pack key, which opens only the links its tools returned in the last day.
          */
         get: operations["listLinks"];
         put?: never;
@@ -1704,6 +1704,7 @@ export interface components {
             enabled: boolean;
             /** @enum {string} */
             status: "new" | "live" | "failing";
+            /** @description Its live tools. For a pack key: the names the pack gives this key there, as `GET /api/tools?upstream=` lists them. */
             toolCount: number;
             /** @description Its groups with the tools you are listed in each, biggest first: narrow `GET /api/tools` with `upstream` and `group`. Empty for a pack key. */
             groups: {
@@ -1711,7 +1712,7 @@ export interface components {
                 title: string;
                 tools: number;
             }[];
-            /** @description What it offers besides tools, live now. */
+            /** @description What it offers besides tools, live now. For a pack key: the playbooks and manuals its pack holds, and no links (it opens only the links its tools hand it). */
             offers: {
                 manuals: number;
                 playbooks: number;
@@ -1984,10 +1985,29 @@ export interface components {
         };
         /** @description Tools, best match first when searching. */
         ToolList: {
+            /** @description How many tools are returned, as this caller reads them: a pack tool under two names counts twice. 0 when a search matches nothing. */
             count: number;
             query: string | null;
-            /** @description Matching tools left out because they change things and this key is read-only; the owner can grant write scope or mark a tool read-only. */
+            /** @description Matching tools left out because they change things and this key is read-only, counted as `count` counts them; the owner can grant write scope or mark a tool read-only. */
             hiddenForScope: number;
+            /** @description For a pack key whose search matched nothing in the whole pack: what the pack covers, to ask again by or to tell the person it can’t be done here. Null otherwise, also when the search was narrowed by `upstream` or `group` or its matches are hidden for scope. */
+            hint: {
+                /** @description The pack that was searched. */
+                pack: {
+                    name: string;
+                    title: string;
+                };
+                /**
+                 * @description What the pack’s tools are for, by their groups (a connection’s title where they have none): at most six, most tools first. Empty when the pack holds no tool this key can use.
+                 * @example [
+                 *       "Job search",
+                 *       "Inbox"
+                 *     ]
+                 */
+                covers: string[];
+                /** @description How many more groups `covers` leaves out. */
+                more: number;
+            } | null;
             /** @description When searching: up to three playbooks made for what was asked (get_playbook, or GET /api/playbooks/{name}/messages). */
             playbooks: {
                 name: string;
@@ -4614,7 +4634,7 @@ export interface operations {
                 group?: string;
                 /** @description Owner only: answer as this client would see it (its reach, scope, pack and wording). Not logged. */
                 as?: string;
-                /** @description At most this many (1–5000, default 20). */
+                /** @description At most this many, counted as `count` counts them (1–5000, default 20). */
                 limit?: number;
             };
             header?: never;

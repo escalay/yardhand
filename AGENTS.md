@@ -125,7 +125,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 8. The pack lock lives on the principal (`features/clients/principals.ts`): a pack key's upstreams are the pack's,
    and `reaches` / `runsTool` / `holds` / `shownAs` keep tools, playbooks, manuals, names, wording and fixed inputs to
    the pack at every site that lists or runs anything; `seenBy` is the one rule for which tools a caller is listed.
-   A pack key never gets a passthrough. A new place that lists or runs tools uses them.
+   Search scores every tool and then keeps to `seenBy`, and a pack key's connection cards count only what the pack
+   holds. A pack key never gets a passthrough. A new place that lists or runs tools uses them.
    The passthrough (`/u/{id}/mcp`) exists only for `trusted` upstreams (a `review` upstream's lists would reach agents
    unapproved) and runs only tools the gateway serves live.
 9. Upstream failures leave as 503 problems (code `upstream`, `Retry-After: 30`), never 502: a proxy in front may

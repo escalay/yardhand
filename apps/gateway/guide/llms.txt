@@ -41,12 +41,20 @@ A key can be locked to a **pack**: a kit for one kind of work, curated by the ow
 (`pack`). A pack key sees only the pack: its tools are listed directly over MCP (in the pack's own wording), its
 description is the server instructions, and search, `describe_tool`, playbooks, manuals and calls stay inside it. A
 call to anything else is refused (403) and logged; the per-upstream passthrough (`/u/{id}/mcp`) is refused too. A
-pack key opens only the links its tools returned in the last day (through `/u/{upstream}/r/…` and `read_resource`).
+pack key opens only the links its tools returned in the last day (through `/u/{upstream}/r/…` and `read_resource`),
+so `GET /api/links` is empty for it. Its connections (`GET /api/upstreams`, `list_upstreams`) count only what the pack
+holds: its tools under the pack's names, its playbooks and its manuals. A search that matches nothing in the pack says
+what the pack covers: `hint` on `GET /api/tools?q=…`, and over MCP `Nothing in <pack> matches "<query>". This pack
+covers: …`. Ask again by one of those, or say it can't be done with this pack.
 Keys can expire: a 403 says when.
 
 ## Rules worth knowing
 
 - Tool names are `<upstream>.<tool>`, e.g. `cookbook.research_recipes`.
+- Search returns only tools that clearly match what you asked. A question that matches nothing answers `count: 0`
+  (`No tools match.` over MCP): ask again in other words, and if it stays empty there is no tool for it here. A
+  gateway with fewer than 50 tools, or without search by meaning, has no such bar: it answers with its nearest tools
+  and every keyword hit, however weak.
 - A tool that changes things (`needsWrite: true`, `[changes things]` in MCP) needs a key with write scope; a
   read-only key never sees those tools.
 - The owner can switch tools off: one tool, a group of a connection's tools, or everything on a connection that

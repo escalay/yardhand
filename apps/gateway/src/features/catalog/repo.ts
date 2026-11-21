@@ -87,12 +87,32 @@ export const catalogRepo = (db: Db) => {
       ).orderBy(asc(catalogItems.name))
       return rows.map((row) => liveOf(row.item, row.version))
     },
-    /** Keyword search over live manuals and playbooks: item ids ranked by BM25, best first. */
-    searchIds: async (q: string, limit: number) => {
+    /**
+     * Keyword search over live manuals and playbooks: item ids ranked by BM25, best first. `within` ranks only one
+     * kind, these upstreams or these names, so what a caller can't read never takes a place in its page.
+     */
+    searchIds: async (
+      q: string,
+      limit: number,
+      within: { kind?: CatalogKind; upstreams?: string[]; names?: string[] } = {},
+    ) => {
       const match = ftsQuery(q)
-      if (!match) return []
+      if (!match || within.upstreams?.length === 0 || within.names?.length === 0) return []
+      const listOf = (values: string[]) =>
+        sql.join(
+          values.map((value) => sql`${value}`),
+          sql`, `,
+        )
+      const only = sql.join(
+        [
+          within.kind ? sql`and kind = ${within.kind}` : sql``,
+          within.upstreams ? sql`and upstream in (${listOf(within.upstreams)})` : sql``,
+          within.names ? sql`and name in (${listOf(within.names)})` : sql``,
+        ],
+        sql` `,
+      )
       const rows = await db.all<unknown>(
-        sql`select id, bm25(catalog_fts, 0, 0, 4.0, 2.0, 3.0, 1.0) as score from catalog_fts where catalog_fts match ${match} order by score limit ${limit}`,
+        sql`select id, bm25(catalog_fts, 0, 0, 4.0, 2.0, 3.0, 1.0) as score from catalog_fts where catalog_fts match ${match} ${only} order by score limit ${limit}`,
       )
       return rows.map((row) => (Array.isArray(row) ? String(row[0]) : String((row as { id: string }).id)))
     },

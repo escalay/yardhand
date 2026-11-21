@@ -22,6 +22,14 @@ type Upstream = {
   offers: { manuals: number; playbooks: number; links: number }
 }
 type PlaybookHint = { name: string; title: string; description: string }
+type Covers = { pack: { name: string; title: string }; covers: string[]; more: number }
+type Found = {
+  query: string | null
+  hiddenForScope: number
+  hint: Covers | null
+  playbooks: PlaybookHint[]
+  _embedded: { tools: Card[] }
+}
 type Message = { role: string; content: { type: string; text?: string; resource?: { uri?: string; text?: string } } }
 type Contents = { uri: string; mimeType: string | null; text: string | null; blob: string | null }[]
 type Page = { callId: string; page: number; pages: number; text: string }
@@ -30,6 +38,13 @@ const cardLine = (tool: Card) =>
   `${tool.name}${tool.needsWrite ? ' [changes things]' : ''}: ${tool.title ? `${tool.title}. ` : ''}${tool.summary}`
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
 const toolName = z.string().min(3).max(160)
+/** A count with its word: `1 tool`, `2 tools`. */
+export const countOf = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
+/** What a pack covers, for a search that matched nothing in it. */
+const coversLine = ({ covers, more }: Covers) =>
+  covers.length
+    ? `This pack covers: ${covers.join(', ')}${more ? `, and ${more} more` : ''}.`
+    : 'This pack holds no tools this key can use.'
 
 export const META_TOOLS: McpTool[] = [
   mcpTool({
@@ -56,15 +71,17 @@ export const META_TOOLS: McpTool[] = [
       path: '/api/tools',
       query: { q: query, upstream, group: upstream ? group : undefined, limit },
     }),
-    summarize: (json: { hiddenForScope: number; playbooks: PlaybookHint[]; _embedded: { tools: Card[] } }) => {
+    summarize: (json: Found) => {
       const hidden = json.hiddenForScope
-        ? `\n\n${json.hiddenForScope} more matching tools change things and are hidden from this read-only key.`
+        ? `\n\n${countOf(json.hiddenForScope, 'more matching tool')} ${json.hiddenForScope === 1 ? 'changes things and is' : 'change things and are'} hidden from this read-only key.`
         : ''
       const playbooks = json.playbooks.length
         ? `\n\nPlaybooks made for this (step-by-step ways to do it with these tools; get_playbook):\n${json.playbooks.map((playbook) => `${playbook.name}: ${playbook.title}. ${playbook.description}`).join('\n')}`
         : ''
-      return json._embedded.tools.length
-        ? `${json._embedded.tools.map(cardLine).join('\n')}${hidden}${playbooks}\n\nNext: describe_tool with the name you pick, then call_tool.`
+      if (json._embedded.tools.length)
+        return `${json._embedded.tools.map(cardLine).join('\n')}${hidden}${playbooks}\n\nNext: describe_tool with the name you pick, then call_tool.`
+      return json.hint
+        ? `Nothing in ${json.hint.pack.title} matches "${clip(json.query ?? '', 80)}". ${coversLine(json.hint)}${playbooks}`
         : `No tools match.${hidden}${playbooks} Try other words, or list_upstreams to see what is connected.`
     },
   }),
@@ -104,7 +121,7 @@ export const META_TOOLS: McpTool[] = [
       json._embedded.upstreams
         .map((row) =>
           [
-            `${row.id}: ${row.title}, ${row.toolCount} tools${row.offers.playbooks ? `, ${row.offers.playbooks} playbooks` : ''}${row.status === 'live' ? '' : ` (${row.status})`}`,
+            `${row.id}: ${row.title}, ${countOf(row.toolCount, 'tool')}${row.offers.playbooks ? `, ${countOf(row.offers.playbooks, 'playbook')}` : ''}${row.status === 'live' ? '' : ` (${row.status})`}`,
             row.offers.manuals
               ? `  Manual: read_resource "gateway://u/${row.id}/manual" before using its tools.`
               : null,

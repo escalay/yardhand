@@ -98,6 +98,26 @@ export const actsAs = (tool: Parameters<typeof effectOf>[0] & { ownAccess?: stri
   return tool.ownAccess === 'write' && effect === 'reads' ? 'changes' : effect
 }
 
+/** How many groups an empty search names before it counts the rest. */
+export const COVERS_MAX = 6
+
+/**
+ * What a set of tools covers, in a few words: their groups' titles, most tools first then by name, at most
+ * `COVERS_MAX`, with how many were left out. A tool with no group, or filed in Other, counts for its connection's title.
+ */
+export const coversOf = (
+  tools: { upstreamId: string; group: { key: string; title: string } | null }[],
+  titleOf: (upstreamId: string) => string,
+) => {
+  const sizes = new Map<string, number>()
+  for (const { upstreamId, group } of tools) {
+    const label = group && group.key !== OTHER.key ? group.title : titleOf(upstreamId)
+    sizes.set(label, (sizes.get(label) ?? 0) + 1)
+  }
+  const labels = [...sizes].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([label]) => label)
+  return { covers: labels.slice(0, COVERS_MAX), more: Math.max(0, labels.length - COVERS_MAX) }
+}
+
 /** A first grouping by rules: groups of one go to Other, except a Composio app, which is always its own group. */
 export const groupByRules = (
   tools: { name: string; remoteName: string; route?: string | null }[],
