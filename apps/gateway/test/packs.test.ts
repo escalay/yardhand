@@ -1025,6 +1025,9 @@ describe('a pack at its own address', () => {
   it('introduces itself as the pack at /api, and offers the owner a look as one of its keys', async () => {
     const home = (await api(key, '/p/loud/api')).json
     expect(home).toMatchObject({ name: 'Loud', upstreams: 1 })
+    // Read with credentials, like every other answer here: never kept in a shared cache
+    for (const path of ['/p/loud/api', '/api', '/p/loud/api/me'])
+      expect([path, (await at(key, path)).headers.get('cache-control')]).toEqual([path, 'private, no-cache'])
     expect(home.description).toContain('Say things back, loudly.')
     expect(home.description).toContain('/p/loud/mcp')
     expect(home._links).toMatchObject({

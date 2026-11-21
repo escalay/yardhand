@@ -44,6 +44,8 @@ export const feature: Feature = {
           }),
         },
         200,
+        // The kit's rule for `/api/` doesn't reach `/api` itself: said here, so no shared cache keeps this answer
+        { 'cache-control': 'private, no-cache' },
       )
     })
   },
