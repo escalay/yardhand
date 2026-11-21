@@ -188,6 +188,8 @@ export const clientsHandlers = ({
               description: pack.description,
               playbooks: [...pack.playbooks],
               manuals: [...pack.manuals],
+              ownPlaybooks: [...pack.ownPlaybooks],
+              skill: pack.skill,
               ownPins: principal.pins !== null,
             }
           : null,

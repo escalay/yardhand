@@ -185,8 +185,18 @@ const MeSchema = z
         name: z.string(),
         title: z.string(),
         description: z.string(),
-        playbooks: z.array(z.string()),
-        manuals: z.array(z.string()),
+        playbooks: z
+          .array(z.string())
+          .openapi({ description: 'The playbooks it holds from its connections, by name.' }),
+        manuals: z.array(z.string()).openapi({ description: 'The manuals it holds from its connections, by name.' }),
+        ownPlaybooks: z
+          .array(z.string())
+          .openapi({ description: 'The playbooks written for this pack, by name: read like any other playbook.' }),
+        skill: z.string().nullable().openapi({
+          description:
+            'Where the pack’s skill is read (GET /api/resources?uri=…), or null when it has none. Read it once, before the pack’s tools.',
+          example: 'skill://desk/SKILL.md',
+        }),
         ownPins: z.boolean().openapi({
           description:
             'True when the key has pins of its own: `pins` is then only those this pack holds. False: `pins` is every tool of the pack.',

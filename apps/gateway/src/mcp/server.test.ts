@@ -20,7 +20,15 @@ describe('readable', () => {
 })
 
 describe('a pack connection’s instructions', () => {
-  const pack = { name: 'desk', title: 'Front desk', description: 'Greets for the desk.', playbooks: [], manuals: [] }
+  const pack = {
+    name: 'desk',
+    title: 'Front desk',
+    description: 'Greets for the desk.',
+    playbooks: [],
+    manuals: [],
+    ownPlaybooks: [],
+    skill: null,
+  }
   const pin = {
     name: 'greet_from_desk',
     title: null,

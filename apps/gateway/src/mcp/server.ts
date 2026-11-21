@@ -22,6 +22,7 @@ import { z } from 'zod'
 import { VIA_HEADER } from '../features/calls/handlers.js'
 import { progressSink } from '../features/calls/progress.js'
 import { type Principal, packScopeFrom } from '../features/clients/principals.js'
+import { SKILL_DOC } from '../features/packs/skill.js'
 import { MODERN_PROTOCOL_VERSION, originOf, pathWith } from '../kit/index.js'
 import {
   type AgentMcpFactory,
@@ -309,6 +310,9 @@ type Me = {
     description: string
     playbooks: string[]
     manuals: string[]
+    /** The playbooks written for the pack, and where its skill is read (null without one). */
+    ownPlaybooks: string[]
+    skill: string | null
     ownPins: boolean
   } | null
   packs: { name: string; title: string; mcpUrl: string; default: boolean }[]
@@ -522,7 +526,7 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
         macTools: false,
         resultCap: caller.resultCap,
         packs: caller.packs.map(({ name, title }) => ({ name, title })),
-        // Only manuals and playbooks are read off this one; the routes resolve tools themselves
+        // Only manuals, playbooks and the pack's skill are read off this one; the routes resolve tools themselves
         pack: caller.pack
           ? packScopeFrom(
               {
@@ -531,7 +535,16 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
                 title: caller.pack.title,
                 description: caller.pack.description,
               },
-              { tools: [], variables: [], playbooks: caller.pack.playbooks, manuals: caller.pack.manuals },
+              {
+                tools: [],
+                variables: [],
+                playbooks: caller.pack.playbooks,
+                manuals: caller.pack.manuals,
+                docs: [
+                  ...caller.pack.ownPlaybooks.map((name) => ({ kind: 'playbook' as const, name })),
+                  ...(caller.pack.skill ? [{ kind: 'skill' as const, name: SKILL_DOC }] : []),
+                ],
+              },
             )
           : null,
       }

@@ -1636,8 +1636,17 @@ export interface components {
                 name: string;
                 title: string;
                 description: string;
+                /** @description The playbooks it holds from its connections, by name. */
                 playbooks: string[];
+                /** @description The manuals it holds from its connections, by name. */
                 manuals: string[];
+                /** @description The playbooks written for this pack, by name: read like any other playbook. */
+                ownPlaybooks: string[];
+                /**
+                 * @description Where the pack’s skill is read (GET /api/resources?uri=…), or null when it has none. Read it once, before the pack’s tools.
+                 * @example skill://desk/SKILL.md
+                 */
+                skill: string | null;
                 /** @description True when the key has pins of its own: `pins` is then only those this pack holds. False: `pins` is every tool of the pack. */
                 ownPins: boolean;
             } | null;
