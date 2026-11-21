@@ -1,8 +1,10 @@
 /**
  * One pack: its tools (why each is in, the pack's wording, flags when an upstream moved on), its playbooks and
- * manuals, what its agents read first, and the keys locked to it, with one more issued from here.
+ * manuals, and the keys locked to it, with one more issued from here. The Overview checks it as it is built: the
+ * steps of setting it up, its address with setup per app, a search of it as its keys get it, and what its agents
+ * read first.
  */
-import { IconAlertTriangle, IconKey, IconPencil, IconPlus, IconX } from '@tabler/icons-react'
+import { IconAlertTriangle, IconKey, IconPencil, IconPlus, IconSearch, IconX } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -31,10 +33,13 @@ import { Input } from '@/ui/shadcn/input'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { Textarea } from '@/ui/shadcn/textarea'
 import { AddPlaybook } from './AddPlaybook'
+import { AddressCard } from './AddressCard'
+import { Checklist } from './Checklist'
 import { UpstreamChips } from './PacksPage'
 import { PackTools } from './PackTools'
 import { expiryOf, holdsLine } from './packs.rules'
 import { packQuery } from './queries'
+import { TRY_ID, TryIt } from './TryIt'
 
 type Pack = Schemas['Pack']
 type PackItem = Schemas['PackItem']
@@ -142,30 +147,47 @@ const EditPack = ({
   )
 }
 
-/** Roughly what an agent with this pack's key is told on connecting. */
-const Briefing = ({ pack }: { pack: Pack }) => (
-  <div className="flex flex-col gap-3 border border-border bg-inverse p-5 font-mono text-[12px] leading-relaxed text-inverse-foreground/85">
-    <p className="text-inverse-foreground">
-      {pack.title}: {pack.description || '…'}
-    </p>
-    <p>This key is locked to the pack {pack.title}: the tools listed here are all it reaches.</p>
-    {pack.playbooks.length ? <p>Playbooks: {pack.playbooks.map((item) => item.name).join(', ')}.</p> : null}
-    <div>
-      <p>Tools:</p>
-      {pack.tools.slice(0, 8).map((tool) => (
-        <p key={tool.name} className="truncate">
-          - {tool.name}: {tool.description.split('\n')[0]}
+/** Roughly what an agent with this pack's key is told on connecting: the pack's words, then how to work it. */
+const Briefing = ({ pack }: { pack: Pack }) => {
+  const listed = pack.tools.filter((tool) => tool.live)
+  return (
+    <div className="flex flex-col gap-3 border border-border bg-inverse p-5 font-mono text-[12px] leading-relaxed text-inverse-foreground/85">
+      <p className="text-inverse-foreground">
+        {pack.title}: {pack.description || '…'}
+      </p>
+      {listed.length ? (
+        <p>
+          Every tool of this pack is listed here: call one as it is. search_tools finds one by what you want to do,
+          describe_tool shows its full description and input schema, and call_tool runs any of them by name.
         </p>
-      ))}
-      {pack.tools.length > 8 ? <p>- … {pack.tools.length - 8} more</p> : null}
+      ) : (
+        <p>This pack holds no tools this key can use.</p>
+      )}
+      {pack.playbooks.length ? <p>Playbooks: {pack.playbooks.map((item) => item.name).join(', ')}.</p> : null}
+      {listed.length ? (
+        <div>
+          <p>Listed here:</p>
+          {listed.slice(0, 8).map((tool) => (
+            <p key={tool.name} className="truncate">
+              - {tool.name}: {tool.description.split('\n')[0]}
+            </p>
+          ))}
+          {listed.length > 8 ? <p>- … {listed.length - 8} more</p> : null}
+        </div>
+      ) : null}
     </div>
-  </div>
-)
+  )
+}
 
 export type PackTab = 'overview' | 'tools' | 'playbooks' | 'keys' | 'activity'
 const PACK_TABS: PackTab[] = ['overview', 'tools', 'playbooks', 'keys', 'activity']
-export const parsePackTab = (raw: Record<string, unknown>): { tab?: PackTab } =>
-  PACK_TABS.includes(raw.tab as PackTab) && raw.tab !== 'tools' ? { tab: raw.tab as PackTab } : {}
+/** `?tab=` for every part but Tools, the default; `?add=true` there opens the dialog that adds tools. */
+export const parsePackTab = (raw: Record<string, unknown>): { tab?: PackTab; add?: true } =>
+  PACK_TABS.includes(raw.tab as PackTab) && raw.tab !== 'tools'
+    ? { tab: raw.tab as PackTab }
+    : raw.add === true
+      ? { add: true }
+      : {}
 
 const GiveAccess = ({ pack, variant = 'primary' }: { pack: Pack; variant?: 'primary' | 'ghost' }) => (
   <Button asChild variant={variant} size={variant === 'ghost' ? 'sm' : 'default'} disabled={!pack.tools.length}>
@@ -199,7 +221,7 @@ const Keys = ({ pack }: { pack: Pack }) => (
   </div>
 )
 
-export const PackPage = ({ name, tab = 'tools' }: { name: string; tab?: PackTab }) => {
+export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: PackTab; add?: boolean }) => {
   const queries = useQueryClient()
   const navigate = useNavigate()
   const pack = useQuery(packQuery(name))
@@ -266,6 +288,11 @@ export const PackPage = ({ name, tab = 'tools' }: { name: string; tab?: PackTab 
         title={<em>{data.title}</em>}
         actions={
           <>
+            <Button asChild variant="muted">
+              <Link to="/packs/$name" params={{ name }} search={{ tab: 'overview' }} hash={TRY_ID}>
+                <IconSearch /> Try it
+              </Link>
+            </Button>
             <Button variant="muted" onClick={() => setEditing(true)}>
               <IconPencil /> Edit
             </Button>
@@ -302,9 +329,14 @@ export const PackPage = ({ name, tab = 'tools' }: { name: string; tab?: PackTab 
 
       {tab === 'overview' ? (
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <Section title="What its agents read first">
-            <Briefing pack={data} />
-          </Section>
+          <div className="flex min-w-0 flex-col gap-8">
+            <Checklist pack={data} onEdit={() => setEditing(true)} />
+            <AddressCard pack={data} />
+            <TryIt pack={data} />
+            <Section title="What its agents read first">
+              <Briefing pack={data} />
+            </Section>
+          </div>
           <aside className="flex min-w-0 flex-col gap-8">
             <Section title={`Keys · ${data.keys}`}>
               <Keys pack={data} />
@@ -339,7 +371,15 @@ export const PackPage = ({ name, tab = 'tools' }: { name: string; tab?: PackTab 
           </aside>
         </div>
       ) : tab === 'tools' ? (
-        <PackTools pack={data} titleOf={titleOf} onPatch={save} />
+        <PackTools
+          pack={data}
+          titleOf={titleOf}
+          onPatch={save}
+          adding={Boolean(add)}
+          onAdding={(open) =>
+            void navigate({ to: '/packs/$name', params: { name }, search: open ? { add: true } : {}, replace: true })
+          }
+        />
       ) : tab === 'playbooks' ? (
         <div className="flex flex-col gap-8">
           <Section

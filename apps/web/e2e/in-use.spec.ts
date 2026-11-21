@@ -143,6 +143,47 @@ test('a pack takes a playbook with the tools it uses, and issues a key that expi
   await expect(page.getByText(/Expires in 24 h\. It sees only the loud pack\./)).toBeVisible()
 })
 
+test('a pack’s Overview checks it as it is built: its steps, a search as its keys get it, and its own address', async ({
+  page,
+}) => {
+  await signIn(page, demo())
+  await page.goto('/app/packs/loud?tab=overview')
+  const part = (name: string | RegExp) => page.locator('section', { has: page.getByRole('heading', { name }) })
+  // Described and holding tools; nobody tried it and none of its keys called
+  const steps = part('Set up Loud')
+  await expect(steps).toContainText('2 of 4')
+
+  const tryIt = part('Try Loud as an agent')
+  const ask = async (words: string) => {
+    await tryIt.getByLabel('What an agent would ask').fill(words)
+    await tryIt.getByRole('button', { name: 'Search' }).click()
+  }
+  await ask('echo')
+  await expect(tryIt.getByText('echo.echo', { exact: true })).toBeVisible()
+  await expect(tryIt.getByText(/stood out/)).toBeVisible()
+  await ask('brand')
+  await expect(tryIt.getByText(/Nothing in Loud matches/)).toBeVisible()
+  await expect(tryIt.getByRole('link', { name: 'Add tools' })).toBeVisible()
+  await expect(steps).toContainText('3 of 4')
+
+  const address = part('Address')
+  await expect(address.getByText(/^[\w.:]+\/p\/loud$/)).toBeVisible()
+  await address.getByRole('tab', { name: 'Claude Code' }).click()
+  await expect(address.getByRole('tabpanel')).toContainText('/p/loud/mcp')
+  await expect(address.getByRole('tabpanel')).toContainText('<YOUR_KEY>')
+
+  // The signed-in owner is answered at the pack's address as the pack, with links that stay inside it
+  const home = await page.request.get('/p/loud/api')
+  expect(home.status()).toBe(200)
+  const body = await home.json()
+  expect(body.name).toBe('Loud')
+  expect(new URL(body._links.tools.href).pathname).toBe('/p/loud/api/tools')
+
+  // Nothing found: Add tools opens the pack's tools with the dialog to add some
+  await tryIt.getByRole('link', { name: 'Add tools' }).click()
+  await expect(page.getByRole('dialog').getByLabel('Search tools by what they do')).toBeVisible()
+})
+
 test('the frame: a window and a scope narrow the numbers, searches show what came of them, tools as a key sees them', async ({
   page,
 }) => {
