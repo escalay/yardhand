@@ -54,3 +54,81 @@ describe('setVariables', () => {
     expect((await packs.variablesOf(id)).map((row) => row.name)).toEqual(['desk', 'days'])
   })
 })
+
+describe('a pack’s documents', () => {
+  const hello = { body: 'Greet them.', basedOn: { greet_from_desk: 'v1' }, source: 'owner' as const }
+
+  it('keeps every text a playbook had, and serves the newest', async () => {
+    const { packs, id } = await repoWith()
+    const first = await packs.saveDoc(id, 'playbook', 'say-hello', hello)
+    const second = await packs.saveDoc(id, 'playbook', 'say-hello', { ...hello, body: 'Greet them twice.' })
+    expect([first.added, second.added]).toEqual([true, true])
+    expect(await packs.doc(id, 'playbook', 'say-hello')).toMatchObject({
+      kind: 'playbook',
+      name: 'say-hello',
+      body: 'Greet them twice.',
+      basedOn: { greet_from_desk: 'v1' },
+      versionId: second.versionId,
+      source: 'owner',
+    })
+    expect((await packs.docVersions(id, 'playbook', 'say-hello')).map((version) => version.id)).toEqual([
+      second.versionId,
+      first.versionId,
+    ])
+    expect((await packs.docVersion(id, 'playbook', 'say-hello', first.versionId))?.body).toBe('Greet them.')
+  })
+
+  it('adds no version for the same text, and notes the tool versions it now stands on', async () => {
+    const { packs, id } = await repoWith()
+    const first = await packs.saveDoc(id, 'playbook', 'say-hello', hello)
+    const again = await packs.saveDoc(id, 'playbook', 'say-hello', { ...hello, basedOn: { greet_from_desk: 'v2' } })
+    expect(again).toEqual({ versionId: first.versionId, added: false })
+    expect(await packs.docVersions(id, 'playbook', 'say-hello')).toHaveLength(1)
+    expect((await packs.doc(id, 'playbook', 'say-hello'))?.basedOn).toEqual({ greet_from_desk: 'v2' })
+  })
+
+  it('lists a pack’s documents in the order they were first saved, each pack its own', async () => {
+    const { packs, id } = await repoWith()
+    const other = await packs.create({ name: 'loud', title: 'Loud', description: '' })
+    await packs.saveDoc(id, 'playbook', 'say-hello', hello)
+    await packs.saveDoc(id, 'skill', 'SKILL', { ...hello, body: '## Gotchas' })
+    await packs.saveDoc(id, 'playbook', 'say-bye', hello)
+    await packs.saveDoc(id, 'playbook', 'say-hello', { ...hello, body: 'Greet them again.' })
+    await packs.saveDoc(other, 'playbook', 'say-hello', { ...hello, body: 'Shout hello.' })
+    expect((await packs.docsOf(id)).map((doc) => [doc.kind, doc.name])).toEqual([
+      ['playbook', 'say-hello'],
+      ['skill', 'SKILL'],
+      ['playbook', 'say-bye'],
+    ])
+    const [desk] = await packs.list()
+    expect(desk && (await packs.contentsOf(desk)).docs).toHaveLength(3)
+    expect((await packs.allDocs()).map(({ pack, doc }) => [pack.name, doc.name, doc.body])).toEqual([
+      ['desk', 'say-hello', 'Greet them again.'],
+      ['desk', 'SKILL', '## Gotchas'],
+      ['desk', 'say-bye', 'Greet them.'],
+      ['loud', 'say-hello', 'Shout hello.'],
+    ])
+  })
+
+  it('reads a version only as the document it belongs to', async () => {
+    const { packs, id } = await repoWith()
+    const other = await packs.create({ name: 'loud', title: 'Loud', description: '' })
+    const { versionId } = await packs.saveDoc(id, 'playbook', 'say-hello', hello)
+    await packs.saveDoc(id, 'playbook', 'say-bye', hello)
+    expect(await packs.docVersion(id, 'playbook', 'say-bye', versionId)).toBeUndefined()
+    expect(await packs.docVersion(id, 'skill', 'say-hello', versionId)).toBeUndefined()
+    expect(await packs.docVersion(other, 'playbook', 'say-hello', versionId)).toBeUndefined()
+  })
+
+  it('removes a document with its versions, and all of them with the pack', async () => {
+    const { packs, id } = await repoWith()
+    const { versionId } = await packs.saveDoc(id, 'playbook', 'say-hello', hello)
+    await packs.saveDoc(id, 'skill', 'SKILL', hello)
+    expect(await packs.removeDoc(id, 'playbook', 'say-hello')).toBe(true)
+    expect(await packs.removeDoc(id, 'playbook', 'say-hello')).toBe(false)
+    expect(await packs.docVersion(id, 'playbook', 'say-hello', versionId)).toBeUndefined()
+    await packs.remove(id)
+    expect(await packs.allDocs()).toEqual([])
+    expect(await packs.docVersions(id, 'skill', 'SKILL')).toEqual([])
+  })
+})

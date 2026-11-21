@@ -5,8 +5,10 @@
  * `based_on` is the tool version a pack's wording was written against: when the live version's description moves
  * on, the wording is flagged until the owner keeps or rewrites it.
  * A name a shared pack used to have keeps leading to it (`pack_names`) until the owner frees it or the pack goes.
+ * A pack's own playbooks and its skill are Markdown kept here (`pack_docs`), every text they had as a version
+ * (`pack_doc_versions`), each with the tool versions it was written against.
  */
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export const packs = sqliteTable('packs', {
   id: text('id').primaryKey(),
@@ -80,6 +82,44 @@ export const packNames = sqliteTable('pack_names', {
   until: text('until').notNull(),
 })
 
+export const PACK_DOC_KINDS = ['playbook', 'skill'] as const
+export type PackDocKind = (typeof PACK_DOC_KINDS)[number]
+/** Who wrote a version: the owner (or an agent of theirs, through the API), a build with AI, or a config import. */
+export const PACK_DOC_SOURCES = ['owner', 'ai', 'import'] as const
+export type PackDocSource = (typeof PACK_DOC_SOURCES)[number]
+
+/** A pack's own playbooks, and its skill (one, named `SKILL`): which version is the one served. */
+export const packDocs = sqliteTable(
+  'pack_docs',
+  {
+    packId: text('pack_id').notNull(),
+    kind: text('kind', { enum: PACK_DOC_KINDS }).notNull(),
+    name: text('name').notNull(),
+    liveVersion: text('live_version').notNull(),
+    position: integer('position').notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.packId, table.kind, table.name] })],
+)
+
+export const packDocVersions = sqliteTable(
+  'pack_doc_versions',
+  {
+    id: text('id').primaryKey(),
+    packId: text('pack_id').notNull(),
+    kind: text('kind', { enum: PACK_DOC_KINDS }).notNull(),
+    name: text('name').notNull(),
+    /** The Markdown as written: a playbook with its front matter, a skill without. */
+    body: text('body').notNull(),
+    /** The tools it names, by the pack's names, each with the tool version live when it was saved (JSON). */
+    basedOn: text('based_on').notNull(),
+    source: text('source', { enum: PACK_DOC_SOURCES }).notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [index('pack_doc_versions_doc').on(table.packId, table.kind, table.name, table.createdAt)],
+)
+
 export const PACKS_MIGRATIONS = [
   `create table if not exists packs (id text primary key, name text not null unique, title text not null,
     description text not null, created_at text not null, updated_at text not null)`,
@@ -101,6 +141,12 @@ export const PACKS_MIGRATIONS = [
   'alter table pack_tools add column defaults text',
   `create table if not exists pack_variables (pack_id text not null, name text not null, value text,
     description text, position integer not null, primary key (pack_id, name))`,
+  `create table if not exists pack_docs (pack_id text not null, kind text not null, name text not null,
+    live_version text not null, position integer not null, created_at text not null, updated_at text not null,
+    primary key (pack_id, kind, name))`,
+  `create table if not exists pack_doc_versions (id text primary key, pack_id text not null, kind text not null,
+    name text not null, body text not null, based_on text not null, source text not null, created_at text not null)`,
+  'create index if not exists pack_doc_versions_doc on pack_doc_versions (pack_id, kind, name, created_at)',
 ] as const
 
 export type PackRow = typeof packs.$inferSelect
@@ -108,3 +154,4 @@ export type PackToolRow = typeof packTools.$inferSelect
 export type PackItemRow = typeof packItems.$inferSelect
 export type PackVariableRow = typeof packVariables.$inferSelect
 export type PackNameRow = typeof packNames.$inferSelect
+export type PackDocVersionRow = typeof packDocVersions.$inferSelect
