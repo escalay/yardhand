@@ -1,8 +1,10 @@
 /**
  * Pure rules for packs: names from titles, what a pack holds in words, why a tool is in, how long a key lasts, the
- * steps of setting one up and what a try of it says.
+ * steps of setting one up, what a try of it says, who fills each input of its tools, its variables, and where a
+ * refused save went wrong.
  */
 import type { Schemas } from '@/api/client'
+import { argumentsOf, type FormField } from '@/tools/schema-form.rules'
 
 type Pack = Schemas['Pack']
 type PackTool = Schemas['PackTool']
@@ -129,6 +131,183 @@ export const fixedLine = (fixed: Record<string, unknown>) =>
   Object.entries(fixed)
     .map(([key, value]) => `${key} = ${typeof value === 'string' ? value : JSON.stringify(value)}`)
     .join(' · ')
+
+export type InputMode = Schemas['PackToolInput']['mode']
+
+/** The three ways an input of a pack tool is filled, as the editor words them. */
+export const INPUT_MODES: { id: InputMode; label: string; hint: string }[] = [
+  { id: 'fixed', label: 'Fixed', hint: 'Filled on every call and hidden from the pack’s keys.' },
+  { id: 'default', label: 'Default', hint: 'Shown with this value; the agent may send another.' },
+  { id: 'agent', label: 'Agent decides', hint: 'The agent fills it.' },
+]
+
+type Sets = Pick<PackTool, 'fixed' | 'defaults'>
+
+/** Who fills an input, from what the pack stores: an input in neither map is the agent's. */
+export const modeOf = (tool: Sets, input: string): InputMode =>
+  input in tool.fixed ? 'fixed' : input in tool.defaults ? 'default' : 'agent'
+
+/** "Fixed account = {{account}} · Default posted_since = 7", or empty when the pack sets nothing. */
+export const inputsLine = (tool: Sets) =>
+  (
+    [
+      ['Fixed', tool.fixed],
+      ['Default', tool.defaults],
+    ] as const
+  )
+    .filter(([, values]) => Object.keys(values).length)
+    .map(([label, values]) => `${label} ${fixedLine(values)}`)
+    .join(' · ')
+
+/** `{{name}}` as the gateway reads it (`features/packs/values.ts`): anything else between braces is plain text. */
+const PLACEHOLDER = /\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g
+const WHOLE = /^\s*\{\{\s*[a-z][a-z0-9_]*\s*\}\}\s*$/
+
+const namesIn = (text: string) => [...new Set([...text.matchAll(PLACEHOLDER)].map((match) => match[1] ?? ''))]
+
+/** Does a value write a `{{name}}`? */
+export const writesVariable = (text: string) => namesIn(text).length > 0
+
+/** A value as it is sent, the pack's variables filled in; `undeclared` are the words no variable has, left as written. */
+export const filledIn = (text: string, variables: { name: string; value: string | number | boolean }[]) => {
+  const values = new Map(variables.map((variable) => [variable.name, String(variable.value)]))
+  return {
+    text: text.replace(PLACEHOLDER, (whole, name: string) => values.get(name) ?? whole),
+    undeclared: namesIn(text).filter((name) => !values.has(name)),
+  }
+}
+
+/** A field whose control is not free text: a variable there replaces the value, and is sent as written. */
+const isTyped = (field: FormField) => field.kind !== 'text' && field.kind !== 'long-text'
+
+/**
+ * The editor's form as what the pack fixes and defaults. A value that writes a variable goes as written whatever
+ * the input takes (the gateway fills it in, then checks it), a switch that is off is `false`, and a fixed or default
+ * input needs a value.
+ */
+export const inputValuesOf = (fields: FormField[], modes: Record<string, InputMode>, texts: Record<string, string>) => {
+  const fixed: Record<string, unknown> = {}
+  const defaults: Record<string, unknown> = {}
+  const errors: Record<string, string> = {}
+  for (const field of fields) {
+    const mode = modes[field.name] ?? 'agent'
+    if (mode === 'agent') continue
+    const into = mode === 'fixed' ? fixed : defaults
+    const raw = texts[field.name] ?? ''
+    if (field.kind === 'json' ? WHOLE.test(raw) : isTyped(field) && writesVariable(raw)) into[field.name] = raw.trim()
+    else if (field.kind === 'boolean') into[field.name] = raw === 'true'
+    else if (raw.trim() === '') errors[field.name] = 'Give it a value, or let the agent decide.'
+    else {
+      const read = argumentsOf([field], { [field.name]: raw })
+      const error = read.errors[field.name]
+      if (error) errors[field.name] = error
+      else into[field.name] = read.args[field.name]
+    }
+  }
+  return { fixed, defaults, errors }
+}
+
+/** A value with a picked variable written in: over a typed value, at the end of text. */
+export const withVariable = (field: FormField, text: string, name: string) =>
+  isTyped(field) ? `{{${name}}}` : `${text}{{${name}}}`
+
+/** What no longer fits a pack tool: the inputs its upstream dropped, then each value it now refuses. */
+export const problemLines = (tool: Pick<PackTool, 'tool' | 'lostInputs' | 'inputs'>) => [
+  ...(tool.lostInputs.length ? [`${tool.tool} no longer takes ${tool.lostInputs.join(', ')}`] : []),
+  ...tool.inputs.flatMap((input) => (input.problem ? [input.problem] : [])),
+]
+
+/** A variable's name as the gateway takes it. */
+const VARIABLE = /^[a-z][a-z0-9_]{0,39}$/
+
+/** What is wrong with a new variable's name, or null. */
+export const variableProblem = (name: string, taken: Set<string>) =>
+  name === ''
+    ? 'Give it a name, like desk_name.'
+    : !VARIABLE.test(name)
+      ? 'Start with a lowercase letter, then lowercase letters, digits or _ (40 at most), like desk_name.'
+      : taken.has(name)
+        ? `${name} is already a variable of this pack: change that one, or pick another name.`
+        : null
+
+export type VariableKind = 'text' | 'number' | 'boolean'
+export const VARIABLE_KINDS: { id: VariableKind; label: string }[] = [
+  { id: 'text', label: 'Text' },
+  { id: 'number', label: 'Number' },
+  { id: 'boolean', label: 'Yes or no' },
+]
+
+export const kindOfValue = (value: string | number | boolean): VariableKind =>
+  typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : 'text'
+
+/** A variable's value as the kind the owner picked: `7` the number is not `7` the text to an input's schema. */
+export const variableValueOf = (
+  kind: VariableKind,
+  text: string,
+): { value: string | number | boolean; error: null } | { value: null; error: string } => {
+  if (kind === 'boolean') return { value: text === 'true', error: null }
+  if (kind === 'text') return text === '' ? { value: null, error: 'Give it a value.' } : { value: text, error: null }
+  const number = Number(text)
+  return text.trim() === '' || Number.isNaN(number)
+    ? { value: null, error: 'A number, like 7.' }
+    : { value: number, error: null }
+}
+
+/** "Used by items.get_item, work_inbox", or that nothing writes it yet. */
+export const usedLine = (usedBy: string[]) => (usedBy.length ? `Used by ${usedBy.join(', ')}` : 'Not used yet')
+
+/** Where a refused save went wrong: a tool's input (`tools.<name>.fixed.<input>`), or a variable. */
+export const placeOf = (path: string): { tool: string; input: string } | { variable: string } | null => {
+  const input = /^tools\.(.+)\.(?:fixed|defaults)\.([^.]+)$/.exec(path)
+  if (input?.[1] && input[2]) return { tool: input[1], input: input[2] }
+  const variable = /^variables\.(.+)$/.exec(path)
+  return variable?.[1] ? { variable: variable[1] } : null
+}
+
+type Refused = { message: string; errors: { path: string; message: string }[] }
+
+const stop = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`)
+
+/**
+ * A refused save of one pack tool: each problem beside its input, and the rest to say under the form. `tools` are
+ * the names the tool may be refused under (its stored name, and the one being saved).
+ */
+export const refusedInputs = (refused: Refused, tools: string[], inputs: string[]) => {
+  const byInput: Record<string, string> = {}
+  const rest: string[] = refused.errors.length ? [] : [refused.message]
+  for (const error of refused.errors) {
+    const place = placeOf(error.path)
+    const here = place && 'tool' in place && tools.includes(place.tool)
+    if (here && inputs.includes(place.input)) byInput[place.input] ??= stop(error.message)
+    else rest.push(place && 'tool' in place && !here ? `${place.tool}: ${stop(error.message)}` : stop(error.message))
+  }
+  return { byInput, rest }
+}
+
+/**
+ * A refused save of a pack's variables: each problem beside its variable. A value that stops fitting a tool's input
+ * goes beside every variable that value writes; what belongs to none is the rest.
+ */
+export const refusedVariables = (refused: Refused, tools: (Sets & Pick<PackTool, 'name'>)[]) => {
+  const byVariable: Record<string, string[]> = {}
+  const rest: string[] = refused.errors.length ? [] : [refused.message]
+  const beside = (name: string, message: string) => {
+    byVariable[name] = [...(byVariable[name] ?? []), message]
+  }
+  for (const error of refused.errors) {
+    const place = placeOf(error.path)
+    if (!place) rest.push(stop(error.message))
+    else if ('variable' in place) beside(place.variable, stop(error.message))
+    else {
+      const tool = tools.find((candidate) => candidate.name === place.tool)
+      const written = namesIn(JSON.stringify(tool?.fixed[place.input] ?? tool?.defaults[place.input] ?? ''))
+      const message = `${place.tool}: ${stop(error.message)}`
+      if (written.length) for (const name of written) beside(name, message)
+      else rest.push(message)
+    }
+  }
+  return { byVariable, rest }
+}
 
 /** The app a Composio tool belongs to: the toolkit its name starts with (`composio.gmail_fetch_emails` → gmail). */
 export const toolkitOf = (name: string, toolkits: string[]) => {
