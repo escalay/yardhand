@@ -268,7 +268,8 @@ export const routes = {
     operationId: 'createClient',
     tags: [TAG],
     summary: 'Make a client',
-    description: 'A new API-key client. Answers 201 with the key, shown this once (owner only).',
+    description:
+      'A new API-key client. Answers 201 with the key, shown this once (owner only). Sent with an `Idempotency-Key`, the same request sent again within a day is answered the same key, not a second client: that answer is kept sealed with the master key, as every answer kept for an `Idempotency-Key` is.',
     request: { body: json(ClientCreateSchema) },
     responses: { 201: ok('The new client and its key.', CreatedClientSchema), ...problemResponses(400, 401, 403) },
   }),

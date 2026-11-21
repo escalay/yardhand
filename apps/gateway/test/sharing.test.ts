@@ -2,7 +2,7 @@
  * Sharing a pack with key-based apps: how long a key works, moving its end, what its holder and the owner are
  * told once it has ended, sharing it with one person and the people it is shared with.
  */
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { serve } from '@hono/node-server'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
@@ -15,11 +15,12 @@ import { hashApiKey, testDb } from '../src/kit/index.js'
 import { startUpstream } from './fixtures/upstream.js'
 
 const OWNER = 'owner-key-for-sharing'
+const MASTER_KEY = randomBytes(32).toString('base64')
 const upstream = await startUpstream({ token: 'fixture-token' })
 const db = await testDb()
 const app = await createApp({
   db,
-  env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: randomBytes(32).toString('base64') },
+  env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: MASTER_KEY },
 })
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 })
 await new Promise<void>((resolve) => server.once('listening', () => resolve()))
@@ -574,7 +575,7 @@ describe('sharing a pack with one person', () => {
       db,
       env: {
         API_KEYS: `owner:${hashApiKey(OWNER)}`,
-        GATEWAY_MASTER_KEY: randomBytes(32).toString('base64'),
+        GATEWAY_MASTER_KEY: MASTER_KEY,
         PUBLIC_HOST: 'gw.example.com',
       },
     })
@@ -655,6 +656,73 @@ describe('sharing a pack with one person', () => {
     }
     expect((await owner(`/api/clients/${reader.id}`, { method: 'DELETE' })).status).toBe(204)
     expect(await clientCount()).toBe(before + 1)
+  })
+})
+
+describe('an answer kept for an Idempotency-Key', () => {
+  const keptFor = async (id: string) => {
+    const rows = await db.all<[string]>(sql`select value from kit_guards where kind = 'key' and id like ${`% ${id}`}`)
+    expect(rows).toHaveLength(1)
+    return JSON.parse(rows[0]?.[0] ?? '') as { status: number; headers: unknown[]; body: string }
+  }
+  /** Everything a stored answer says to someone reading the database. */
+  const readable = (kept: { headers: unknown[]; body: string }) =>
+    `${JSON.stringify(kept)}${Buffer.from(kept.body, 'base64').toString('utf8')}`
+
+  it('holds a new key sealed, and still answers the same key to the same request', async () => {
+    for (const [path, body, id] of [
+      ['/api/packs/loud/people', { name: 'Sam', app: 'cursor' }, 'share-once'],
+      ['/api/clients', { name: 'Sam’s script', pack: 'loud' }, 'client-once'],
+    ] as const) {
+      const init = { method: 'POST', body, headers: { 'idempotency-key': id } }
+      const made = await owner(path, init)
+      expect(made.status).toBe(201)
+      const key = made.json.key as string
+      expect(key).toMatch(/^gw_/)
+      const kept = await keptFor(id)
+      expect(kept.status).toBe(201)
+      expect(readable(kept)).not.toContain('gw_')
+      expect(readable(kept)).not.toContain(made.json.id)
+      // The request sent again (its answer was lost on the way) is given the same key, not a second one
+      const before = await clientCount()
+      const again = await owner(path, init)
+      expect([again.status, again.headers.get('idempotent-replayed'), again.json]).toEqual([201, 'true', made.json])
+      expect(again.headers.get('location')).toBe(`/api/clients/${made.json.id}`)
+      expect(await clientCount()).toBe(before)
+      expect((await api(key, '/p/loud/api/me')).status).toBe(200)
+      expect((await owner(`/api/clients/${made.json.id}`, { method: 'DELETE' })).status).toBe(204)
+    }
+  })
+
+  it('seals at the next start what an earlier version kept as it was', async () => {
+    const request = JSON.stringify({ name: 'Ola', pack: 'loud' })
+    const answer = { id: 'cl_before', name: 'Ola', key: 'gw_kept-before-answers-were-sealed' }
+    const plain = {
+      bodyHash: createHash('sha256').update(request).digest('hex'),
+      status: 201,
+      headers: [['content-type', 'application/json']],
+      body: Buffer.from(JSON.stringify(answer)).toString('base64'),
+    }
+    const id = 'key:owner POST /api/clients kept-before'
+    await db.run(
+      sql`insert into kit_guards (kind, id, start, used, value, expires_at) values ('key', ${id}, ${Date.now()}, 0, ${JSON.stringify(plain)}, ${Date.now() + DAY})`,
+    )
+    const restarted = await createApp({
+      db,
+      env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: MASTER_KEY },
+    })
+    expect(readable(await keptFor('kept-before'))).not.toContain('gw_')
+    const again = await restarted.request('/api/clients', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${OWNER}`,
+        'content-type': 'application/json',
+        'idempotency-key': 'kept-before',
+      },
+      body: request,
+    })
+    expect([again.status, again.headers.get('idempotent-replayed'), await again.json()]).toEqual([201, 'true', answer])
+    await db.run(sql`delete from kit_guards where id = ${id}`)
   })
 })
 
