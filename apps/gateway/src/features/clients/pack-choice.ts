@@ -16,7 +16,7 @@ const NAME = '[a-z0-9][a-z0-9-]{0,39}'
 const ADDRESS = new RegExp(`^/p/(${NAME})(/.*)?$`)
 const LEGACY_ADDRESS = new RegExp(`^/mcp/p/(${NAME})(/.*)?$`)
 
-/** The pack an address chose; `base` is `/p/<name>` when the request came by the pack's own address, else null. */
+/** The pack a request chose; `base` is `/p/<name>` when it came by the pack's own address, else null. */
 type Choice = { name: string; base: string | null }
 const chosen = new AsyncLocalStorage<Choice>()
 
