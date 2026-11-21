@@ -104,7 +104,16 @@ const said = async (client: Client, name: string, args: Record<string, unknown> 
     .join('\n')
 const small = await gateway(fakeMeaning)
 const refused = () => Promise.reject(new Error('embedding refused'))
-const broken = await gateway(() => ({ refresh: async () => {}, names: refused, standouts: refused, has: () => false }))
+const nearestAsked = { times: 0 }
+const broken = await gateway(() => ({
+  refresh: async () => {},
+  names: () => {
+    nearestAsked.times += 1
+    return refused()
+  },
+  standouts: refused,
+  has: () => false,
+}))
 /** Search by meaning that counts the refreshes asked of it and can hold them back, as one that failed or stopped. */
 const watched = (db: Db) => {
   const search = fakeMeaning(db)
@@ -385,6 +394,8 @@ describe('when search by meaning fails', () => {
 
   it('still searches by words, and a pack that matches nothing still says what it covers', async () => {
     for (const key of [kit, full]) expect(await broken.found(key, 'echoes text')).toContain('fixture.echo')
+    // The question's vector was refused once: the nearest tools are not asked for it again
+    expect(nearestAsked.times).toBe(0)
     expect(await broken.found(kit, 'shout')).toEqual(['fixture.shout'])
     expect((await broken.api(kit, '/api/tools?q=zzqx')).json).toMatchObject({
       count: 0,

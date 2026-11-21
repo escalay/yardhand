@@ -186,7 +186,8 @@ export const toolsHandlers = ({
    * What a search finds among the tools `mayMatch` allows, best first: a tool that stands out for the question among
    * every tool, or carries its words and is near enough in meaning (or has no vector yet to be scored by). A question
    * that matches nothing finds nothing.
-   * Where there is no bar (a small catalog, no search by meaning, or it failed): the nearest tools and every keyword hit.
+   * Where there is no bar (a small catalog, no search by meaning): the nearest tools and every keyword hit. Where
+   * search by meaning fails: every keyword hit.
    */
   const searchFor = async (
     principal: Principal,
@@ -218,7 +219,8 @@ export const toolsHandlers = ({
     }
     const nearest = async () =>
       meaning ? (await meaning.names(words, 5000).catch(() => [])).filter(inPool).slice(0, 100) : []
-    const lists = (await barred().catch(() => null)) ?? [hits, await nearest()]
+    // A question that could not be embedded is not sent again for its nearest tools: the words answer alone
+    const lists = (await barred().catch(() => [hits])) ?? [hits, await nearest()]
     // Keyword and meaning results fused by rank
     const found = fuse(lists, 300, MEANING_WEIGHT).flatMap((name) => pool.get(name) ?? [])
     return { found, pool: [...pool.values()] }
