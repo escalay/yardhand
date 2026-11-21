@@ -407,6 +407,32 @@ describe('checkPack on a pack’s own playbooks', () => {
     ])
   })
 
+  it('warns about a {{…}} that is not written as a name: nothing fills it in', () => {
+    expect(
+      found('Greet {{Guest}} and {{guest-name}} from {{ desk }}, never {{}}.').map((finding) => [
+        finding.level,
+        finding.code,
+        finding.message,
+      ]),
+    ).toEqual([
+      [
+        'warning',
+        'not_a_name',
+        '{{Guest}} is not filled in, so agents read it as written: a name is a lowercase letter, then lowercase letters, digits or _.',
+      ],
+      [
+        'warning',
+        'not_a_name',
+        '{{guest-name}} is not filled in, so agents read it as written: a name is a lowercase letter, then lowercase letters, digits or _.',
+      ],
+      [
+        'warning',
+        'not_a_name',
+        '{{}} is not filled in, so agents read it as written: a name is a lowercase letter, then lowercase letters, digits or _.',
+      ],
+    ])
+  })
+
   it('errors on an argument named like a variable of the pack', () => {
     expect(
       found('---\narguments:\n  - name: desk\n---\nGreet from {{desk}}.').map((finding) => [
@@ -612,6 +638,21 @@ describe('judge on a pack’s documents', () => {
     ])
   })
 
+  it('lets a variable go that a playbook writes only as its own argument', () => {
+    const before = desk({
+      tools: [],
+      variables: [{ name: 'guest', value: 'Sam', description: null }],
+      playbooks: [
+        { name: 'say-hello', markdown: '---\narguments:\n  - name: guest\n---\nGreet {{guest}}.', wrote: [] },
+      ],
+    })
+    expect(codes(checkPack(before))).toEqual([
+      ['warning', 'unused_variable', 'variables.guest'],
+      ['error', 'name_clash', 'playbooks.say-hello'],
+    ])
+    expect(judge(before, withVariables(before, []), ['variables']).refused).toEqual([])
+  })
+
   it('never refuses a new variable for the argument of the same name a playbook already has', () => {
     const before = desk({
       tools: [],
@@ -623,6 +664,6 @@ describe('judge on a pack’s documents', () => {
     const after = withVariables(before, [{ name: 'guest', value: 'Sam', description: null }])
     const { refused, findings } = judge(before, after, ['variables'])
     expect(refused).toEqual([])
-    expect(findings.map((finding) => finding.code)).toEqual(['name_clash'])
+    expect(findings.map((finding) => finding.code)).toEqual(['unused_variable', 'name_clash'])
   })
 })

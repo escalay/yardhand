@@ -147,7 +147,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   In a pack playbook or the skill: an error for a tool that is not in the pack, or named by its own name where the
   pack gives it another, for a name the text was written for that has left the pack, and for a `{{word}}` that is
   neither an argument nor a variable (in a text nothing is sent as written); a warning for a tool a read-only key
-  can't run, a name shaped like a tool that is none, more than 12 steps, a missing skill section. A document's
+  can't run, a name shaped like a tool that is none, a `{{…}}` that is no name, more than 12 steps, a missing
+  skill section. A document's
   errors refuse a save only when that document is the one saved (`judge`).
 - **Flag**: pack wording written against a tool version whose description has since changed, or a fixed or default
   value the live tool no longer takes (its input is gone, or no longer takes the value), shown on the pack page, in

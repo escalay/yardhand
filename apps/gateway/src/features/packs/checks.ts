@@ -14,7 +14,7 @@ import type { BasedOn } from './repo.js'
 import type { PackDocKind } from './schema.js'
 import { packSkillPathOf, packSkillUriOf, SKILL_SECTIONS, sectionsOf } from './skill.js'
 import type { PackState, PackStateDoc } from './state.js'
-import { namesIn, placeholdersIn, VARIABLE, type Variables } from './values.js'
+import { namesIn, notNamesIn, placeholdersIn, VARIABLE, type Variables } from './values.js'
 
 export type Finding = {
   level: 'error' | 'warning'
@@ -55,11 +55,18 @@ export const docPathOf = (kind: PackDocKind, name: string) => (kind === 'skill' 
 /** The most characters one playbook or the skill holds. */
 export const DOC_MAX = 60_000
 
-/** The pack's documents that write `{{name}}` in their text, as a sentence names them. */
+/** Does this playbook's text write `{{name}}` as a variable? Not when it is one of the playbook's own arguments. */
+const writesVariable = (doc: PackState['playbooks'][number], name: string) => {
+  const read = parsePlaybook(doc.name, doc.markdown)
+  return 'problems' in read
+    ? placeholdersIn(withoutFrontMatter(doc.markdown)).includes(name)
+    : placeholdersIn(read.playbook.body).includes(name) &&
+        !read.playbook.arguments.some((argument) => argument.name === name)
+}
+
+/** The pack's documents that write the variable `{{name}}` in their text, as a sentence names them. */
 export const docWritersOf = (state: PackState, name: string) => [
-  ...state.playbooks
-    .filter((doc) => placeholdersIn(withoutFrontMatter(doc.markdown)).includes(name))
-    .map((doc) => `the playbook ${doc.name}`),
+  ...state.playbooks.filter((doc) => writesVariable(doc, name)).map((doc) => `the playbook ${doc.name}`),
   ...(state.skill && placeholdersIn(state.skill.markdown).includes(name) ? ['the skill'] : []),
 ]
 
@@ -72,7 +79,7 @@ type DocRead = { findings: Finding[]; uses: string[] }
 
 /**
  * What a text gets wrong, and the pack's tools it names. A `{{word}}` must be one of its arguments or a variable of
- * the pack: in a text nothing is sent as written. A name in backticks is read as a tool when it is one of the pack's,
+ * the pack: in a text nothing is sent as written, and a `{{…}}` that is no name at all is said. A name in backticks is read as a tool when it is one of the pack's,
  * one of a connection's, one the stored text was written for, or shaped like one.
  */
 const readText = (
@@ -97,6 +104,14 @@ const readText = (
             : `{{${word}}} is neither an argument of this playbook nor a variable of ${state.title}: declare one, or take it out.`,
       }),
     )
+  const notNames = notNamesIn(body).map(
+    (written): Finding => ({
+      level: 'warning',
+      code: 'not_a_name',
+      ...at,
+      message: `${written} is not filled in, so agents read it as written: a name is a lowercase letter, then lowercase letters, digits or _.`,
+    }),
+  )
   const known = new Set([
     ...OWN_NAMES,
     ...given,
@@ -161,7 +176,7 @@ const readText = (
           },
         ]
   })
-  return { findings: [...unresolved, ...named], uses }
+  return { findings: [...unresolved, ...notNames, ...named], uses }
 }
 
 const tooBig = (path: string, markdown: string): Finding[] =>

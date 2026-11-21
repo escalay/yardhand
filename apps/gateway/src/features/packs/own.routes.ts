@@ -123,7 +123,7 @@ const older = z.object({
   }),
 })
 const CHECKS =
-  'The text is checked first, and refused (400) with everything wrong in it: a tool named in backticks that is not in the pack, or by its own name where the pack gives it another; a `{{word}}` that is neither an argument nor a variable of the pack; front matter that can’t be read. Warnings come back in `findings` and never block: a tool a read-only key can’t run, a name that looks like a tool and is none, more than about 12 steps.'
+  'The text is checked first, and refused (400) with everything wrong in it: a tool named in backticks that is not in the pack, or by its own name where the pack gives it another; a `{{word}}` that is neither an argument nor a variable of the pack; front matter that can’t be read. Warnings come back in `findings` and never block: a tool a read-only key can’t run, a name that looks like a tool and is none, a `{{…}}` that is not written as a name, more than about 12 steps.'
 
 export const ownRoutes = {
   listPlaybooks: createRoute({

@@ -716,6 +716,21 @@ describe('in the config', () => {
     expect((await there('/api/config')).json.packs[0].files).toEqual(config.packs[0].files)
   })
 
+  it('skips a connection’s playbook named like one the pack wrote itself', async () => {
+    await packWith('stoop', 'Stoop', [{ name: 'fixture.echo' }])
+    expect((await write('stoop', 'fixture-say-it-back', 'Say it back with `fixture.echo`.')).status).toBe(201)
+    const sent = await owner('/api/config', {
+      method: 'POST',
+      body: { packs: [{ name: 'stoop', title: 'Stoop', playbooks: ['fixture-say-it-back', 'fixture-warm-up'] }] },
+    })
+    expect(sent.json.skipped).toEqual([
+      'pack stoop playbook fixture-say-it-back: the pack has a playbook of its own called that (rename that one first)',
+    ])
+    const stoop = (await owner('/api/packs/stoop')).json
+    expect(stoop.playbooks.map((item: { name: string }) => item.name)).toEqual(['fixture-warm-up'])
+    expect(stoop.findings).toEqual([])
+  })
+
   it('skips a file that is no playbook or skill, and a text the checks refuse, saying why', async () => {
     const fresh = await gateway()
     const there = (path: string, init?: Init) => asking(fresh)(OWNER, path, init)

@@ -959,7 +959,7 @@ export interface paths {
         put?: never;
         /**
          * Write a playbook for a pack
-         * @description A new playbook of the pack’s own, as Markdown. The text is checked first, and refused (400) with everything wrong in it: a tool named in backticks that is not in the pack, or by its own name where the pack gives it another; a `{{word}}` that is neither an argument nor a variable of the pack; front matter that can’t be read. Warnings come back in `findings` and never block: a tool a read-only key can’t run, a name that looks like a tool and is none, more than about 12 steps. A name the pack already has a playbook under is a 409: `PUT` replaces its text.
+         * @description A new playbook of the pack’s own, as Markdown. The text is checked first, and refused (400) with everything wrong in it: a tool named in backticks that is not in the pack, or by its own name where the pack gives it another; a `{{word}}` that is neither an argument nor a variable of the pack; front matter that can’t be read. Warnings come back in `findings` and never block: a tool a read-only key can’t run, a name that looks like a tool and is none, a `{{…}}` that is not written as a name, more than about 12 steps. A name the pack already has a playbook under is a 409: `PUT` replaces its text.
          */
         post: operations["createPackPlaybook"];
         delete?: never;
@@ -982,7 +982,7 @@ export interface paths {
         get: operations["getPackPlaybook"];
         /**
          * Replace a pack playbook’s text
-         * @description Saves a new text for one of the pack’s own playbooks; the text it had is kept as a version. The text is checked first, and refused (400) with everything wrong in it: a tool named in backticks that is not in the pack, or by its own name where the pack gives it another; a `{{word}}` that is neither an argument nor a variable of the pack; front matter that can’t be read. Warnings come back in `findings` and never block: a tool a read-only key can’t run, a name that looks like a tool and is none, more than about 12 steps. Saving the text it already has adds no version and clears its flag: it now stands on the tools as they are.
+         * @description Saves a new text for one of the pack’s own playbooks; the text it had is kept as a version. The text is checked first, and refused (400) with everything wrong in it: a tool named in backticks that is not in the pack, or by its own name where the pack gives it another; a `{{word}}` that is neither an argument nor a variable of the pack; front matter that can’t be read. Warnings come back in `findings` and never block: a tool a read-only key can’t run, a name that looks like a tool and is none, a `{{…}}` that is not written as a name, more than about 12 steps. Saving the text it already has adds no version and clears its flag: it now stands on the tools as they are.
          */
         put: operations["setPackPlaybook"];
         post?: never;
@@ -2886,7 +2886,7 @@ export interface components {
              */
             level: "error" | "warning";
             /**
-             * @description In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `name_clash`, `bad_name`, `bad_front_matter`, `empty`, `too_big`, or a warning: `unknown_name`, `needs_write`, `split`, `missing_section`, `skill_path`.
+             * @description In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `name_clash`, `bad_name`, `bad_front_matter`, `empty`, `too_big`, or a warning: `unknown_name`, `not_a_name`, `needs_write`, `split`, `missing_section`, `skill_path`.
              * @example bad_value
              */
             code: string;

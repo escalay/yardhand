@@ -351,6 +351,13 @@ export const feature: Feature = {
           const liveNames: string[] = []
           const manualPaths: string[] = []
           for (const name of names) {
+            // The request route refuses this too (`checkAdds`): one name, one playbook
+            if (kind === 'playbook' && state.playbooks.some((doc) => doc.name === name)) {
+              result.skipped.push(
+                `pack ${wanted.name} playbook ${name}: the pack has a playbook of its own called that (rename that one first)`,
+              )
+              continue
+            }
             const item = await catalog.live(kind, name)
             if (!item) result.skipped.push(`pack ${wanted.name} ${kind} ${name}: not live yet`)
             else {
