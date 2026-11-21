@@ -37,13 +37,13 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 |---|---|
 | `apps/gateway/` | the server (kit app; its own `AGENTS.md` covers the kit shape) |
 | `apps/gateway/src/features/<name>/` | anything with tables or routes: upstreams, tools, catalog, calls, clients, search, vault, connections, config |
-| `apps/gateway/src/features/packs/` | packs. What a pack sets on its tools' inputs is read in three files: `values.ts` (variables, `{{name}}` filled in), `state.ts` (a pack as its checks read it, and the state a change would leave), `checks.ts` (`checkPack`, the one check function, and `judge`, the one rule for a change: refused only for what it breaks itself). Every way of writing a pack goes through them: the handlers and the config import. What is written for a pack is Markdown: `playbook.ts` and `skill.ts` read the two kinds of text, `frontmatter.ts` the YAML block at a playbook's top, and `own.routes.ts` with `own.handlers.ts` are the authoring routes; the same checks read them, and `flags.ts` says when a tool moved under one |
+| `apps/gateway/src/features/packs/` | packs. What a pack sets on its tools' inputs is read in three files: `values.ts` (variables, `{{name}}` filled in), `state.ts` (a pack as its checks read it, and the state a change would leave), `checks.ts` (`checkPack`, the one check function, and `judge`, the one rule for a change: refused only for what it breaks itself). Every way of writing a pack goes through them: the handlers and the config import. What is written for a pack is Markdown: `playbook.ts` and `skill.ts` read the two kinds of text, `frontmatter.ts` the YAML block at a playbook's top, and `own.routes.ts` with `own.handlers.ts` are the authoring routes; the same checks read them, and `flags.ts` says when a tool moved under one. `own.ts` (`packDocs`) is the one way they are read for a caller: what its pack lock names, and nothing else |
 | `apps/gateway/src/features/instance/` | a new instance's own keys in `instance.json` beside the data (master key, OAuth signing key, the owner's hash), resolved at start before anything opens; never made over a database sealed with other keys. The setup code and the claim live in `features/session`. `upgrade.ts` there copies the data before a newer version migrates it, refuses data a newer version wrote, and undoes an update that never came up: when this version starts and finds the copy a newer one made without ever recording itself, that copy becomes the data (what was left is kept as `backups/failed-<version>.sqlite`) |
 | `apps/gateway/src/features/backups/` | download a kept copy of the database; restore from a kept copy or an uploaded file (checked, today's data kept aside, staged, applied at the next start by `applyPending` in `server.ts`) |
 | `apps/gateway/src/features/telemetry/` | the daily usage report (`docs/telemetry.md`): `report.ts` builds it, `index.ts` sends it and shows it to the owner (`GET /api/system/telemetry`); switched off only in the environment |
 | `apps/gateway/src/features/updates/` | updates (`docs/updates.md`): the daily ask for the newest version (one plain request, no id), the two switches kept in the vault (`GATEWAY_UPDATE_CHECK` and `GATEWAY_AUTO_UPDATE` are only their starting values), and asking for an update: a `request.json` in `<state>/updates` for the updater container, whose `updater.json`, `status.json` and `history.jsonl` it reads, or the platform's deploy hook (`GATEWAY_UPDATE_HOOK`). Routes under `/api/system/updates` |
 | `apps/gateway/src/adapters/` | talking to one kind of upstream (`mcp`, `http`, `composio`, `sample`); no tables, no routes |
-| `apps/gateway/src/mcp/` | what agents see: meta-tools, pinned tools, playbooks as prompts, manuals as skills, links, passthrough |
+| `apps/gateway/src/mcp/` | what agents see: meta-tools, pinned tools, playbooks as prompts, manuals and a pack's own skill as skills, links, passthrough |
 | `apps/gateway/src/features/{events,searches,overview,session}/` | what the app stands on: live events (SSE), the search log behind "agents looked for", Home and Settings in one call each, owner sign-in by key where Access isn't in front |
 | `apps/web/` | the owner's app at `/app` (Yardhand's look, `src/styles.css`: Inter, graphite and one signal blue, Open Doodles illustrations under CC0): one folder per area (`home`, `connections`, `tools`, `packs`, `agents`, `activity`, `reviews`, `settings`), each with its `*.rules.ts` + tests; `shell/` (the floating sidebar with the six places, reviews and settings, a drawer on phones, the scope picker the filter rows use, ⌘K, live events, sign-in), `setup/` (claiming a new instance and the guided setup at `/app/setup`, outside the sidebar), `ui/` (the shared parts, `Backdrop`, `FilterBar`, `Entity` header + tabs, `LineTabs`, `shadcn/` restyled, illustrations), `api/` (typed client), `e2e/` (Playwright) |
 | `deploy/compose/` | the whole product as one compose file with optional Caddy HTTPS and the updater container (`ghcr.io/escalay/updater`, from escalay/selfhost-kit; it holds the Docker socket so the gateway doesn't): the other way to run it (its README) |
@@ -137,10 +137,17 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   matter gives its title, description and arguments. Its text writes an argument or a variable as `{{name}}` and
   names the pack's tools in backticks, by the names the pack calls them: only a backticked name is read as a tool.
   Kept in the gateway with every version it had (`pack_docs`, `pack_doc_versions`), never in the catalog, and only
-  ever read by its pack's id. Not served to a pack's keys yet.
+  ever read by its pack's id. Its pack's keys get it wherever they get a playbook, first and under the name the pack
+  gave it: `GET /api/playbooks` (`upstream: null`, `pack` set; left out with `?upstream=`), as an MCP prompt, through
+  `get_playbook`, in search hints and in the pack's guide. Filled in by the gateway: the arguments given, then the
+  pack's variables. It belongs to no connection, so none counts it and its reads are logged with no upstream.
 - **Pack skill**: the one `SKILL.md` of a pack (`PUT /api/packs/{name}/skill`), "Working with <Title>", in six
   sections. The pack stores the text only; the front matter and the heading are written from the pack
-  (`skillFile`), at `skill://<pack>/SKILL.md` (`packSkillPathOf`).
+  (`skillFile`), at `skill://<pack>/SKILL.md` (`packSkillPathOf`), by the name the pack has now. Its keys read it
+  there (`read_resource`, `GET /api/resources`, the Skills extension, each logged as a `manual` read), the pack's
+  instructions send them to it first, and it opens the pack's guide (`/p/<pack>/llms.txt`). It wins its address: a
+  manual the pack holds that would sit there too is left out of the Skills list and read as a manual
+  (`gateway://u/<upstream>/manual`).
 - **Finding**: what `checkPack` says about a pack as it stands (`findings` on `GET /api/packs/{name}`): an error (an
   input the tool doesn't take, a value its schema refuses once the variables are filled in) or a warning (a
   `{{word}}` that is no variable, an unused variable, a value not checked because its input's schema can't be read).
@@ -180,11 +187,14 @@ Copy is plain and specific; every error says where, why and what to do (the prob
    refuses. A pack key is the exception: it opens only the links its tools' results handed it in the last day
    (`features/calls/handed.ts`), through the proxy and `read_resource` alike.
 7. Reads (a manual, a playbook, a link) go through the same rules as calls (`features/calls/reads.ts`) and land in
-   the same log; manuals and playbooks reach agents only as an approved (`live`) version.
+   the same log; manuals and playbooks reach agents only as an approved (`live`) version. A pack's own playbooks and
+   skill are the owner's words: they are read there too, and served as their newest saved text.
 8. The pack lock lives on the principal (`features/clients/principals.ts`): a pack key's upstreams are the pack's,
-   and `reaches` / `runsTool` / `holds` / `shownAs` keep tools, playbooks, manuals, names, wording, fixed inputs and
-   defaults to the pack at every site that lists or runs anything (`packScopeFrom` is the only place the lock is
-   built); `seenBy` is the one rule for which tools a caller is listed,
+   and `reaches` / `runsTool` / `holds` / `holdsOwn` / `shownAs` keep tools, playbooks, manuals, names, wording, fixed
+   inputs and defaults, and the playbooks and skill written for the pack, to the pack at every site that lists or
+   runs anything (`packScopeFrom` is the only place the lock is built). A pack's own playbooks and skill are read
+   for a caller only through `packDocs` (`features/packs/own.ts`), by the pack on the principal: the lock first,
+   then the pack. `seenBy` is the one rule for which tools a caller is listed,
    and `pinnedBy` for which of them MCP lists directly. Search scores every tool and then keeps to `seenBy`, and a
    pack key's connection cards count only what the pack holds. A pack key never gets a passthrough. The owner asking
    for a pack is such a principal too (`owner: false`), held to the same rules. A new place that lists or runs tools
