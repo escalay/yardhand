@@ -4,6 +4,9 @@
  * says what the pack covers. A small catalog, and a gateway whose search by meaning fails, search as before.
  */
 import { randomBytes } from 'node:crypto'
+import type { AddressInfo } from 'node:net'
+import { serve } from '@hono/node-server'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import type { MeaningSearch } from '../src/features/tools/meaning.js'
@@ -79,6 +82,24 @@ const withKit = async ({ made, keyFor }: Gateway, more: Record<string, unknown> 
 }
 
 const large = await gateway(fakeMeaning)
+const server = serve({ fetch: large.app.fetch, hostname: '127.0.0.1', port: 0 })
+await new Promise<void>((resolve) => server.once('listening', () => resolve()))
+afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())))
+/** The large gateway over MCP, as a key connects to it. */
+const mcp = async (key: string) => {
+  const client = new Client({ name: 'test', version: '1.0.0' })
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL('/mcp', `http://127.0.0.1:${(server.address() as AddressInfo).port}`), {
+      requestInit: { headers: { authorization: `Bearer ${key}` } },
+    }),
+  )
+  return client
+}
+/** What a meta-tool answers, as the agent reads it. */
+const said = async (client: Client, name: string, args: Record<string, unknown> = {}) =>
+  ((await client.callTool({ name, arguments: args })).content as { text?: string }[])
+    .map((block) => block.text ?? '')
+    .join('\n')
 const small = await gateway(fakeMeaning)
 const refused = () => Promise.reject(new Error('embedding refused'))
 const broken = await gateway(() => ({ refresh: async () => {}, names: refused, standouts: refused }))
@@ -228,6 +249,24 @@ describe('on a large catalog', () => {
     expect((await api(full, '/api/tools/fixture.echo')).json.manual).toBe('gateway://u/fixture/manual')
     const set = await api(OWNER, '/api/tools/fixture.echo', { method: 'PATCH', body: { access: null } })
     expect(set.json.manual).toBe('gateway://u/fixture/manual')
+  })
+
+  it('says over MCP what the pack covers, and only when the whole pack was asked and nothing matched', async () => {
+    const agent = await mcp(kit)
+    expect(await said(agent, 'search_tools', { query: 'zzqx' })).toBe(
+      'Nothing in Kit matches "zzqx". This pack covers: Fixture, Crowd, Lamps.',
+    )
+    const plain = 'Try other words, or list_upstreams to see what is connected.'
+    expect(await said(agent, 'search_tools', { query: 'zzqx', upstream: 'fixture' })).toBe(`No tools match. ${plain}`)
+    await agent.close()
+    const reader = await mcp(kitReader)
+    expect(await said(reader, 'search_tools', { query: 'yell' })).toBe(
+      `No tools match.\n\n1 more matching tools change things and are hidden from this read-only key. ${plain}`,
+    )
+    await reader.close()
+    const outside = await mcp(full)
+    expect(await said(outside, 'search_tools', { query: 'zzqx' })).toBe(`No tools match. ${plain}`)
+    await outside.close()
   })
 })
 
