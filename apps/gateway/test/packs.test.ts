@@ -73,11 +73,11 @@ const said = async (client: Client, name: string, args: Record<string, unknown> 
   ((await client.callTool({ name, arguments: args })).content as { text?: string }[])
     .map((block) => block.text ?? '')
     .join('\n')
-const mcp = async (key: string, path = '/mcp') => {
+const mcp = async (key: string, path = '/mcp', headers: Record<string, string> = {}) => {
   const client = new Client({ name: 'test', version: '1.0.0' })
   await client.connect(
     new StreamableHTTPClientTransport(new URL(path, origin), {
-      requestInit: { headers: { authorization: `Bearer ${key}` } },
+      requestInit: { headers: { authorization: `Bearer ${key}`, ...headers } },
     }),
   )
   return client
@@ -921,12 +921,43 @@ describe('a pack at its own address', () => {
     await root.close()
   })
 
+  it('over MCP with the header: the pack it names, for everything the connection does', async () => {
+    const header = { 'x-gateway-pack': 'loud' }
+    const mine = await mcp(OWNER, '/mcp', header)
+    expect(mine.getServerVersion()).toMatchObject({ name: 'loud', title: 'Loud' })
+    expect(namesOf((await mine.listTools()).tools).sort()).toEqual([...META, 'fixture.echo', 'fixture.shout'].sort())
+    expect(mine.getInstructions()).toMatch(/^Loud: Say things back, loudly\./)
+    // A tool outside the pack is neither found nor run
+    expect(await said(mine, 'search_tools', { query: 'greet' })).not.toContain('fixture.greet')
+    const outside = await mine.callTool({ name: 'call_tool', arguments: { name: 'fixture.greet', arguments: {} } })
+    expect(outside.isError).toBe(true)
+    expect((outside.content as { text: string }[])[0]?.text).toContain('is not in Loud')
+    expect(await said(mine, 'call_tool', { name: 'fixture.shout', arguments: { text: 'hey' } })).toBe('HEY')
+    await mine.close()
+    // A key with several packs gets the one it names, not its default
+    const named = await mcp(key, '/mcp', header)
+    expect(named.getServerVersion()).toMatchObject({ name: 'loud', title: 'Loud' })
+    const listed = namesOf((await named.listTools()).tools)
+    expect(listed).toContain('fixture.shout')
+    expect(listed).not.toContain('greet_from_desk')
+    await named.close()
+    // Links stay at the root, as the header always answered
+    const tools = (await at(key, '/api/tools', { headers: header })).json
+    expect(tools._links.self.href).toBe('http://localhost/api/tools')
+    const refused = await at(OWNER, '/mcp', {
+      method: 'POST',
+      headers: { ...header, 'x-gateway-pack': 'nope', accept: 'application/json, text/event-stream' },
+      body: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    })
+    expect(refused.status).toBe(403)
+  })
+
   it('greets a client that still opens with initialize as the pack, too', async () => {
     // A 2026-07-28 client has no initialize; one sent out of habit is answered with what server/discover would say
-    const greeted = async (bearer: string, path: string) => {
+    const greeted = async (bearer: string, path: string, headers: Record<string, string> = {}) => {
       const answer = await at(bearer, path, {
         method: 'POST',
-        headers: { accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2026-07-28' },
+        headers: { accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2026-07-28', ...headers },
         body: {
           jsonrpc: '2.0',
           id: 1,
@@ -945,6 +976,8 @@ describe('a pack at its own address', () => {
     expect((await greeted(key, '/mcp/p/loud')).serverInfo.name).toBe('loud')
     expect((await greeted(key, '/mcp')).serverInfo.name).toBe('desk')
     expect((await greeted(OWNER, '/p/loud/mcp')).serverInfo.name).toBe('loud')
+    expect((await greeted(OWNER, '/mcp', { 'x-gateway-pack': 'loud' })).serverInfo.name).toBe('loud')
+    expect((await greeted(key, '/mcp', { 'x-gateway-pack': 'loud' })).serverInfo.name).toBe('loud')
     const root = await greeted(OWNER, '/mcp')
     expect(root.serverInfo).toMatchObject({ name: 'yardhand', title: 'Yardhand' })
     expect(root.instructions).toMatch(/^Yardhand: one MCP server in front of many\./)

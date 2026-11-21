@@ -1,8 +1,8 @@
 /**
  * Which pack a request asks for. Every pack has one address, `/p/<pack>/`: MCP at `/p/<pack>/mcp`, REST under
  * `/p/<pack>/api`, its guide, OpenAPI document and docs page beside them. The older ways still work: `/mcp/p/<pack>`,
- * and REST naming a pack with the `x-gateway-pack` header. Plain `/mcp` and REST without the header get the key's
- * default pack.
+ * and `/mcp` or REST naming a pack with the `x-gateway-pack` header. Plain `/mcp` and REST without the header get the
+ * key's default pack.
  *
  * MCP and REST addresses are rewritten to `/mcp` and `/api` before anything else sees them, so sign-in, rate limits,
  * MCP and list-change notices work as at the root, and the choice rides along every in-process call the request makes.
@@ -123,10 +123,16 @@ export const packLinks: MiddlewareHandler = async (c, next) => {
   c.res = new Response(relinked, { status, headers })
 }
 
-/** Puts the chosen pack (address or header) on the caller, after authentication, for the principal to honour. */
+/**
+ * Puts the chosen pack (address or header) on the caller, after authentication, for the principal to honour. A pack
+ * named by the header is carried from here on like one an address chose, so the calls MCP makes in-process, which
+ * take only the caller's credentials along, are for that pack too.
+ */
 export const packChoice: MiddlewareHandler = async (c, next) => {
-  const pack = chosen.getStore()?.name ?? c.req.header(PACK_HEADER)
+  const stored = chosen.getStore()?.name
+  const pack = stored ?? c.req.header(PACK_HEADER)
   const caller = c.get('caller' as never) as object | undefined
   if (pack && caller) c.set('caller' as never, { ...caller, pack } as never)
-  await next()
+  if (pack && !stored) await chosen.run({ name: pack, base: null }, next)
+  else await next()
 }
