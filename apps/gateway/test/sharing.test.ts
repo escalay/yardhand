@@ -696,6 +696,19 @@ describe('an answer kept for an Idempotency-Key', () => {
     }
   })
 
+  it('holds a sign-in’s cookie sealed too', async () => {
+    const signedIn = await app.request('/api/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'sign-in-once' },
+      body: JSON.stringify({ key: OWNER }),
+    })
+    const cookie = /gw_session=([^;]+)/.exec(signedIn.headers.get('set-cookie') ?? '')?.[1]
+    expect([signedIn.status, typeof cookie]).toEqual([200, 'string'])
+    const kept = await keptFor('sign-in-once')
+    expect(kept.headers).toEqual([])
+    expect(readable(kept)).not.toContain(cookie)
+  })
+
   it('seals at the next start what an earlier version kept as it was', async () => {
     const request = JSON.stringify({ name: 'Ola', pack: 'loud' })
     const answer = { id: 'cl_before', name: 'Ola', key: 'gw_kept-before-answers-were-sealed' }
