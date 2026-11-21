@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { actsAs, effectOf, groupByRules, ruleGroupOf } from './groups.js'
+import { actsAs, COVERS_MAX, coversOf, effectOf, groupByRules, OTHER, ruleGroupOf } from './groups.js'
 
 describe('groups by rules', () => {
   it('files a Composio tool by its app, a kit tool by its route, any other by the noun in its name', () => {
@@ -50,5 +50,47 @@ describe('groups by rules', () => {
     expect(actsAs({ annotations: {}, ownAccess: 'read' })).toBe('reads')
     expect(actsAs({ annotations: { readOnlyHint: true }, ownAccess: 'write' })).toBe('changes')
     expect(actsAs({ annotations: { destructiveHint: true }, remoteName: 'purge', ownAccess: 'write' })).toBe('deletes')
+  })
+})
+
+describe('what a set of tools covers', () => {
+  const titles: Record<string, string> = { mail: 'Mail', jobs: 'Jobs board' }
+  const titleOf = (upstreamId: string) => titles[upstreamId] ?? upstreamId
+  const group = (title: string) => ({ key: title.toLowerCase(), title })
+  const tools = (upstreamId: string, filed: ({ key: string; title: string } | null)[]) =>
+    filed.map((group) => ({ upstreamId, group }))
+
+  it('names the groups of the tools, most tools first then by name, and nothing when there are none', () => {
+    expect(
+      coversOf(
+        [
+          ...tools('mail', [group('Threads'), group('Drafts'), group('Threads')]),
+          ...tools('jobs', [group('Postings')]),
+        ],
+        titleOf,
+      ),
+    ).toEqual({ covers: ['Threads', 'Drafts', 'Postings'], more: 0 })
+    expect(coversOf([], titleOf)).toEqual({ covers: [], more: 0 })
+  })
+
+  it('names the connection for a tool with no group of its own, or filed in Other', () => {
+    expect(
+      coversOf(
+        [...tools('jobs', [null, OTHER, group('Postings')]), ...tools('mail', [OTHER]), ...tools('new', [null])],
+        titleOf,
+      ),
+    ).toEqual({ covers: ['Jobs board', 'Mail', 'new', 'Postings'], more: 0 })
+  })
+
+  it('names at most COVERS_MAX and counts the rest', () => {
+    expect(COVERS_MAX).toBe(6)
+    const many = tools(
+      'mail',
+      [...'abcdefgh'].map((letter) => group(`Group ${letter}`)),
+    )
+    expect(coversOf([...many, ...tools('mail', [group('Group h')])], titleOf)).toEqual({
+      covers: ['Group h', 'Group a', 'Group b', 'Group c', 'Group d', 'Group e'],
+      more: 2,
+    })
   })
 })
