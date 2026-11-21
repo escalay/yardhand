@@ -192,7 +192,7 @@ export const packsHandlers = ({
         ...variable,
         usedBy: [...new Set(writersOf(state, variable.name).map((writer) => writer.tool))],
       })),
-      findings: checkPack(state).map(({ key: _, ...finding }) => finding),
+      findings: checkPack(state).map(({ level, code, path, message }) => ({ level, code, path, message })),
       playbooks: await itemsOf('playbook', held.playbooks),
       manuals: await itemsOf('manual', held.manuals),
       keyList: keys.map((key) => ({

@@ -201,6 +201,15 @@ describe('a pack’s state after a change', () => {
 })
 
 describe('throwOnRefused', () => {
+  const messageOf = (refused: Finding[]) => {
+    try {
+      throwOnRefused(refused)
+    } catch (error) {
+      return (error as ProblemError).message
+    }
+    return null
+  }
+
   it('throws nothing when nothing is refused', () => {
     expect(() => throwOnRefused([])).not.toThrow()
   })
@@ -222,7 +231,42 @@ describe('throwOnRefused', () => {
       { in: 'body', path: 'tools.greet_from_desk.fixed.from', message: 'from must be string' },
     ])
     expect((thrown as ProblemError).message).toBe(
-      "Not saved: fixture.greet has no input colour; from must be string. GET /api/tools/{name} shows each tool's inputs.",
+      'Not saved: greet_from_desk: fixture.greet has no input colour; greet_from_desk: from must be string. GET /api/tools/fixture.greet shows its inputs.',
+    )
+  })
+
+  it('says which of the pack’s tools each problem is in, and names the tools to read when they are several', () => {
+    const echo = { name: 'fixture.echo', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } }
+    const refused = checkPack(
+      desk({
+        tools: [
+          entry('greet_a', { fixed: { from: '{{desk}}' } }),
+          entry('greet_b', { defaults: { from: '{{desk}}' } }),
+          entry('fixture.echo', { tool: 'fixture.echo', live: echo, fixed: { volume: 3 } }),
+        ],
+        variables: [{ name: 'desk', value: 'the lobby', description: null }],
+      }),
+    )
+    expect(messageOf(refused)).toBe(
+      'Not saved: greet_a: from must be equal to one of the allowed values; greet_b: from must be equal to one of the allowed values; fixture.echo has no input volume. GET /api/tools/{name} shows the inputs of each: fixture.greet, fixture.echo.',
+    )
+  })
+
+  it('names a tool the pack calls like one of its inputs, and says a tool’s own name once', () => {
+    const refused = checkPack(
+      desk({
+        tools: [entry('from', { fixed: { from: 7 } }), entry('fixture.greet', { fixed: { colour: 'red', from: 7 } })],
+      }),
+    ).filter((finding) => finding.level === 'error')
+    expect(messageOf(refused)).toBe(
+      'Not saved: from: from must be string; fixture.greet has no input colour; fixture.greet: from must be string. GET /api/tools/fixture.greet shows its inputs.',
+    )
+  })
+
+  it('points at no tool for a refusal that is only about variables', () => {
+    const { refused } = judge(desk(), withVariables(desk(), []), ['variables'])
+    expect(messageOf(refused)).toBe(
+      'Not saved: {{desk}} is still used by greet_from_desk (from): change that first, or keep the variable.',
     )
   })
 })

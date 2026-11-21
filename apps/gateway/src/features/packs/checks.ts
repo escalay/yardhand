@@ -16,7 +16,16 @@ export type Finding = {
   /** The same by the stored names, so a rename never makes an old finding look new. Never returned. */
   key: string
   message: string
+  /** For a finding in a tool: the pack's name for it, and the tool it runs. Never returned. */
+  tool?: { name: string; runs: string }
 }
+
+/**
+ * A finding as a sentence that stands alone: one in a tool opens with the pack's name for that tool, unless the
+ * sentence already opens with it (a tool under its own name that lacks an input).
+ */
+export const sentenceOf = ({ tool, message }: Finding) =>
+  !tool || (tool.name === tool.runs && message.startsWith(`${tool.runs} `)) ? message : `${tool.name}: ${message}`
 
 const variablesIn = (state: PackState): Variables =>
   Object.fromEntries(state.variables.map((variable) => [variable.name, variable.value]))
@@ -51,6 +60,7 @@ export const checkPack = (state: PackState): Finding[] => {
   })
   const tools = state.tools.flatMap((tool): Finding[] => {
     const { live } = tool
+    const of = { name: tool.name, runs: tool.tool }
     if (!live)
       return Object.keys(tool.fixed).length || Object.keys(tool.defaults).length
         ? [
@@ -60,6 +70,7 @@ export const checkPack = (state: PackState): Finding[] => {
               path: `tools.${tool.name}`,
               key: `tools.${tool.key}`,
               message: `${tool.tool} is not live, so its values are not checked: sync its upstream`,
+              tool: of,
             },
           ]
         : []
@@ -71,6 +82,7 @@ export const checkPack = (state: PackState): Finding[] => {
         path: `tools.${tool.name}.${where}`,
         key: `tools.${tool.key}.${where}`,
         message: problem.message,
+        tool: of,
       }
     })
   })
@@ -134,13 +146,21 @@ export const judge = (before: PackState, after: PackState, touched: string[]) =>
   return { refused, findings }
 }
 
-/** Throws a 400 naming everything a change was refused for; nothing when it is fine. */
+/**
+ * Throws a 400 naming everything a change was refused for, each with the pack's tool it is in, and where to read the
+ * inputs of the tools those run; nothing when it is fine.
+ */
 export const throwOnRefused = (refused: Finding[]) => {
   if (!refused.length) return
-  const said = refused.map((finding) => finding.message.replace(/\.$/, '')).join('; ')
-  const aboutInputs = refused.some((finding) => finding.key.startsWith('tools.'))
+  const said = refused.map((finding) => sentenceOf(finding).replace(/\.$/, '')).join('; ')
+  const [tool, ...others] = [...new Set(refused.flatMap((finding) => (finding.tool ? [finding.tool.runs] : [])))]
+  const read = !tool
+    ? ''
+    : others.length
+      ? ` GET /api/tools/{name} shows the inputs of each: ${[tool, ...others].join(', ')}.`
+      : ` GET /api/tools/${tool} shows its inputs.`
   throw new ProblemError('bad_request', {
-    detail: `Not saved: ${said}.${aboutInputs ? " GET /api/tools/{name} shows each tool's inputs." : ''}`,
+    detail: `Not saved: ${said}.${read}`,
     errors: refused.map((finding) => ({ in: 'body' as const, path: finding.path, message: finding.message })),
   })
 }

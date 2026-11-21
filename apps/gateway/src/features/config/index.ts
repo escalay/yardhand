@@ -7,7 +7,7 @@ import { problemResponses } from '../../kit/index.js'
 import { VERSION } from '../../version.js'
 import { requireOwner } from '../clients/principals.js'
 import type { Feature } from '../index.js'
-import { judge } from '../packs/checks.js'
+import { judge, sentenceOf } from '../packs/checks.js'
 import { ALIAS, defaultsOf, fixedOf } from '../packs/entries.js'
 import { PACK_REASONS } from '../packs/schema.js'
 import { packStateOf, withTools, withVariables } from '../packs/state.js'
@@ -272,9 +272,7 @@ export const feature: Feature = {
           const after = withVariables(state, [...state.variables, variable])
           const { refused } = judge(state, after, [`variables.${variable.name}`])
           if (refused.length)
-            result.skipped.push(
-              `pack ${wanted.name} variable ${variable.name}: ${refused.map((finding) => finding.message).join('; ')}`,
-            )
+            result.skipped.push(`pack ${wanted.name} variable ${variable.name}: ${refused.map(sentenceOf).join('; ')}`)
           else {
             declaring.push(variable)
             state = after

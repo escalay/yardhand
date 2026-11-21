@@ -259,7 +259,7 @@ describe('the three modes of an input', () => {
     })
     expect([unknown.status, unknown.json.detail]).toEqual([
       400,
-      "Not saved: fixture.greet has no input colour. GET /api/tools/{name} shows each tool's inputs.",
+      'Not saved: greet_default: fixture.greet has no input colour. GET /api/tools/fixture.greet shows its inputs.',
     ])
     const wrongType = await owner('/api/packs/desk', {
       method: 'PATCH',
@@ -519,6 +519,10 @@ describe('a value that stops fitting its tool', () => {
       body: { variables: [{ name: 'who', value: 'the lobby' }] },
     })
     expect(set.status).toBe(400)
+    // The sentence names the pack's tool the value breaks, and where to read the inputs of the tool it runs
+    expect(set.json.detail).toBe(
+      'Not saved: greet_fixed: from must be equal to one of the allowed values. GET /api/tools/fixture.greet shows its inputs.',
+    )
     expect(set.json.errors).toEqual([
       {
         in: 'body',
@@ -614,7 +618,7 @@ describe('a flag never blocks a change that leaves it alone', () => {
     })
     expect([same.status, same.json.detail]).toEqual([
       400,
-      "Not saved: fixture.greet has no input from. GET /api/tools/{name} shows each tool's inputs.",
+      'Not saved: greet_second: fixture.greet has no input from. GET /api/tools/fixture.greet shows its inputs.',
     ])
     const two = await owner('/api/packs/twins/tools/greet_second', {
       method: 'PATCH',

@@ -1561,7 +1561,7 @@ describe('packs in the config', () => {
       ],
     })
     expect(again.packs).toEqual({ created: [], filled: ['porch'] })
-    expect(again.skipped).toEqual(['pack porch variable place: from must be string'])
+    expect(again.skipped).toEqual(['pack porch variable place: greet_default: from must be string'])
     expect((await send('/api/packs/porch', 'GET')).variables).toEqual([
       expect.objectContaining({ name: 'who', value: 'the desk' }),
       expect.objectContaining({ name: 'days', value: 7, description: null }),
