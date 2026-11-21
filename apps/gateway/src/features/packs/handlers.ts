@@ -17,6 +17,7 @@ import { checkPack, judge, throwOnRefused, writersOf } from './checks.js'
 import { defaultsOf, fixedOf, inputProblems, lostInputs, modeOf } from './entries.js'
 import { flagOf, packFlags } from './flags.js'
 import { noPack } from './names.js'
+import { docFlagsOf, ownOf, shownFindings } from './own.handlers.js'
 import type { PackContents } from './repo.js'
 import { FLAGS_PATH, PATH, type routes } from './routes.js'
 import type { PackRow, PackToolRow } from './schema.js'
@@ -149,29 +150,36 @@ export const packsHandlers = ({
 
   const cardOf = async (origin: string, pack: PackRow, contents?: PackContents) => {
     const held = contents ?? (await packs.contentsOf(pack))
-    const [toolRows, live, items] = await Promise.all([
+    const [toolRows, live, items, docFlags] = await Promise.all([
       toolsOf(held.tools, variablesFrom(held.variables)),
       liveKeysOf(pack),
       catalog.liveNames([...held.playbooks, ...held.manuals]),
+      docFlagsOf(tools, pack, held),
     ])
     return {
       card: {
         name: pack.name,
         title: pack.title,
         description: pack.description,
-        counts: { tools: held.tools.length, playbooks: held.playbooks.length, manuals: held.manuals.length },
+        counts: {
+          tools: held.tools.length,
+          playbooks: held.playbooks.length,
+          manuals: held.manuals.length,
+          ownPlaybooks: held.docs.filter((doc) => doc.kind === 'playbook').length,
+        },
         upstreams: [
           ...new Set([...toolRows.map((tool) => tool.upstream), ...items.map((item) => item.upstreamId)]),
         ].sort(),
         keys: live.length,
-        flags: toolRows.filter(
-          (tool) => tool.flag || tool.lostInputs.length || tool.inputs.some((input) => input.problem),
-        ).length,
+        flags:
+          toolRows.filter((tool) => tool.flag || tool.lostInputs.length || tool.inputs.some((input) => input.problem))
+            .length + [...docFlags.values()].filter(Boolean).length,
         updatedAt: pack.updatedAt,
         _links: linksOf(origin, { self: `${PATH}/${pack.name}`, list: PATH }),
       },
       held,
       toolRows,
+      docFlags,
       keys: live,
     }
   }
@@ -200,8 +208,9 @@ export const packsHandlers = ({
   }
 
   const detailOf = async (origin: string, pack: PackRow) => {
-    const { card, held, toolRows, keys } = await cardOf(origin, pack)
+    const { card, held, toolRows, docFlags, keys } = await cardOf(origin, pack)
     const state = await packStateOf(repos, pack, held)
+    const findings = checkPack(state)
     return {
       ...card,
       tools: toolRows,
@@ -209,9 +218,10 @@ export const packsHandlers = ({
         ...variable,
         usedBy: [...new Set(writersOf(state, variable.name).map((writer) => writer.tool))],
       })),
-      findings: checkPack(state).map(({ level, code, path, message }) => ({ level, code, path, message })),
+      findings: shownFindings(findings),
       playbooks: await itemsOf('playbook', held.playbooks),
       manuals: await itemsOf('manual', held.manuals),
+      ...ownOf(pack, held, docFlags, findings),
       keyList: keys.map((key) => ({
         id: key.id,
         name: key.name,
@@ -263,15 +273,25 @@ export const packsHandlers = ({
   const flags: RouteHandler<Routes['flags']> = async (c) => {
     requireOwner(c)
     const origin = originOf(c)
-    const found = (await packFlags({ packs, tools })).map(({ kind, pack, tool, flag }) => ({
-      kind,
-      pack: pack.name,
-      packTitle: pack.title,
-      tool: tool.name,
-      wording: tool.description ?? '',
-      ...flag,
-      _links: linksOf(origin, { pack: `${PATH}/${pack.name}`, tool: `/api/tools/${tool.toolName}` }),
-    }))
+    const found = (await packFlags({ packs, tools })).map((flagged) => {
+      const { kind, pack, flag } = flagged
+      const toolName = 'tool' in flagged ? flagged.tool.toolName : flagged.flag.tool
+      return {
+        kind,
+        pack: pack.name,
+        packTitle: pack.title,
+        tool: 'tool' in flagged ? flagged.tool.name : flagged.flag.name,
+        item: 'item' in flagged ? flagged.item : null,
+        wording: 'tool' in flagged ? (flagged.tool.description ?? '') : '',
+        was: flag.was,
+        now: flag.now,
+        // A name that has left the pack leads to no tool
+        _links: linksOf(origin, {
+          pack: `${PATH}/${pack.name}`,
+          ...(toolName ? { tool: `/api/tools/${toolName}` } : {}),
+        }),
+      }
+    })
     return c.json(
       { count: found.length, _links: linksOf(origin, { self: FLAGS_PATH }), _embedded: { flags: found } },
       200,
@@ -351,8 +371,20 @@ export const packsHandlers = ({
     )
   }
 
-  /** Throws 400 naming every tool, playbook or manual that isn't live. */
-  const checkAdds = async (add: { tools?: { name: string }[]; playbooks?: string[]; manuals?: string[] }) => {
+  /**
+   * Throws 400 naming every tool, playbook or manual that isn't live, and for a connection's playbook named like one
+   * written for the pack.
+   */
+  const checkAdds = async (
+    pack: PackRow,
+    add: { tools?: { name: string }[]; playbooks?: string[]; manuals?: string[] },
+  ) => {
+    const own = new Set((await packs.docsOf(pack.id)).filter((doc) => doc.kind === 'playbook').map((doc) => doc.name))
+    const clash = add.playbooks?.find((playbook) => own.has(playbook))
+    if (clash)
+      throw new ProblemError('bad_request', {
+        detail: `${pack.title} already has its own playbook called ${clash}: rename that one first.`,
+      })
     const toolNames = add.tools?.map((tool) => tool.name) ?? []
     const liveTools = new Map((await tools.liveMany(toolNames)).map((tool) => [tool.name, tool]))
     const missing = toolNames.filter((name) => !liveTools.has(name))
@@ -375,7 +407,7 @@ export const packsHandlers = ({
     const next = name !== undefined && name !== pack.name ? name : null
     // Every check before the first write: a change that is refused leaves the pack, and its name, as they were
     if (next) await nameFree(next, pack)
-    const liveTools = add ? await checkAdds(add) : new Map<string, LiveTool>()
+    const liveTools = add ? await checkAdds(pack, add) : new Map<string, LiveTool>()
     const before = await packStateOf(repos, pack)
     const have = new Set(before.tools.map((tool) => tool.name))
     const adding = (add?.tools ?? []).map((tool) => ({ ...tool, as: tool.alias ?? tool.name }))

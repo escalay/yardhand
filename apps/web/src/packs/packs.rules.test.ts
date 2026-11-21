@@ -13,6 +13,7 @@ import {
   failsLine,
   filledIn,
   fixedLine,
+  flagLine,
   freeAlias,
   hiddenLine,
   holdsLine,
@@ -187,7 +188,7 @@ describe('a tool in one line', () => {
 describe('setting a pack up', () => {
   const pack = (extra: Record<string, unknown> = {}) => ({
     description: '',
-    counts: { tools: 0, playbooks: 0, manuals: 0 },
+    counts: { tools: 0, playbooks: 0, manuals: 0, ownPlaybooks: 0 },
     triedAt: null,
     lastCallAt: null,
     ...extra,
@@ -207,7 +208,10 @@ describe('setting a pack up', () => {
   })
 
   it('ticks a described pack with tools, then the try', () => {
-    const built = pack({ description: 'Say things back.', counts: { tools: 2, playbooks: 0, manuals: 0 } })
+    const built = pack({
+      description: 'Say things back.',
+      counts: { tools: 2, playbooks: 0, manuals: 0, ownPlaybooks: 0 },
+    })
     expect(doneOf(checklistOf(built))).toEqual(['describe', 'tools'])
     const tried = checklistOf({ ...built, triedAt: '2026-11-21T10:00:00Z' })
     expect(doneOf(tried)).toEqual(['describe', 'tools', 'try'])
@@ -218,7 +222,7 @@ describe('setting a pack up', () => {
     const used = checklistOf(
       pack({
         description: 'Say things back.',
-        counts: { tools: 2, playbooks: 0, manuals: 0 },
+        counts: { tools: 2, playbooks: 0, manuals: 0, ownPlaybooks: 0 },
         lastCallAt: '2026-11-21T10:00:00Z',
       }),
     )
@@ -559,5 +563,24 @@ describe('a refused save', () => {
       byVariable: {},
       rest: ['The gateway did not answer.'],
     })
+  })
+})
+
+describe('flagLine', () => {
+  it('says what a tool’s server says now, and what is wrong with a value', () => {
+    expect(flagLine({ kind: 'wording', was: 'Echoes.', now: 'Says it back.' })).toBe(
+      'Its server now says: Says it back.',
+    )
+    expect(flagLine({ kind: 'input', was: 'fixes from', now: 'fixture.greet no longer takes from' })).toBe(
+      'fixture.greet no longer takes from. Open the pack to change the value.',
+    )
+  })
+
+  it('says which tools a playbook or the skill was written for, and what to do', () => {
+    const flag = { was: 'written for greet_from_desk, fixture.echo', now: 'greet_from_desk is no longer in Front desk' }
+    expect(flagLine({ kind: 'playbook', ...flag })).toBe(
+      'It was written for greet_from_desk, fixture.echo, which changed or left the pack since. Read it again and save it.',
+    )
+    expect(flagLine({ kind: 'skill', ...flag })).toBe(flagLine({ kind: 'playbook', ...flag }))
   })
 })

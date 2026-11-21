@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { api, type Review, unwrap } from '@/api/client'
+import { flagLine } from '@/packs/packs.rules'
 import { flagsQuery } from '@/packs/queries'
 import { ToolsTabs } from '@/tools/ToolsTabs'
 import { Mono } from '@/ui/Code'
@@ -150,20 +151,20 @@ const Change = ({
 }
 
 /**
- * Pack tools to recheck: wording written for a tool its server has since rewritten (kept for agents until the owner
- * decides), or a fixed or default value the tool no longer takes (a fixed one fails every call until it is changed), both
- * settled in the pack.
+ * What to recheck in the packs: wording written for a tool its server has since rewritten (kept for agents until the
+ * owner decides), a fixed or default value the tool no longer takes (a fixed one fails every call until it is
+ * changed), or a playbook or skill written for a tool that has changed or left the pack. All settled in the pack.
  */
 const PackFlags = () => {
   const flags = useQuery(flagsQuery)
   const rows = flags.data?._embedded.flags ?? []
   if (!rows.length) return null
   return (
-    <Section title={`Pack tools to recheck · ${rows.length}`}>
+    <Section title={`In your packs to recheck · ${rows.length}`}>
       <ul className="border border-border bg-card">
         {rows.map((flag) => (
           <li
-            key={`${flag.pack}:${flag.tool}:${flag.kind}`}
+            key={`${flag.pack}:${flag.kind}:${flag.item ?? ''}:${flag.tool}`}
             className="flex flex-col gap-2 border-b border-border px-5 py-4 last:border-b-0 sm:flex-row sm:items-start sm:justify-between"
           >
             <span className="flex min-w-0 flex-col gap-1">
@@ -171,14 +172,10 @@ const PackFlags = () => {
                 <IconAlertTriangle
                   className={`size-4 self-center ${flag.kind === 'input' ? 'text-error' : 'text-warn'}`}
                 />
-                <Mono className="text-[13px]">{flag.tool}</Mono>
+                <Mono className="text-[13px]">{flag.item ?? flag.tool}</Mono>
                 <span className="text-muted-foreground">in {flag.packTitle}</span>
               </span>
-              <span className="line-clamp-2 text-sm text-muted-foreground">
-                {flag.kind === 'input'
-                  ? `${flag.now}. Open the pack to change the value.`
-                  : `Its server now says: ${flag.now}`}
-              </span>
+              <span className="line-clamp-2 text-sm text-muted-foreground">{flagLine(flag)}</span>
             </span>
             <Button asChild size="sm" variant="muted" className="shrink-0">
               <Link to="/packs/$name" params={{ name: flag.pack }}>

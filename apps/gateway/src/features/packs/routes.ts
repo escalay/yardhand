@@ -12,7 +12,7 @@ export const PATH = '/api/packs'
 export const FLAGS_PATH = '/api/packs/flags'
 export const TAG = 'Packs'
 
-const PackName = z
+export const PackName = z
   .string()
   .regex(/^[a-z0-9][a-z0-9-]{0,39}$/)
   .refine((name) => name !== 'flags', 'flags is taken')
@@ -47,19 +47,20 @@ const VariableSchema = z
       .openapi({ description: 'The pack’s tools whose values write it, by the pack’s names.' }),
   })
   .openapi('PackVariable', { description: 'A named value of a pack, written `{{name}}` where a tool’s input uses it.' })
-const FindingSchema = z
+export const FindingSchema = z
   .object({
     level: z.enum(['error', 'warning']).openapi({
       description:
-        '`error`: calls that use the value can fail (a tool input’s `problem` says which), and a save that sends it is refused. `warning`: worth a look; nothing fails.',
+        '`error`: calls that use the value can fail (a tool input’s `problem` says which), or a text names something that is not there; a save that sends it is refused. `warning`: worth a look; nothing fails.',
     }),
     code: z.string().openapi({
       description:
-        '`unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`.',
+        'In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `name_clash`, `bad_name`, `bad_front_matter`, `empty`, `too_big`, or a warning: `unknown_name`, `needs_write`, `split`, `missing_section`, `skill_path`.',
       example: 'bad_value',
     }),
     path: z.string().openapi({
-      description: 'Where: `tools.<name>.fixed.<input>`, `tools.<name>.defaults.<input>` or `variables.<name>`.',
+      description:
+        'Where: `tools.<name>.fixed.<input>`, `tools.<name>.defaults.<input>`, `variables.<name>`, `playbooks.<name>` (one of the pack’s own) or `skill`.',
       example: 'tools.greet_from_desk.fixed.from',
     }),
     message: z.string(),
@@ -137,6 +138,47 @@ const PackItemSchema = z
   })
   .openapi('PackItem', { description: 'A playbook or manual in a pack.' })
 
+export const DocFlagSchema = z
+  .object({
+    was: z.string().openapi({
+      description: 'The tools it was written for that have since moved, by the names the pack called them.',
+      example: 'written for greet_from_desk',
+    }),
+    now: z.string().openapi({
+      description: 'What happened to each: it left the pack, it is not live, or its server changed it.',
+      example: 'greet_from_desk is no longer in Front desk',
+    }),
+  })
+  .openapi('PackDocFlag', {
+    description:
+      'A tool this text was written for has changed or left the pack: read the text again. Saving it, changed or not, clears the flag, and is refused while it still names a tool the pack no longer has.',
+  })
+
+const ArgumentSchema = z.object({
+  name: z.string(),
+  description: z.string().nullable(),
+  required: z.boolean(),
+})
+export const OwnPlaybookSchema = z
+  .object({
+    name: z.string(),
+    title: z.string().openapi({ description: 'From the front matter, else made from the name.' }),
+    description: z.string(),
+    arguments: z.array(ArgumentSchema).openapi({ description: 'What an agent fills, written `{{name}}` in the text.' }),
+    steps: z.number().int().openapi({ description: 'The numbered steps in the text.' }),
+    flag: DocFlagSchema.nullable(),
+    findings: z.array(FindingSchema).openapi({ description: 'What the checks find in this playbook as it stands.' }),
+  })
+  .openapi('PackOwnPlaybook', { description: 'A playbook written for a pack.' })
+
+export const PackSkillSchema = z
+  .object({
+    uri: z.string().openapi({ description: 'Where the skill sits.', example: 'skill://desk/SKILL.md' }),
+    sections: z.array(z.string()).openapi({ description: 'Which of the six sections the text has.' }),
+    flag: DocFlagSchema.nullable(),
+    findings: z.array(FindingSchema).openapi({ description: 'What the checks find in the skill as it stands.' }),
+  })
+  .openapi('PackSkill', { description: 'The skill written for a pack.' })
 const PackKeySchema = z
   .object({
     id: z.string(),
@@ -147,7 +189,12 @@ const PackKeySchema = z
   })
   .openapi('PackKey', { description: 'A live key locked to the pack.' })
 
-const counts = z.object({ tools: z.number().int(), playbooks: z.number().int(), manuals: z.number().int() })
+const counts = z.object({
+  tools: z.number().int(),
+  playbooks: z.number().int().openapi({ description: 'Playbooks it holds from its connections.' }),
+  manuals: z.number().int(),
+  ownPlaybooks: z.number().int().openapi({ description: 'Playbooks written for it.' }),
+})
 
 const PackCardSchema = z
   .object({
@@ -158,7 +205,8 @@ const PackCardSchema = z
     upstreams: z.array(z.string()),
     keys: z.number().int().openapi({ description: 'Live keys locked to it.' }),
     flags: z.number().int().openapi({
-      description: 'Tools to recheck: wording their upstream rewrote, or a fixed or default value that no longer fits.',
+      description:
+        'What to recheck: tools whose wording their upstream rewrote or with a fixed or default value that no longer fits, and playbooks of its own, or its skill, written for a tool that has changed or left the pack.',
     }),
     updatedAt: z.string(),
     _links: LinksSchema,
@@ -171,8 +219,15 @@ export const PackSchema = PackCardSchema.extend({
   findings: z.array(FindingSchema).openapi({
     description: 'What the checks find in the pack as it stands: errors to fix, and warnings.',
   }),
-  playbooks: z.array(PackItemSchema),
+  playbooks: z.array(PackItemSchema).openapi({ description: 'The playbooks it holds from its connections.' }),
   manuals: z.array(PackItemSchema),
+  ownPlaybooks: z.array(OwnPlaybookSchema).openapi({
+    description:
+      'The playbooks written for it, in the order they were made. Their text is at `GET /api/packs/{name}/playbooks/{playbook}`.',
+  }),
+  skill: PackSkillSchema.nullable().openapi({
+    description: 'The skill written for it, or null. Its text is at `GET /api/packs/{name}/skill`.',
+  }),
   keyList: z.array(PackKeySchema),
   createdAt: z.string(),
   triedAt: z.string().nullable().openapi({
@@ -319,27 +374,37 @@ const VariablesInputSchema = z
 
 const PackFlagSchema = z
   .object({
-    kind: z.enum(['wording', 'input']).openapi({
+    kind: z.enum(['wording', 'input', 'playbook', 'skill']).openapi({
       description:
-        '`wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack fixes or defaults, or no longer takes its value.',
+        '`wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack fixes or defaults, or no longer takes its value. `playbook`, `skill`: one of the pack’s own playbooks, or its skill, was written for a tool that has since changed or left the pack.',
     }),
     pack: z.string(),
     packTitle: z.string(),
-    tool: z.string().openapi({ description: 'The name the pack calls it.' }),
-    wording: z.string(),
+    tool: z.string().openapi({
+      description:
+        'The name the pack calls it. For `playbook` and `skill`: the first name the text was written for that has moved, which may no longer be in the pack.',
+    }),
+    item: z.string().nullable().openapi({
+      description: 'For `playbook`: the playbook’s name. For `skill`: `SKILL.md`. Null for a tool’s own flags.',
+    }),
+    wording: z.string().openapi({ description: 'The pack’s wording of the tool; empty for `playbook` and `skill`.' }),
     was: z.string().openapi({
       description:
-        '`wording`: the upstream’s description when the wording was written. `input`: what the pack sets, e.g. `fixes from` or `defaults from`.',
+        '`wording`: the upstream’s description when the wording was written. `input`: what the pack sets, e.g. `fixes from` or `defaults from`. `playbook`, `skill`: the names it was written for that have moved, e.g. `written for greet_from_desk`.',
     }),
     now: z.string().openapi({
-      description: '`wording`: the upstream’s description now. `input`: what is wrong with it now.',
+      description:
+        '`wording`: the upstream’s description now. `input`: what is wrong with it now. `playbook`, `skill`: what happened to each name.',
     }),
     _links: LinksSchema,
   })
-  .openapi('PackFlag', { description: 'Something in a pack to recheck because its upstream changed the tool.' })
+  .openapi('PackFlag', {
+    description:
+      'Something in a pack to recheck because a tool changed under it. `_links.tool` is left out for a `playbook` or `skill` whose name no longer leads to a tool.',
+  })
 const PackFlagListSchema = z
   .object({ count: z.number().int(), _links: LinksSchema, _embedded: z.object({ flags: z.array(PackFlagSchema) }) })
-  .openapi('PackFlagList', { description: 'Every pack tool to recheck.' })
+  .openapi('PackFlagList', { description: 'Everything in the packs to recheck.' })
 
 const UseSchema = z
   .object({
@@ -383,9 +448,9 @@ export const routes = {
     path: FLAGS_PATH,
     operationId: 'listPackFlags',
     tags: [TAG],
-    summary: 'Pack tools to recheck',
+    summary: 'What to recheck in the packs',
     description:
-      'Every pack wording whose tool its upstream has since rewritten (old and new text), and every tool with a fixed or default value its live tool no longer takes: the input is gone, or the value no longer fits it.',
+      'Every pack wording whose tool its upstream has since rewritten (old and new text), every tool with a fixed or default value its live tool no longer takes (the input is gone, or the value no longer fits it), and every playbook or skill written for a pack whose tools have since changed or left it.',
     responses: { 200: ok('The flags.', PackFlagListSchema), ...problemResponses(401, 403) },
   }),
   list: createRoute({
@@ -414,7 +479,7 @@ export const routes = {
     tags: [TAG],
     summary: 'One pack',
     description:
-      'A pack with its tools (wording, why each is in, who fills each input, flags), variables, playbooks, manuals and keys, and what the checks find in it.',
+      'A pack with its tools (wording, why each is in, who fills each input, flags), variables, the playbooks and manuals it holds from its connections, the playbooks and skill written for it, its keys, and what the checks find in it.',
     request: { params: z.object({ name }) },
     responses: { 200: ok('The pack.', PackSchema), ...problemResponses(401, 403, 404) },
   }),
@@ -436,7 +501,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Change a pack',
     description:
-      'Changes its name, its title, what it is for, and adds or removes tools, playbooks and manuals. A new name moves its address; if the pack has a key that is not revoked then, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack. A name another pack has, or that still leads to one, is a 409. A tool can go in with fixed inputs and defaults: they are checked against its live input schema, and a problem the pack already had elsewhere never blocks the change. A change that is refused leaves the pack, and its name, as they were.',
+      'Changes its name, its title, what it is for, and adds or removes tools, playbooks and manuals. A new name moves its address; if the pack has a key that is not revoked then, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack. A name another pack has, or that still leads to one, is a 409. A tool can go in with fixed inputs and defaults: they are checked against its live input schema, and a problem the pack already had elsewhere never blocks the change. Removing a tool that one of the pack’s own playbooks or its skill names goes through: the text is flagged and listed in `findings` until it is saved again. A connection’s playbook named like one of the pack’s own is refused (400). A change that is refused leaves the pack, and its name, as they were.',
     request: { params: z.object({ name }), body: json(PackPatchSchema) },
     responses: { 200: ok('The pack.', PackSchema), ...problemResponses(400, 401, 403, 404, 409) },
   }),
@@ -490,7 +555,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Rename a pack tool or set its inputs',
     description:
-      'Gives one of the pack’s tools its own name (an alias) and sets its inputs: `fixed` are filled on every call and never shown to the pack’s keys, `defaults` are shown with the pack’s value and filled when a call leaves them out, and every other input is the agent’s. A value may write a variable of the pack as `{{name}}`. Only the maps sent are checked, against the live tool’s input schema with the variables filled in.',
+      'Gives one of the pack’s tools its own name (an alias) and sets its inputs: `fixed` are filled on every call and never shown to the pack’s keys, `defaults` are shown with the pack’s value and filled when a call leaves them out, and every other input is the agent’s. A value may write a variable of the pack as `{{name}}`. Only the maps sent are checked, against the live tool’s input schema with the variables filled in. A new name never fails on a playbook or the skill that writes the old one: the text is flagged, and the pack’s `findings` say where.',
     request: { params: z.object({ name, tool: entryParam }), body: json(EntryInputSchema) },
     responses: { 200: ok('The tool in the pack.', PackToolSchema), ...problemResponses(400, 401, 403, 404, 409) },
   }),
@@ -501,7 +566,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Set a pack’s variables',
     description:
-      'Replaces the pack’s variables. A fixed or default value writes one as `{{name}}`; a `{{word}}` that is no variable of the pack is sent as written. Refused (400) when a name is bad or repeated, when a new value no longer fits an input that uses it, or when a variable left out is still written somewhere.',
+      'Replaces the pack’s variables. A fixed or default value writes one as `{{name}}`, and so do the pack’s own playbooks and its skill; in a value, a `{{word}}` that is no variable of the pack is sent as written. Refused (400) when a name is bad or repeated, when a new value no longer fits an input that uses it, or when a variable left out is still written by a value, a playbook or the skill.',
     request: { params: z.object({ name }), body: json(VariablesInputSchema) },
     responses: { 200: ok('The pack.', PackSchema), ...problemResponses(400, 401, 403, 404) },
   }),

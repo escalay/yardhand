@@ -1,7 +1,7 @@
 /**
  * Pure rules for packs: names from titles, what a pack holds in words, why a tool is in, how long a key lasts, the
- * steps of setting one up, what a try of it says, who fills each input of its tools, its variables, and where a
- * refused save went wrong.
+ * steps of setting one up, what a try of it says, who fills each input of its tools, its variables, where a
+ * refused save went wrong, and what a flag says in Reviews.
  */
 import type { Schemas } from '@/api/client'
 import { argumentsOf, type FormField } from '@/tools/schema-form.rules'
@@ -10,6 +10,18 @@ type Pack = Schemas['Pack']
 type PackTool = Schemas['PackTool']
 type ToolCard = Schemas['ToolCard']
 type Use = Schemas['PlaybookUse']
+type PackFlag = Schemas['PackFlag']
+
+/**
+ * What Reviews says under a flag: what the tool's server says now, what is wrong with a value, or for a playbook or
+ * the skill, which tools it was written for that have since moved.
+ */
+export const flagLine = (flag: Pick<PackFlag, 'kind' | 'was' | 'now'>) =>
+  flag.kind === 'input'
+    ? `${flag.now}. Open the pack to change the value.`
+    : flag.kind === 'wording'
+      ? `Its server now says: ${flag.now}`
+      : `It was ${flag.was}, which changed or left the pack since. Read it again and save it.`
 
 /** `Design reviews` → `design-reviews`: the name keys and URLs use. */
 export const slugOf = (title: string) =>
