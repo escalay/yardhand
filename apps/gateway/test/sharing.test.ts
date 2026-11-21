@@ -88,14 +88,16 @@ const DAY = 24 * HOUR
 /** How far from now a time is, to the minute. */
 const fromNow = (iso: string | null) => Math.round((Date.parse(iso ?? '') - Date.now()) / 60_000) * 60_000
 
-/** Ends a key a moment ago, as time would. */
-const end = (id: string) =>
-  db.run(sql`update clients set expires_at = ${new Date(Date.now() - 1000).toISOString()} where id = ${id}`)
-/** What a pack key that ended a moment ago is told, and what a key without a pack is. */
-const endedIn = (title: string) =>
-  `Your access to ${title} ended on ${dayOf(new Date().toISOString())}. Ask the owner for a new invite.`
-const expiredToday = () =>
-  `This key expired on ${dayOf(new Date().toISOString())}: the owner can issue a new one in /app.`
+/** Ends a key a moment ago, as time would; answers the day it ended, as the refusals print it. */
+const end = async (id: string) => {
+  const at = new Date(Date.now() - 1000).toISOString()
+  await db.run(sql`update clients set expires_at = ${at} where id = ${id}`)
+  return dayOf(at)
+}
+/** What a pack key that ended on a day is told, and what a key without a pack is. */
+const endedIn = (title: string, day: string) =>
+  `Your access to ${title} ended on ${day}. Ask the owner for a new invite.`
+const expiredOn = (day: string) => `This key expired on ${day}: the owner can issue a new one in /app.`
 const extend = (id: string, expiresIn: string) => owner(`/api/clients/${id}`, { method: 'PATCH', body: { expiresIn } })
 
 beforeAll(async () => {
@@ -205,30 +207,34 @@ describe('where a key runs', () => {
 describe('a key that has ended', () => {
   it('is told the pack, the day and what to do', async () => {
     const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '30d' })
-    await end(sam.id)
+    const day = await end(sam.id)
     for (const path of ['/api/me', '/p/loud/api/me']) {
       const refused = await api(sam.key, path)
-      expect([path, refused.status, refused.json.detail]).toEqual([path, 403, endedIn('Loud')])
+      expect([path, refused.status, refused.json.detail]).toEqual([path, 403, endedIn('Loud', day)])
     }
-    expect((await api(sam.key, '/api/me', { headers: { 'x-gateway-pack': 'loud' } })).json.detail).toBe(endedIn('Loud'))
+    expect((await api(sam.key, '/api/me', { headers: { 'x-gateway-pack': 'loud' } })).json.detail).toBe(
+      endedIn('Loud', day),
+    )
   })
 
   it('is told the pack it asked for when it opens it, else its default', async () => {
     const ada = await keyFor({ name: 'Ada', packs: ['loud', 'desk'], expiresIn: '7d' })
-    await end(ada.id)
-    expect((await api(ada.key, '/p/desk/api/me')).json.detail).toBe(endedIn('Desk'))
-    expect((await api(ada.key, '/api/me', { headers: { 'x-gateway-pack': 'desk' } })).json.detail).toBe(endedIn('Desk'))
-    expect((await api(ada.key, '/api/me')).json.detail).toBe(endedIn('Loud'))
+    const day = await end(ada.id)
+    expect((await api(ada.key, '/p/desk/api/me')).json.detail).toBe(endedIn('Desk', day))
+    expect((await api(ada.key, '/api/me', { headers: { 'x-gateway-pack': 'desk' } })).json.detail).toBe(
+      endedIn('Desk', day),
+    )
+    expect((await api(ada.key, '/api/me')).json.detail).toBe(endedIn('Loud', day))
     // A pack it never opened: nothing about that pack, only its own ending
     const elsewhere = await api(ada.key, '/p/nope/api/me')
-    expect([elsewhere.status, elsewhere.json.detail]).toEqual([403, endedIn('Loud')])
+    expect([elsewhere.status, elsewhere.json.detail]).toEqual([403, endedIn('Loud', day)])
   })
 
   it('is told when it expired, without a pack', async () => {
     const script = await keyFor({ name: 'a script', upstreams: 'all', expiresIn: '1d' })
-    await end(script.id)
+    const day = await end(script.id)
     const refused = await api(script.key, '/api/me')
-    expect([refused.status, refused.json.detail]).toEqual([403, expiredToday()])
+    expect([refused.status, refused.json.detail]).toEqual([403, expiredOn(day)])
   })
 
   it('is refused on every route a pack serves', async () => {
@@ -285,17 +291,19 @@ describe('a key that has ended', () => {
     for (const name of Object.keys(SAMPLES)) expect([name, (await ask(name)).status < 400]).toEqual([name, true])
     for (const path of PAGES) expect([path, (await api(sam.key, path)).status < 400]).toEqual([path, true])
 
-    await end(sam.id)
+    const day = await end(sam.id)
     for (const name of Object.keys(SAMPLES)) {
       const refused = await ask(name)
-      expect([name, refused.status, refused.json?.detail]).toEqual([name, 403, endedIn('Loud')])
+      expect([name, refused.status, refused.json?.detail]).toEqual([name, 403, endedIn('Loud', day)])
     }
     for (const path of PAGES) {
       const refused = await api(sam.key, path)
-      expect([path, refused.status, refused.json?.detail]).toEqual([path, 403, endedIn('Loud')])
+      expect([path, refused.status, refused.json?.detail]).toEqual([path, 403, endedIn('Loud', day)])
     }
     expect((await api(sam.key, '/api/events')).status).toBe(403)
-    expect((await api(sam.key, '/u/fixture/r/files/a.txt')).status).toBe(403)
+    // Not for a link it was never handed: for the ending
+    const link = await api(sam.key, '/u/fixture/r/files/a.txt')
+    expect([link.status, link.json.detail]).toEqual([403, endedIn('Loud', day)])
   })
 })
 
@@ -303,8 +311,7 @@ describe('the owner looking as someone whose access ended', () => {
   it('is told who, which pack, the day and how to extend', async () => {
     const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '7d' })
     expect((await owner(`/api/tools?pack=loud&as=${sam.id}`)).status).toBe(200)
-    await end(sam.id)
-    const today = dayOf(new Date().toISOString())
+    const day = await end(sam.id)
     for (const path of [
       `/api/tools?pack=loud&as=${sam.id}`,
       `/api/tools?as=${sam.id}`,
@@ -314,7 +321,7 @@ describe('the owner looking as someone whose access ended', () => {
       expect([path, refused.status, refused.json.detail]).toEqual([
         path,
         409,
-        `Sam's access to Loud ended on ${today}, so there is nothing to see as Sam: extend it with PATCH /api/clients/${sam.id} {"expiresIn":"30d"}.`,
+        `Sam's access to Loud ended on ${day}, so there is nothing to see as Sam: extend it with PATCH /api/clients/${sam.id} {"expiresIn":"30d"}.`,
       ])
     }
     expect((await extend(sam.id, '30d')).status).toBe(200)
@@ -323,11 +330,11 @@ describe('the owner looking as someone whose access ended', () => {
 
   it('is told a key without a pack expired', async () => {
     const script = await keyFor({ name: 'a script', upstreams: 'all', expiresIn: '1d' })
-    await end(script.id)
+    const day = await end(script.id)
     const refused = await owner(`/api/tools?as=${script.id}`)
     expect([refused.status, refused.json.detail]).toEqual([
       409,
-      `a script's key expired on ${dayOf(new Date().toISOString())}, so there is nothing to see as a script: extend it with PATCH /api/clients/${script.id} {"expiresIn":"30d"}.`,
+      `a script's key expired on ${day}, so there is nothing to see as a script: extend it with PATCH /api/clients/${script.id} {"expiresIn":"30d"}.`,
     ])
   })
 })
@@ -335,20 +342,22 @@ describe('the owner looking as someone whose access ended', () => {
 describe('a key that has ended, over MCP', () => {
   it('still connects at a pack’s address and is told why it can do nothing', async () => {
     const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '30d' })
-    await end(sam.id)
+    const day = await end(sam.id)
     for (const path of ['/p/loud/mcp', '/mcp/p/loud']) {
       const client = await mcp(sam.key, path)
-      expect([path, client.getInstructions()]).toEqual([path, endedIn('Loud')])
+      expect([path, client.getInstructions()]).toEqual([path, endedIn('Loud', day)])
       // Nothing of the pack: not its name, not its tools
       expect(client.getServerVersion()).toMatchObject({ name: 'yardhand' })
       expect((await client.listTools()).tools.map((tool) => tool.name).sort()).toEqual(META)
-      expect(await said(client, 'search_tools', { query: 'echo' })).toContain(endedIn('Loud'))
-      expect(await said(client, 'call_tool', { name: 'fixture.echo', arguments: { text: 'x' } })).toBe(endedIn('Loud'))
+      expect(await said(client, 'search_tools', { query: 'echo' })).toContain(endedIn('Loud', day))
+      expect(await said(client, 'call_tool', { name: 'fixture.echo', arguments: { text: 'x' } })).toBe(
+        endedIn('Loud', day),
+      )
       await client.close()
     }
     const modern = await greeted(sam.key, '/p/loud/mcp')
     expect(modern.serverInfo.name).toBe('yardhand')
-    expect(modern.instructions).toMatch(new RegExp(`^${endedIn('Loud').replaceAll('.', '\\.')}`))
+    expect(modern.instructions).toMatch(new RegExp(`^${endedIn('Loud', day).replaceAll('.', '\\.')}`))
   })
 
   it('reads the same at plain /mcp', async () => {
@@ -365,15 +374,15 @@ describe('a key that has ended, over MCP', () => {
     }
     expect(whileItWorks.pack).toMatch(/^Loud: Say things back\./)
     expect(whileItWorks.script).toMatch(/^Yardhand: one MCP server in front of many\./)
-    await end(sam.id)
-    await end(script.id)
+    const day = await end(sam.id)
+    const scriptDay = await end(script.id)
     const packClient = await mcp(sam.key)
-    expect(packClient.getInstructions()).toBe(endedIn('Loud'))
+    expect(packClient.getInstructions()).toBe(endedIn('Loud', day))
     await packClient.close()
     const scriptClient = await mcp(script.key)
-    expect(scriptClient.getInstructions()).toBe(expiredToday())
+    expect(scriptClient.getInstructions()).toBe(expiredOn(scriptDay))
     expect(await said(scriptClient, 'call_tool', { name: 'fixture.echo', arguments: { text: 'x' } })).toBe(
-      expiredToday(),
+      expiredOn(scriptDay),
     )
     await scriptClient.close()
     expect((await greeted(script.key, '/mcp')).instructions).toMatch(/^This key expired on /)
@@ -395,9 +404,9 @@ describe('a key that has ended, over MCP', () => {
       403,
       "This key doesn't open the pack desk. It opens loud (/p/loud/mcp).",
     ])
-    await end(sam.id)
+    const day = await end(sam.id)
     const client = await mcp(sam.key, '/p/desk/mcp')
-    expect(client.getInstructions()).toBe(endedIn('Loud'))
+    expect(client.getInstructions()).toBe(endedIn('Loud', day))
     await client.close()
   })
 })
