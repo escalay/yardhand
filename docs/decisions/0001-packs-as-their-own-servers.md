@@ -86,7 +86,9 @@ using a pack key day to day showed where it stops feeling like a server of its o
 
 ### 4. Authoring a pack
 
-- **Variables.** Named per pack and used as `{{name}}` in tool inputs, playbooks and the skill.
+- **Variables.** Named per pack and used as `{{name}}` in tool inputs, playbooks and the skill. In a tool input,
+  a `{{word}}` the pack does not declare is sent as written and only warned about, so a tool whose own inputs are
+  templates keeps working.
 - **Four input modes** for every input of a pack tool: **Fixed** (hidden, filled every call: today's fixed inputs),
   **Default** (shown with the value as its default), **Agent decides**, and **Per person** (hidden, filled with that
   person's own value). The person's value wins, then the pack's variable, then the tool's default. Values are checked
@@ -98,8 +100,9 @@ using a pack key day to day showed where it stops feeling like a server of its o
 - **One skill per pack** (`SKILL.md`, "Working with Career") in six sections: what it is for, which tool for which
   job, values already set, playbooks, gotchas (from the upstream manuals, cut to the pack's tools), and what it can't
   do. Served as `skill://<pack>/SKILL.md`, through `read_resource`, and at the top of the pack's `llms.txt`.
-- **Checks on every save**: every tool named is in the pack, every `{{…}}` resolves, tools a read-only key can't run
-  are warned about, and a playbook past about 12 steps is asked to split.
+- **Checks on every save**: every tool named is in the pack, every `{{…}}` resolves (in a tool input an undeclared
+  one is a warning, as above), tools a read-only key can't run are warned about, and a playbook past about 12 steps
+  is asked to split.
 - **Stored in the gateway**, every version kept, carried as plain `.md` files by config export and import. A playbook
   or skill records the tool versions it was written against and is flagged when one changes.
 - **Build with AI / Refresh with AI** (Settings › AI writer model): from the purpose and a few example tasks it
@@ -252,4 +255,4 @@ Server: Career
 | 1 | The pack as its own server: `/p/<pack>/`, the gateway's shape, its own counts, standout search, the empty hint, Overview checklist, Try it, Address card | about 1.5 days |
 | 2 | Sharing with key-based apps: People, Share, lifetimes, endings, renaming | about 1 day |
 | 3 | claude.ai and ChatGPT: invite links, the public sign-in, Ask to join | about 1 day, plus a security review |
-| 4 | Authoring: variables and input modes, pack playbooks and skill, Build and Refresh with AI with rehearsal, authoring routes | about 4 days |
+| 4 | Authoring: variables and input modes, pack playbooks and skill, Build and Refresh with AI with rehearsal, authoring routes. Lands as several pull requests, variables and input modes first | about 4 days |
