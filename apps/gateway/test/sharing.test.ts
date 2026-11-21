@@ -183,13 +183,39 @@ describe('Extend', () => {
     expect((await api(sam.key, '/p/loud/api/me')).status).toBe(401)
   })
 
-  it('brings a key whose pack was removed back to nothing, whatever its own allowlist says', async () => {
+  it('is refused for a key whose only pack was removed, and takes a pack given with it', async () => {
+    const made = await owner('/api/packs', {
+      method: 'POST',
+      body: { name: 'barn', title: 'Barn', description: 'Soon removed.' },
+    })
+    expect(made.status).toBe(201)
+    const sam = await keyFor({ name: 'Sam', pack: 'barn', expiresIn: '8h' })
+    const day = await end(sam.id)
+    expect((await owner('/api/packs/barn', { method: 'DELETE' })).status).toBe(204)
+    // Extending it would open nothing: the owner is told what to do, and the key stays ended
+    const before = (await owner(`/api/clients/${sam.id}`)).json.expiresAt
+    const refused = await extend(sam.id, '7d')
+    expect([refused.status, refused.json.detail]).toEqual([
+      409,
+      `Sam’s pack was removed, so extending the key would open nothing: make a new key, or give this one a pack with PATCH /api/clients/${sam.id} {"packs":["<name>"],"expiresIn":"7d"}.`,
+    ])
+    expect((await owner(`/api/clients/${sam.id}`)).json.expiresAt).toBe(before)
+    expect(day).toBeTruthy()
+    expect((await api(sam.key, '/api/me')).status).toBe(403)
+    // The same change gives it a pack that is there
+    const moved = await owner(`/api/clients/${sam.id}`, { method: 'PATCH', body: { packs: ['loud'], expiresIn: '7d' } })
+    expect([moved.status, fromNow(moved.json.expiresAt)]).toEqual([200, 7 * DAY])
+    expect((await api(sam.key, '/p/loud/api/me')).status).toBe(200)
+  })
+
+  it('brings a key whose default pack was removed back to nothing there, whatever its own allowlist says', async () => {
     const made = await owner('/api/packs', {
       method: 'POST',
       body: { name: 'shed', title: 'Shed', description: 'Soon removed.', playbook: 'fixture-say-it-back' },
     })
     expect(made.status).toBe(201)
-    const sam = await keyFor({ name: 'Sam', pack: 'shed', expiresIn: '8h' })
+    // It opens two packs, so it can still be extended once its default is gone
+    const sam = await keyFor({ name: 'Sam', packs: ['shed', 'loud'], pack: 'shed', expiresIn: '8h' })
     // Stored, and ignored while the pack decides what the key reaches
     expect((await owner(`/api/clients/${sam.id}`, { method: 'PATCH', body: { upstreams: 'all' } })).status).toBe(200)
     expect((await api(sam.key, '/api/me')).json.upstreams).toEqual(['fixture'])
