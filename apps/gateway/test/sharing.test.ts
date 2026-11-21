@@ -738,4 +738,23 @@ describe('the people a pack is shared with', () => {
     expect([listed.count, listed._embedded.people]).toEqual([0, []])
     expect((await owner('/api/packs/grove')).json).toMatchObject({ keys: 0, ending: 0, ended: 0 })
   })
+
+  it('still lists them after more revoked keys than one statement can name', async () => {
+    const revokedAt = new Date().toISOString()
+    // Past SQLite's 32,766 values in one statement
+    await db.run(sql`
+      with recursive n(i) as (select 1 union all select i + 1 from n where i < 33000)
+      insert into clients (id, name, kind, scope, all_upstreams, own_pins, mac_tools, result_cap, pack_id, created_at, revoked_at)
+      select 'cl_revoked_' || i, 'revoked ' || i, 'key', 'read', 0, 0, 0, 1000, (select id from packs where name = 'grove'), ${revokedAt}, ${revokedAt} from n`)
+    await db.run(
+      sql`insert into client_packs (client_id, pack_id, position) select id, pack_id, 0 from clients where id like 'cl_revoked_%'`,
+    )
+    const lena = await shared('grove', { name: 'Lena' })
+    expect((await peopleOf('grove'))._embedded.people.map((person) => person.id)).toEqual([lena.id])
+    expect((await owner('/api/packs/grove')).json).toMatchObject({ keys: 1, ending: 0, ended: 0 })
+    expect((await owner('/api/packs')).status).toBe(200)
+    await db.run(sql`delete from client_packs where client_id like 'cl_revoked_%'`)
+    await db.run(sql`delete from clients where id like 'cl_revoked_%'`)
+    expect((await owner(`/api/clients/${lena.id}`, { method: 'DELETE' })).status).toBe(204)
+  })
 })

@@ -1,6 +1,6 @@
 /** Clients, their allowlists and pins: the only queries on these tables. */
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, inArray, isNotNull, isNull, like } from 'drizzle-orm'
+import { and, asc, eq, getTableColumns, inArray, isNotNull, isNull, like } from 'drizzle-orm'
 import type { Db } from '../../kit/index.js'
 import {
   type ClientPackRow,
@@ -166,16 +166,14 @@ export const clientsRepo = (db: Db) => {
       await setPacks(id, packIds)
       await db.update(clients).set({ packId: defaultId }).where(eq(clients.id, id))
     },
-    /** Live keys that open a pack. */
-    ofPack: async (packId: string) => {
-      const ids = await idsOfPack(packId)
-      return ids.length
-        ? db
-            .select()
-            .from(clients)
-            .where(and(inArray(clients.id, ids), isNull(clients.revokedAt)))
-        : []
-    },
+    /** The clients that open a pack and are not revoked, oldest first. */
+    ofPack: (packId: string): Promise<ClientRow[]> =>
+      db
+        .select(getTableColumns(clients))
+        .from(clients)
+        .innerJoin(clientPacks, eq(clientPacks.clientId, clients.id))
+        .where(and(eq(clientPacks.packId, packId), isNull(clients.revokedAt)))
+        .orderBy(asc(clients.createdAt), asc(clients.id)),
     /** Drops every allowlist row and pin of a removed upstream, so a later one under the same id starts clean. */
     forgetUpstream: async (upstreamId: string) => {
       await db.delete(clientUpstreams).where(eq(clientUpstreams.upstreamId, upstreamId))
