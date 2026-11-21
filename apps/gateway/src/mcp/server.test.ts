@@ -47,6 +47,25 @@ describe('a pack connection’s instructions', () => {
     expect(told).toContain('This key is read-only')
   })
 
+  it('say which of the pack’s names the connection’s own tools hold, and that those run through call_tool', () => {
+    const told = packInstructions(
+      { ...pack, ownPins: false },
+      { pins: [pin], readOnly: false, shadowed: ['search_tools'] },
+    )
+    expect(told).toContain('Every tool of this pack is listed here')
+    expect(told).toContain(
+      'Except search_tools: that name is this connection’s own tool here. Run the pack’s tool of that name with call_tool.',
+    )
+    expect(told).not.toContain('- search_tools:')
+    const two = packInstructions(
+      { ...pack, ownPins: true },
+      { pins: [], readOnly: false, shadowed: ['search_tools', 'call_tool'] },
+    )
+    expect(two).toContain(
+      'Except search_tools, call_tool: those names are this connection’s own tools here. Run the pack’s tools of those names with call_tool.',
+    )
+  })
+
   it('say so when nothing is listed: no pin in this pack, or a pack with no tools for this key', () => {
     const none = packInstructions({ ...pack, ownPins: true }, { pins: [], readOnly: false })
     expect(none).toContain('No tool of this pack is listed here. Each is found on demand:')

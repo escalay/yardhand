@@ -1293,6 +1293,11 @@ describe('pins inside a pack', () => {
     const listed = (await client.listTools()).tools
     expect(namesOf(listed).sort()).toEqual([...META, 'fixture.shout'].sort())
     expect(listed.find((tool) => tool.name === 'search_tools')?.title).toBe('Find tools')
+    // The instructions don't describe the meta-tool in the pack tool's words: they say how that tool is run
+    const instructions = client.getInstructions() ?? ''
+    expect(instructions).not.toContain('- search_tools:')
+    expect(instructions).toContain('Listed here:\n- fixture.shout:')
+    expect(instructions).toContain('Except search_tools: that name is this connection’s own tool here.')
     // The pack's tool of that name still runs through call_tool
     const ran = await client.callTool({
       name: 'call_tool',

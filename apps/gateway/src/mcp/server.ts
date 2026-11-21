@@ -214,9 +214,13 @@ const howToWork = (pack: NonNullable<Me['pack']>, pins: Pin[]) =>
         ...ON_DEMAND,
       ]
 
+/** The names this connection's own tools hold: a pack's tool of the same name is not listed beside them. */
+const OWN_NAMES = new Set([...META_TOOLS.map((tool) => tool.name), 'call_tool'])
+
 /**
  * A pack connection's instructions: the pack's own words, how to work it, then what it holds. `connections` are its
- * upstreams as `GET /api/upstreams` counts them for the pack; `pins` are the tools listed directly.
+ * upstreams as `GET /api/upstreams` counts them for the pack; `pins` are the tools listed directly; `shadowed` are
+ * the pack's names that one of the connection's own tools holds.
  */
 export const packInstructions = (
   pack: NonNullable<Me['pack']>,
@@ -225,12 +229,20 @@ export const packInstructions = (
     readOnly,
     others = [],
     connections = [],
-  }: { pins: Pin[]; readOnly: boolean; others?: Me['packs']; connections?: string[] },
+    shadowed = [],
+  }: { pins: Pin[]; readOnly: boolean; others?: Me['packs']; connections?: string[]; shadowed?: string[] },
 ) =>
   [
     `${pack.title}: ${pack.description}`.trim(),
     '',
     ...howToWork(pack, pins),
+    ...(shadowed.length
+      ? [
+          shadowed.length === 1
+            ? `Except ${shadowed[0]}: that name is this connection’s own tool here. Run the pack’s tool of that name with call_tool.`
+            : `Except ${shadowed.join(', ')}: those names are this connection’s own tools here. Run the pack’s tools of those names with call_tool.`,
+        ]
+      : []),
     'A cut result says how to page it with get_result. Tools marked [changes things] need write scope.',
     ...(others.length
       ? [
@@ -448,20 +460,23 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
     const caller = me.ok ? ((await me.json()) as Me) : null
     const pack = caller?.pack ?? null
     const connections = await upstreamLines(callApi, auth)
+    // A pin under the name of one of the connection's own tools is not listed: that tool keeps the name
+    const pins = (caller?.pins ?? []).filter((pin) => !OWN_NAMES.has(pin.name))
     const instructions =
       caller && pack
         ? packInstructions(pack, {
-            pins: caller.pins,
+            pins,
             readOnly: caller.scope === 'read',
             others: caller.packs.filter((other) => other.name !== pack.name),
             connections,
+            shadowed: caller.pins.filter((pin) => OWN_NAMES.has(pin.name)).map((pin) => pin.name),
           })
         : instructionsFor(connections, caller?.scope)
-    return { caller, pack, served: { ...(pack ? packServed(pack) : gateway), instructions } }
+    return { caller, pins, pack, served: { ...(pack ? packServed(pack) : gateway), instructions } }
   }
   const factory = async (ctx: McpRequestContext) => {
     const auth = ctx.authInfo
-    const { caller, pack, served } = await servedFor(auth)
+    const { caller, pins, pack, served } = await servedFor(auth)
     const server = (await build(served)(ctx)) as McpServer
     server.registerTool(
       'call_tool',
@@ -518,7 +533,7 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
       await registerPlaybooks(server, callApi, auth)
       await registerLinks(server, callApi, auth)
       manualSkills(services, principal).attach(server)
-      for (const pin of caller.pins) {
+      for (const pin of pins) {
         // One upstream schema the SDK can't take must not take /mcp down for this client
         try {
           server.registerTool(
