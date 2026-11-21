@@ -1,6 +1,7 @@
 /**
  * Catalog handlers. A caller sees what the upstreams it may use offer, while they are switched on; playbooks only
- * while their upstream offers them. The owner sees everything.
+ * while their upstream offers them. The owner sees everything. A pack caller also gets the playbooks written for
+ * its pack, first, through `packDocs`: they belong to no connection.
  */
 import type { RouteHandler } from '@hono/zod-openapi'
 import type { Context } from 'hono'
@@ -8,6 +9,7 @@ import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { VIA_HEADER } from '../calls/handlers.js'
 import { allows, callerOf, holds, type Principal } from '../clients/principals.js'
+import { ownTitleOf, type ServedPlaybook } from '../packs/own.js'
 import type { UpstreamRow } from '../upstreams/schema.js'
 import { type ManualContent, type PlaybookContent, playbookTitleOf } from './content.js'
 import type { LiveItem } from './repo.js'
@@ -20,7 +22,7 @@ const viaOf = (c: Context) => {
   return door === 'mcp' || door === 'app' ? door : 'rest'
 }
 
-export const catalogHandlers = ({ catalog, upstreams, principals, reads, calls }: Services) => {
+export const catalogHandlers = ({ catalog, upstreams, principals, reads, calls, packDocs }: Services) => {
   const principalOf = (c: Context) => principals.require(callerOf(c))
   /** The upstreams this caller may read the catalog of, by id. */
   const reachable = async (principal: Principal) =>
@@ -39,6 +41,7 @@ export const catalogHandlers = ({ catalog, upstreams, principals, reads, calls }
     return {
       name: item.name,
       upstream: item.upstreamId,
+      pack: null,
       prompt: content.prompt,
       title: playbookTitleOf(row.id, content),
       description: content.description,
@@ -50,6 +53,19 @@ export const catalogHandlers = ({ catalog, upstreams, principals, reads, calls }
       }),
     }
   }
+
+  /** A playbook the caller's pack wrote, as a card: of the pack, and of no connection. */
+  const ownCardOf = (origin: string, pack: NonNullable<Principal['pack']>, own: ServedPlaybook) => ({
+    name: own.name,
+    upstream: null,
+    pack: pack.name,
+    prompt: own.name,
+    title: ownTitleOf(pack, own),
+    description: own.description,
+    arguments: own.arguments,
+    offered: true,
+    _links: linksOf(origin, { self: `${PLAYBOOKS_PATH}/${own.name}` }),
+  })
 
   const manualCardOf = (origin: string, item: LiveItem) => {
     const content = item.content as ManualContent
@@ -87,13 +103,16 @@ export const catalogHandlers = ({ catalog, upstreams, principals, reads, calls }
         )
       : await catalog.listLive({ kinds: ['playbook'], upstreams: upstream ? [upstream] : 'all' })
     const origin = originOf(c)
-    const items = found
-      .filter(visible)
-      .slice(0, limit)
-      .flatMap((item) => {
+    const { pack } = principal
+    // The pack's own come first; asked for one connection, they are left out
+    const own = pack && !upstream ? await packDocs.playbooks(principal, q?.trim() || undefined) : []
+    const items = [
+      ...own.map((playbook) => ownCardOf(origin, pack as NonNullable<typeof pack>, playbook)),
+      ...found.filter(visible).flatMap((item) => {
         const row = rows.get(item.upstreamId)
         return row ? [playbookOf(origin, item, row, principal)] : []
-      })
+      }),
+    ].slice(0, limit)
     return c.json(
       { count: items.length, _links: linksOf(origin, { self: PLAYBOOKS_PATH }), _embedded: { playbooks: items } },
       200,
@@ -102,6 +121,8 @@ export const catalogHandlers = ({ catalog, upstreams, principals, reads, calls }
   const playbook: RouteHandler<Routes['playbook']> = async (c) => {
     const principal = await principalOf(c)
     const { name } = c.req.valid('param')
+    const own = principal.pack && (await packDocs.playbook(principal, name))
+    if (principal.pack && own) return c.json(ownCardOf(originOf(c), principal.pack, own), 200)
     const item = await catalog.live('playbook', name)
     const row = item ? (await reachable(principal)).get(item.upstreamId) : undefined
     if (!item || !row || !offeredTo(principal, item, row))
@@ -154,14 +175,14 @@ export const catalogHandlers = ({ catalog, upstreams, principals, reads, calls }
           detail: 'arguments is a JSON object of strings, e.g. {"task":"a dinner for six"}.',
         })
       }
-    const { id, item, result } = await reads.playbook({ principal, via: viaOf(c) }, name, args)
+    const read = await reads.playbook({ principal, via: viaOf(c) }, name, args)
     return c.json(
       {
-        name: item.name,
-        callId: id,
-        description: result.description ?? null,
-        messages: result.messages,
-        _links: linksOf(originOf(c), { playbook: `${PLAYBOOKS_PATH}/${item.name}`, call: `/api/calls/${id}` }),
+        name: read.name,
+        callId: read.id,
+        description: read.result.description ?? null,
+        messages: read.result.messages,
+        _links: linksOf(originOf(c), { playbook: `${PLAYBOOKS_PATH}/${read.name}`, call: `/api/calls/${read.id}` }),
       },
       200,
     )

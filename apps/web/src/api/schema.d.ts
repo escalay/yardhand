@@ -621,7 +621,7 @@ export interface paths {
         };
         /**
          * Playbooks
-         * @description Prompts the upstreams you may use offer, as playbooks: a ready-made way to do one task. Search with `q` (what you want to do), among the playbooks you may read: a pack key searches its pack’s own.
+         * @description Playbooks: a ready-made way to do one task. They are the prompts the upstreams you may use offer and, for a pack key, the playbooks written for its pack, which come first. Search with `q` (what you want to do), among the playbooks you may read: a pack key searches only its pack’s.
          */
         get: operations["listPlaybooks"];
         put?: never;
@@ -661,7 +661,7 @@ export interface paths {
         };
         /**
          * Use a playbook
-         * @description A playbook filled in with your arguments: the steps its upstream would have you follow with its tools. Logged like a call.
+         * @description A playbook filled in with your arguments: the steps to follow with its tools, as its upstream wrote them or, for a pack’s own, as the pack wrote them with its variables filled in. Logged like a call.
          */
         get: operations["getPlaybookMessages"];
         put?: never;
@@ -741,7 +741,7 @@ export interface paths {
         };
         /**
          * Follow a link
-         * @description Reads a link an upstream serves, as a tool returned it (`cookbook://recipes/123`), with the upstream’s credential. `gateway://u/<upstream>/manual` is its manual. Logged like a call.
+         * @description Reads a link an upstream serves, as a tool returned it (`cookbook://recipes/123`), with the upstream’s credential. `gateway://u/<upstream>/manual` is its manual, and `skill://<pack>/SKILL.md` is the skill of the pack a request is locked to (`pack.skill` on GET /api/me). Logged like a call.
          */
         get: operations["readResource"];
         put?: never;
@@ -2588,7 +2588,7 @@ export interface components {
                 detail: string;
             }[];
         };
-        /** @description Playbooks, best match first when searching, else by name. */
+        /** @description Playbooks: a pack’s own first, then the upstreams’, best match first when searching, else by name. */
         PlaybookList: {
             count: number;
             _links: components["schemas"]["Links"];
@@ -2596,15 +2596,18 @@ export interface components {
                 playbooks: components["schemas"]["Playbook"][];
             };
         };
-        /** @description A prompt an upstream offers: a ready-made way to do one task with its tools. */
+        /** @description A ready-made way to do one task: a prompt an upstream offers, or a playbook written for a pack over the pack’s tools. */
         Playbook: {
             /**
-             * @description As agents see it: `<upstream>-<prompt>`.
+             * @description As agents see it: `<upstream>-<prompt>`, or the pack’s own name for one it wrote.
              * @example cookbook-plan-a-dinner
              */
             name: string;
-            upstream: string;
-            /** @description The upstream’s own name for it. */
+            /** @description The upstream that offers it; null for a playbook a pack wrote. */
+            upstream: string | null;
+            /** @description The pack that wrote it, for a playbook written for the pack this request is locked to; else null. */
+            pack: string | null;
+            /** @description The upstream’s own name for it; a pack’s own goes by its one name. */
             prompt: string;
             /**
              * @description How clients that show titles list it.
@@ -2613,7 +2616,7 @@ export interface components {
             title: string;
             description: string;
             arguments: components["schemas"]["PlaybookArgument"][];
-            /** @description Offered to agents: its upstream’s playbooks are switched on (owner sees all). */
+            /** @description Offered to agents: its upstream’s playbooks are switched on (owner sees all). Always true for a pack’s own. */
             offered: boolean;
             _links: components["schemas"]["Links"];
         };
@@ -2623,13 +2626,13 @@ export interface components {
             description: string | null;
             required: boolean;
         };
-        /** @description A playbook filled in with arguments, as the upstream wrote it. */
+        /** @description A playbook filled in with arguments: as its upstream wrote it, or a pack’s own with the pack’s variables filled in too. */
         PlaybookMessages: {
             name: string;
             /** @description This read in the call log. */
             callId: string;
             description: string | null;
-            /** @description MCP prompt messages (role + content): what the upstream would have the agent read. */
+            /** @description MCP prompt messages (role + content): what the agent is to read and follow. */
             messages: unknown[];
             _links: components["schemas"]["Links"];
         };
@@ -2692,10 +2695,11 @@ export interface components {
             mimeType: string | null;
             _links: components["schemas"]["Links"];
         };
-        /** @description What a link holds, read with the upstream’s credential. */
+        /** @description What a link holds, read with the upstream’s credential, or a pack’s own skill. */
         ResourceRead: {
             uri: string;
-            upstream: string;
+            /** @description The upstream it was read from; null for a pack’s own skill. */
+            upstream: string | null;
             /** @description This read in the call log. */
             callId: string;
             contents: {
@@ -6299,7 +6303,7 @@ export interface operations {
                  * @example plan a dinner
                  */
                 q?: string;
-                /** @description Only this upstream. */
+                /** @description Only this upstream: a pack’s own playbooks, which belong to no upstream, are then left out. */
                 upstream?: string;
                 /** @description At most this many. */
                 limit?: number;
@@ -6353,7 +6357,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The playbook name, `<upstream>-<prompt>`. */
+                /** @description The playbook name: `<upstream>-<prompt>`, or a pack’s own name for one it wrote. */
                 name: string;
             };
             cookie?: never;
@@ -6409,7 +6413,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The playbook name, `<upstream>-<prompt>`. */
+                /** @description The playbook name: `<upstream>-<prompt>`, or a pack’s own name for one it wrote. */
                 name: string;
             };
             cookie?: never;

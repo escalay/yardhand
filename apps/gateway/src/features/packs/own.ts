@@ -5,6 +5,7 @@
  * found by the name the lock carries, and its documents and variables by that pack's id.
  */
 import { titleFromName } from '../catalog/content.js'
+import { matchesEnough } from '../catalog/search.js'
 import { holdsOwn, type Principal } from '../clients/principals.js'
 import { withoutFrontMatter } from './frontmatter.js'
 import { type OwnPlaybook, parsePlaybook, renderPlaybook } from './playbook.js'
@@ -16,6 +17,9 @@ import { variablesFrom } from './values.js'
 export type ServedPlaybook = OwnPlaybook & { versionId: string }
 /** A pack's skill as served: `SKILL.md` whole, its variables filled in. */
 export type ServedSkill = { uri: string; path: string; versionId: string; text: string }
+
+/** `Front desk · Say hello`: how a pack playbook is titled where playbooks are listed, as a connection's is. */
+export const ownTitleOf = (pack: { title: string }, playbook: { title: string }) => `${pack.title} · ${playbook.title}`
 
 /** A stored playbook as it is served; one whose front matter can't be read goes under its name, with no arguments. */
 const servedOf = (doc: Pick<PackDoc, 'name' | 'body' | 'versionId'>): ServedPlaybook => {
@@ -38,14 +42,20 @@ export const createPackDocs = ({ packs }: { packs: Pick<PacksRepo, 'get' | 'docs
   const variablesOf = async (packId: string) => variablesFrom(await packs.variablesOf(packId))
 
   return {
-    /** The pack's own playbooks this caller is listed, in the order they were written. */
-    playbooks: async (principal: Principal): Promise<ServedPlaybook[]> => {
+    /**
+     * The pack's own playbooks this caller is listed, in the order they were written; with `asked`, those that
+     * share enough of its words (`matchesEnough`), as a connection's playbooks are suggested.
+     */
+    playbooks: async (principal: Principal, asked?: string): Promise<ServedPlaybook[]> => {
       if (!principal.pack?.ownPlaybooks.size) return []
       const pack = await packOf(principal)
       if (!pack) return []
       return (await packs.docsOf(pack.id))
         .filter((doc) => doc.kind === 'playbook' && holdsOwn(principal, doc.name))
         .map(servedOf)
+        .filter(
+          (playbook) => !asked || matchesEnough(asked, `${playbook.name} ${playbook.title} ${playbook.description}`),
+        )
     },
     /** One of them by name, when the caller's pack wrote it. */
     playbook: async (principal: Principal, name: string): Promise<ServedPlaybook | undefined> => {

@@ -41,11 +41,12 @@ export const manualSkills = ({ catalog, reads }: Pick<Services, 'catalog' | 'rea
       },
       get: async (uri) => {
         const target = await reads.skillTarget(principal, uri)
-        return target?.file === 'SKILL.md' ? entryOf(target.name) : undefined
+        if (!target || 'own' in target) return undefined
+        return target.file === 'SKILL.md' ? entryOf(target.name) : undefined
       },
       read: async (uri): Promise<SkillReadResult | undefined> => {
         const target = await reads.skillTarget(principal, uri)
-        if (!target) return undefined
+        if (!target || 'own' in target) return undefined
         if (target.file === 'SKILL.md') {
           const read = await reads.manual({ principal, via: 'mcp' }, target.name).catch(() => undefined)
           return read ? { text: read.files['SKILL.md'] ?? '', mimeType: 'text/markdown' } : undefined

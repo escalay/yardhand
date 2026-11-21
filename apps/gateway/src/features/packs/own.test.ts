@@ -72,7 +72,6 @@ describe('a pack’s documents, as its keys are served them', () => {
     if (!playbook) throw new Error('no playbook')
     // An argument left out is filled with nothing; a value filled in is never read for placeholders again
     expect(await docs.render(key, playbook, { guest: '{{desk}}' })).toBe('1. Greet {{desk}} at , for the desk desk.\n')
-    // An argument wins over a variable of the same name
     expect(await docs.render(key, playbook, { guest: 'Sam', door: 'the side door' })).toBe(
       '1. Greet Sam at the side door, for the desk desk.\n',
     )

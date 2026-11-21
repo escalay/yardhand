@@ -312,7 +312,7 @@ export const createServices = async ({
     listsChanged,
     handed,
     pipeline: createPipeline({ tools, upstreams, adapters, calls, credentialOf, key: masterKey, handed }),
-    reads: createReads({ catalog, tools, upstreams, adapters, calls, credentialOf, handed }),
+    reads: createReads({ catalog, tools, upstreams, adapters, calls, credentialOf, handed, packDocs }),
   }
 }
 

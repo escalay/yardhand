@@ -573,8 +573,8 @@ export const packsHandlers = ({
     const before = await packStateOf(repos, pack)
     throwOnRefused(judge(before, withVariables(before, wanted), ['variables']).refused)
     await packs.setVariables(pack.id, wanted)
-    // A new value changes the defaults the pack's keys read
-    listsChanged({ tools: true })
+    // A new value changes the defaults the pack's keys read, and the playbooks and skill that write the variable
+    listsChanged({ tools: true, prompts: true, resources: true })
     return c.json(await detailOf(originOf(c), await packOf(pack.name)), 200)
   }
 
