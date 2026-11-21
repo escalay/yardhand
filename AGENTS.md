@@ -37,6 +37,7 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 |---|---|
 | `apps/gateway/` | the server (kit app; its own `AGENTS.md` covers the kit shape) |
 | `apps/gateway/src/features/<name>/` | anything with tables or routes: upstreams, tools, catalog, calls, clients, search, vault, connections, config |
+| `apps/gateway/src/features/packs/` | packs. What a pack sets on its tools' inputs is read in three files: `values.ts` (variables, `{{name}}` filled in), `state.ts` (a pack as its checks read it, and the state a change would leave), `checks.ts` (`checkPack`, the one check function, and `judge`, the one rule for a change: refused only for what it breaks itself). Every way of writing a pack goes through them: the handlers and the config import |
 | `apps/gateway/src/features/instance/` | a new instance's own keys in `instance.json` beside the data (master key, OAuth signing key, the owner's hash), resolved at start before anything opens; never made over a database sealed with other keys. The setup code and the claim live in `features/session`. `upgrade.ts` there copies the data before a newer version migrates it, refuses data a newer version wrote, and undoes an update that never came up: when this version starts and finds the copy a newer one made without ever recording itself, that copy becomes the data (what was left is kept as `backups/failed-<version>.sqlite`) |
 | `apps/gateway/src/features/backups/` | download a kept copy of the database; restore from a kept copy or an uploaded file (checked, today's data kept aside, staged, applied at the next start by `applyPending` in `server.ts`) |
 | `apps/gateway/src/features/telemetry/` | the daily usage report (`docs/telemetry.md`): `report.ts` builds it, `index.ts` sends it and shows it to the owner (`GET /api/system/telemetry`); switched off only in the environment |
@@ -90,7 +91,7 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Playbook**: an upstream's prompt, named `<upstream>-<prompt>`; listed as an MCP prompt, suggested by search.
 - **Link**: a resource an upstream serves (`cookbook://recipes/123`), read as it comes with `read_resource`.
 - **Pack**: a curated kit for one kind of work (`features/packs`): tools from any upstreams, each with an optional
-  pack wording, alias and fixed inputs, plus playbooks and manuals. Starting from a playbook brings in the tools it names or calls by route
+  pack wording, alias, fixed inputs and defaults, the pack's variables, plus playbooks and manuals. Starting from a playbook brings in the tools it names or calls by route
   (a server publishes a tool's route in `_meta` under a `<vendor>/route` key, the kit as `agent-api-kit/route`; stored on the tool row, never versioned).
 - **Pack key**: a key locked to one or more packs, optionally expiring (8 h, 1 day, 7 days). Each pack is its own
   server at `/p/<pack>/`: MCP at `/p/<pack>/mcp` and REST under `/p/<pack>/api` (rewritten to `/mcp` and `/api` up
@@ -101,11 +102,22 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   listed directly, or only the key's own pins. The owner asking for a pack (its address or the header) is answered as
   a write key of that pack and refused the routes that manage the gateway (`requireOwner`).
 - **Alias**: a pack's own name for one of its tools (`team_inbox_search`); the same tool can be in a pack under
-  several aliases. A pack tool is keyed by that name; `entryOf` resolves it to the tool.
-- **Fixed input**: an input a pack tool fills on every call, hidden from the pack's keys; a call that sends it is a
-  400 (`features/packs/entries.ts`).
-- **Flag**: pack wording written against a tool version whose description has since changed, or a fixed input the
-  live tool no longer takes; agents keep the wording, the owner keeps or rewrites it (pack page, Reviews, Home nudge).
+  several aliases. A pack tool is keyed by that name; `entryOf` resolves it to the tool. A new alias can't be a name
+  a connection's own tools hold (`OWN_NAMES`: the meta-tools and `call_tool`); one stored before that rule keeps
+  working, run through `call_tool`.
+- **Input mode**: who fills one input of a pack tool (`features/packs/entries.ts`). **Fixed**: the pack, on every
+  call, hidden from its keys; a call that sends it is a 400. **Default**: shown to its keys with the pack's value as
+  the schema's `default` and filled when a call leaves it out; the caller's own value wins. **Agent decides**: the
+  input as the tool has it. Stored per pack tool as `fixed` and `defaults`; an input in neither is the agent's.
+- **Variable**: a named value of a pack (`PUT /api/packs/{name}/variables`), written `{{name}}` in a fixed or default
+  value and filled in when the pack lock is built (`packScopeFrom`). A value that is one variable and nothing else
+  takes its type. Only a name the pack declares is a variable: any other `{{word}}` is sent as written.
+- **Finding**: what `checkPack` says about a pack as it stands (`findings` on `GET /api/packs/{name}`): an error (an
+  input the tool doesn't take, a value its schema refuses once the variables are filled in) or a warning.
+- **Flag**: pack wording written against a tool version whose description has since changed, or a fixed or default
+  value the live tool no longer takes (its input is gone, or no longer takes the value); agents keep the wording and
+  calls that use the value fail until the owner changes it (pack page, Reviews, Home nudge). A flag never blocks a
+  change that leaves it alone.
 - **Asked**: a call whose upstream asked something mid-call (MCP input requests); the answers come as the next call
   with the sealed `requestState`.
 
@@ -129,8 +141,9 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 7. Reads (a manual, a playbook, a link) go through the same rules as calls (`features/calls/reads.ts`) and land in
    the same log; manuals and playbooks reach agents only as an approved (`live`) version.
 8. The pack lock lives on the principal (`features/clients/principals.ts`): a pack key's upstreams are the pack's,
-   and `reaches` / `runsTool` / `holds` / `shownAs` keep tools, playbooks, manuals, names, wording and fixed inputs to
-   the pack at every site that lists or runs anything; `seenBy` is the one rule for which tools a caller is listed,
+   and `reaches` / `runsTool` / `holds` / `shownAs` keep tools, playbooks, manuals, names, wording, fixed inputs and
+   defaults to the pack at every site that lists or runs anything (`packScopeFrom` is the only place the lock is
+   built); `seenBy` is the one rule for which tools a caller is listed,
    and `pinnedBy` for which of them MCP lists directly. Search scores every tool and then keeps to `seenBy`, and a
    pack key's connection cards count only what the pack holds. A pack key never gets a passthrough. The owner asking
    for a pack is such a principal too (`owner: false`), held to the same rules. A new place that lists or runs tools

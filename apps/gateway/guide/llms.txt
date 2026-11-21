@@ -53,6 +53,10 @@ pack only, and every tool of the pack is listed directly, in the pack's own word
 pins of its own lists only those and finds the rest with `search_tools` (`PATCH /api/clients/{id}` with `pins`, by
 the pack's names; `pins: null` lists the whole pack again). The pins set for every client never apply inside a pack.
 
+A pack sets some inputs of its tools. An input the pack fills itself is not in the tool's schema: leave it out, a
+call that sends it is refused (400). An input the pack gives a default shows that default in the tool's schema; send
+your own value to replace it.
+
 Playbooks, manuals and calls stay inside the pack too. A call to anything else is refused (403) and logged; the
 per-upstream passthrough (`/u/{id}/mcp`) is refused too. A pack key opens only the links its tools returned in the
 last day (through `/u/{upstream}/r/…` and `read_resource`), so `GET /api/links` is empty for it. Its connections
