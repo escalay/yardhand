@@ -221,6 +221,14 @@ describe('on a large catalog', () => {
       expect.objectContaining({ name: 'fixture-say-it-back' }),
     ])
   })
+
+  it('points a pack key at a manual only when its pack holds it', async () => {
+    expect((await api(kit, '/api/tools/fixture.echo')).json.manual).toBeNull()
+    expect((await api(notes, '/api/tools/fixture.echo')).json.manual).toBe('gateway://u/fixture/manual')
+    expect((await api(full, '/api/tools/fixture.echo')).json.manual).toBe('gateway://u/fixture/manual')
+    const set = await api(OWNER, '/api/tools/fixture.echo', { method: 'PATCH', body: { access: null } })
+    expect(set.json.manual).toBe('gateway://u/fixture/manual')
+  })
 })
 
 describe('on a catalog too small to tell a match from noise', () => {

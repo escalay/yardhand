@@ -11,6 +11,7 @@ import {
   describe,
   entryOf,
   holds,
+  OWNER,
   type Principal,
   requireOwner,
   seenBy,
@@ -316,9 +317,12 @@ export const toolsHandlers = ({
         description: summaryOf(content.description),
       }))
   }
-  const detailOf = async (origin: string, tool: LiveTool, view: 'full' | 'brief' = 'full') => {
+  const detailOf = async (origin: string, tool: LiveTool, principal: Principal, view: 'full' | 'brief' = 'full') => {
     const upstream = await upstreams.get(tool.upstreamId)
-    const manuals = await catalog.listLive({ kinds: ['manual'], upstreams: [tool.upstreamId] })
+    // Only a manual this caller may read: a pack key is pointed at one its pack holds
+    const manuals = (await catalog.listLive({ kinds: ['manual'], upstreams: [tool.upstreamId] })).filter((item) =>
+      holds(principal, item),
+    )
     const instructions = upstream?.instructions ?? null
     return {
       name: tool.name,
@@ -354,7 +358,10 @@ export const toolsHandlers = ({
       throw new ProblemError('not_found', {
         detail: `No tool ${name} for this client: search_tools (MCP) or GET ${PATH}?q=<what you want to do> finds the ones you may use.`,
       })
-    return c.json(await detailOf(originOf(c), describe(principal, tool, name), c.req.valid('query').view), 200)
+    return c.json(
+      await detailOf(originOf(c), describe(principal, tool, name), principal, c.req.valid('query').view),
+      200,
+    )
   }
   const setAccess: RouteHandler<Routes['setAccess']> = async (c) => {
     requireOwner(c)
@@ -364,7 +371,7 @@ export const toolsHandlers = ({
     await tools.setAccess(name, c.req.valid('json').access)
     listsChanged({ tools: true })
     const tool = await tools.live(name)
-    return c.json(await detailOf(originOf(c), tool!), 200)
+    return c.json(await detailOf(originOf(c), tool!, OWNER), 200)
   }
   const reviews: RouteHandler<Routes['reviews']> = async (c) => {
     requireOwner(c)
