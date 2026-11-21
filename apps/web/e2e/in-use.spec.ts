@@ -646,6 +646,13 @@ test('switched off, Settings names the variable; a newer release is named once a
   await expect(group.getByRole('button', { name: 'See the last one sent, 3 h ago' })).toBeVisible()
 })
 
+test('Settings says what a Discord webhook would tell: tool changes and access about to end', async ({ page }) => {
+  await signIn(page, demo())
+  await page.goto('/app/settings')
+  const part = page.locator('div', { has: page.getByText('Alerts on Discord', { exact: true }) }).last()
+  await expect(part).toContainText('Set DISCORD_WEBHOOK_URL to hear about tool changes and access about to end.')
+})
+
 test('a newer version is named on Home and installed from Settings, followed through the restart', async ({ page }) => {
   await signIn(page, demo())
   // The demo never asks for a newer version and has no updater, so the answers are changed on their way to the app

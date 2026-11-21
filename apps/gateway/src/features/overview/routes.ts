@@ -162,7 +162,7 @@ const SystemSchema = z
       traces: z.boolean().openapi({ description: 'Call metadata goes to Langfuse.' }),
       access: z.boolean().openapi({ description: 'Cloudflare Access signs the owner in.' }),
       oauth: z.boolean().openapi({ description: 'Agents can get tokens with OAuth (claude.ai connectors).' }),
-      alerts: z.boolean().openapi({ description: 'Review notices go to a Discord webhook.' }),
+      alerts: z.boolean().openapi({ description: 'Review notices and access-ending notices go to a Discord webhook.' }),
     }),
     publicOrigin: z.string(),
     serverName: z.string().openapi({

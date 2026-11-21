@@ -3332,7 +3332,7 @@ export interface components {
                 access: boolean;
                 /** @description Agents can get tokens with OAuth (claude.ai connectors). */
                 oauth: boolean;
-                /** @description Review notices go to a Discord webhook. */
+                /** @description Review notices and access-ending notices go to a Discord webhook. */
                 alerts: boolean;
             };
             publicOrigin: string;

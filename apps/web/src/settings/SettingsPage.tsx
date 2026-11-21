@@ -40,9 +40,9 @@ const FEATURES = {
     off: 'You sign in here with an owner key (this deploy has no Access in front).',
   },
   alerts: {
-    title: 'Review alerts on Discord',
-    on: 'Tool changes waiting for review are posted to Discord.',
-    off: 'Set DISCORD_WEBHOOK_URL to hear about tool changes.',
+    title: 'Alerts on Discord',
+    on: 'Tool changes waiting for review and access about to end are posted to Discord.',
+    off: 'Set DISCORD_WEBHOOK_URL to hear about tool changes and access about to end.',
   },
   traces: {
     title: 'Call traces in Langfuse',
