@@ -3230,8 +3230,11 @@ export interface components {
         };
         /** @description Something that needs the owner, with where to act on it. */
         Nudge: {
-            /** @enum {string} */
-            kind: "reviews" | "pack_wording" | "failing_upstream" | "quiet_key" | "unused_upstream" | "smart_grouping";
+            /**
+             * @description `access_ending`: someone’s access to a pack ends within three days; its `href` is the pack’s People, where Extend is.
+             * @enum {string}
+             */
+            kind: "reviews" | "pack_wording" | "failing_upstream" | "access_ending" | "quiet_key" | "unused_upstream" | "smart_grouping";
             message: string;
             action: string;
             href: string;
