@@ -79,6 +79,22 @@ describe('gateway client', () => {
     expect(await requested('https://gw.example.test/')).toEqual(['/api/tools', '/api/calls'])
   })
 
+  it('keeps nothing else of a pasted address: an MCP or API address reaches the same API', async () => {
+    const requested = async (url: string) => {
+      const seen: Request[] = []
+      await createGateway({ key: 'k', url, fetch: fakeFetch({}, seen) })
+        .tools.search('x')
+        .catch(() => null)
+      const asked = new URL(seen[0]?.url ?? '')
+      return `${asked.pathname}${asked.search}`
+    }
+    expect(await requested('https://gw.example.test/mcp')).toBe('/api/tools?q=x')
+    expect(await requested('https://gw.example.test/api')).toBe('/api/tools?q=x')
+    expect(await requested('https://gw.example.test/api/')).toBe('/api/tools?q=x')
+    expect(await requested('https://gw.example.test/p/loud/mcp')).toBe('/p/loud/api/tools?q=x')
+    expect(await requested('https://gw.example.test/p/loud/api')).toBe('/p/loud/api/tools?q=x')
+  })
+
   it('searches with the query in the URL', async () => {
     const seen: Request[] = []
     const gateway = createGateway({

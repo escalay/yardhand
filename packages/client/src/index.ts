@@ -68,16 +68,21 @@ export const createGateway = ({
 }: {
   /** A Yardhand client key, or an OAuth access token. */
   key: string
-  /** Your instance, e.g. https://yardhand.example.test, or one pack of it: https://yardhand.example.test/p/<pack>. */
+  /**
+   * Your instance, e.g. https://yardhand.example.test, or one pack of it: https://yardhand.example.test/p/<pack>.
+   * Anything after that in a pasted address (`/mcp`, `/api`) is left out.
+   */
   url: string
   fetch?: typeof fetch
 }) => {
+  const at = new URL(url)
+  // A pack's address has a path of its own to keep; nothing else of the path is the API's
+  const base = `${at.origin}${/^\/p\/[^/]+/.exec(at.pathname)?.[0] ?? ''}`
   const request = async <T>(
     path: string,
     init: { method?: string; body?: unknown; query?: Record<string, string | number | undefined> } = {},
   ) => {
-    // Joined, not resolved: a pack's address has a path of its own to keep
-    const target = new URL(`${url.replace(/\/+$/, '')}${path}`)
+    const target = new URL(`${base}${path}`)
     for (const [name, value] of Object.entries(init.query ?? {}))
       if (value !== undefined) target.searchParams.set(name, String(value))
     const response = await fetchImpl(target, {
