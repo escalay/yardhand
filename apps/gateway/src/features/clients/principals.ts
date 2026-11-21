@@ -13,6 +13,7 @@ import type { CatalogRepo } from '../catalog/repo.js'
 import { fixedOf, type PackEntry, presented } from '../packs/entries.js'
 import type { PacksRepo } from '../packs/repo.js'
 import { isOff, type LiveTool, needsWrite } from '../tools/repo.js'
+import { dayOf } from './lifetimes.js'
 import type { ClientsRepo } from './repo.js'
 import type { ClientRow } from './schema.js'
 
@@ -132,15 +133,53 @@ export const describe = <T extends { name: string; description: string; inputSch
   return entry ? presented(tool, name, entry) : tool
 }
 
-/** Why a key no longer works, said where the caller sees it. */
-export const refusalOf = (row: Pick<ClientRow, 'revokedAt' | 'expiresAt'>, now = new Date()) =>
+/** How and when a client's access ended, or null while it works. */
+export const endingOf = (
+  row: Pick<ClientRow, 'revokedAt' | 'expiresAt'>,
+  now = new Date(),
+): { how: 'revoked' | 'expired'; at: string } | null =>
   row.revokedAt
-    ? 'This key was revoked: the owner can issue a new one in /app.'
+    ? { how: 'revoked', at: row.revokedAt }
     : row.expiresAt && row.expiresAt <= now.toISOString()
-      ? `This key expired at ${row.expiresAt}: the owner can issue a new one in /app.`
+      ? { how: 'expired', at: row.expiresAt }
       : null
 
+/**
+ * Why a key no longer works, said where the caller sees it: in `pack`, the pack it asked for or its default. Only an
+ * OAuth client hears the revoked sentence: a revoked key is no longer known and gets the kit's 401.
+ */
+export const refusalOf = (
+  row: Pick<ClientRow, 'revokedAt' | 'expiresAt'>,
+  pack: { title: string } | null = null,
+  now = new Date(),
+) => {
+  const ending = endingOf(row, now)
+  if (!ending) return null
+  if (ending.how === 'revoked') return 'This key was revoked: the owner can issue a new one in /app.'
+  return pack
+    ? `Your access to ${pack.title} ended on ${dayOf(ending.at)}. Ask the owner for a new invite.`
+    : `This key expired on ${dayOf(ending.at)}: the owner can issue a new one in /app.`
+}
+
+/** The same ending, said to the owner looking as that client. */
+export const endedNote = (
+  row: Pick<ClientRow, 'id' | 'name' | 'revokedAt' | 'expiresAt'>,
+  pack: { title: string } | null = null,
+  now = new Date(),
+) => {
+  const ending = endingOf(row, now)
+  if (!ending) return null
+  const nothing = `so there is nothing to see as ${row.name}`
+  if (ending.how === 'revoked')
+    return `${row.name}'s key was revoked on ${dayOf(ending.at)}, ${nothing}: make a new key.`
+  const what = pack ? `access to ${pack.title} ended` : 'key expired'
+  return `${row.name}'s ${what} on ${dayOf(ending.at)}, ${nothing}: extend it with PATCH /api/clients/${row.id} {"expiresIn":"30d"}.`
+}
+
 const upstreamOfTool = (name: string) => name.slice(0, name.indexOf('.'))
+
+/** A pack a key opens, as the lock and the refusals name it. */
+type Opened = { id: string; name: string; title: string }
 
 export const createPrincipals = ({
   clients,
@@ -179,23 +218,34 @@ export const createPrincipals = ({
       ]),
     ].sort()
   }
-  /** The pack a request is locked to: the one asked for when the key opens it, else the key's default. */
-  const packFor = async (row: ClientRow, choice: string | undefined) => {
+  /**
+   * The pack a request is locked to: the one asked for when the key opens it, else the key's default. Asked for a
+   * pack the key doesn't open, it is the default with a `refusal`, so an ended key is still told a pack of its own.
+   */
+  const packFor = async (
+    row: ClientRow,
+    choice: string | undefined,
+  ): Promise<{ id: string | null; opened: Opened[]; refusal?: string }> => {
     const ids = await clients.packsOf(row)
     const opened = (await Promise.all(ids.map((id) => packs.byId(id)))).filter((pack) => pack !== undefined)
-    if (!choice) return { id: row.packId ?? ids[0] ?? null, opened }
+    const byDefault = { id: row.packId ?? ids[0] ?? null, opened }
+    if (!choice) return byDefault
     const chosen = opened.find((pack) => pack.name === choice)
     if (chosen) return { id: chosen.id, opened }
     return {
+      ...byDefault,
       refusal: ids.length
         ? `This key doesn't open the pack ${choice}. It opens ${opened.map((pack) => `${pack.name} (/p/${pack.name}/mcp)`).join(', ')}.`
         : `This key isn't locked to packs: connect to /mcp, which serves everything it may reach.`,
     }
   }
+  /** The pack a request is locked to, for the sentence that names it; null outside packs and for a removed pack. */
+  const titled = (chosen: { id: string | null; opened: Opened[] }) =>
+    chosen.opened.find((opened) => opened.id === chosen.id) ?? null
   const fromRow = async (
     row: ClientRow,
     scopeCap: 'read' | 'write' | undefined,
-    chosen: { id: string | null; opened: { id: string; name: string; title: string }[] },
+    chosen: { id: string | null; opened: Opened[] },
   ): Promise<Principal> => {
     const pack = chosen.id ? await packScopeOf(chosen.id) : null
     const byDefault = [...chosen.opened].sort((a, b) => Number(b.id === row.packId) - Number(a.id === row.packId))
@@ -256,10 +306,8 @@ export const createPrincipals = ({
     if (isOwner(caller)) return caller.pack ? inPack(caller.pack) : OWNER
     const { row, scopeCap } = await rowOf(caller)
     if (!row) return 'This key is not known to the gateway.'
-    const refused = refusalOf(row)
-    if (refused) return refused
     const chosen = await packFor(row, caller.pack)
-    return 'refusal' in chosen ? (chosen.refusal ?? 'Not allowed.') : fromRow(row, scopeCap, chosen)
+    return refusalOf(row, titled(chosen)) ?? chosen.refusal ?? fromRow(row, scopeCap, chosen)
   }
 
   return {
@@ -282,9 +330,7 @@ export const createPrincipals = ({
       const row = await clients.get(id)
       if (!row) return `No client ${id}. GET /api/clients lists them.`
       const chosen = await packFor(row, pack)
-      return (
-        refusalOf(row) ?? ('refusal' in chosen ? (chosen.refusal ?? 'Not allowed.') : fromRow(row, undefined, chosen))
-      )
+      return endedNote(row, titled(chosen)) ?? chosen.refusal ?? fromRow(row, undefined, chosen)
     },
     /** The principal behind a request; a 403 saying why when it has none. */
     require: async (caller: ReturnType<typeof callerOf>): Promise<Principal> => {

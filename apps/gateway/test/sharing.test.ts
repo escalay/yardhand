@@ -3,9 +3,14 @@
  * told once it has ended.
  */
 import { randomBytes } from 'node:crypto'
+import type { AddressInfo } from 'node:net'
+import { serve } from '@hono/node-server'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
+import { dayOf } from '../src/features/clients/lifetimes.js'
+import { PACK_PATHS } from '../src/features/packs/docs.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
 import { startUpstream } from './fixtures/upstream.js'
 
@@ -16,20 +21,33 @@ const app = await createApp({
   db,
   env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: randomBytes(32).toString('base64') },
 })
+const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 })
+await new Promise<void>((resolve) => server.once('listening', () => resolve()))
+const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 afterAll(async () => {
   await upstream.close()
+  await new Promise<void>((resolve) => server.close(() => resolve()))
 })
 
-type Init = { method?: string; body?: unknown }
+type Init = { method?: string; body?: unknown; headers?: Record<string, string> }
 const api = async (key: string, path: string, init: Init = {}) => {
   const response = await app.request(path, {
     method: init.method ?? 'GET',
-    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', ...init.headers },
     ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
   })
   return { status: response.status, json: (await response.json().catch(() => null)) as any }
 }
 const owner = (path: string, init?: Init) => api(OWNER, path, init)
+const mcp = async (key: string, path = '/mcp') => {
+  const client = new Client({ name: 'test', version: '1.0.0' })
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(path, origin), {
+      requestInit: { headers: { authorization: `Bearer ${key}` } },
+    }),
+  )
+  return client
+}
 type Made = { id: string; key: string; app: string | null; expiresAt: string | null }
 const keyFor = async (body: Record<string, unknown>) => {
   const made = await owner('/api/clients', { method: 'POST', body: { scope: 'write', ...body } })
@@ -44,6 +62,11 @@ const fromNow = (iso: string | null) => Math.round((Date.parse(iso ?? '') - Date
 /** Ends a key a moment ago, as time would. */
 const end = (id: string) =>
   db.run(sql`update clients set expires_at = ${new Date(Date.now() - 1000).toISOString()} where id = ${id}`)
+/** What a pack key that ended a moment ago is told, and what a key without a pack is. */
+const endedIn = (title: string) =>
+  `Your access to ${title} ended on ${dayOf(new Date().toISOString())}. Ask the owner for a new invite.`
+const expiredToday = () =>
+  `This key expired on ${dayOf(new Date().toISOString())}: the owner can issue a new one in /app.`
 const extend = (id: string, expiresIn: string) => owner(`/api/clients/${id}`, { method: 'PATCH', body: { expiresIn } })
 
 beforeAll(async () => {
@@ -147,5 +170,135 @@ describe('where a key runs', () => {
     })
     expect(refused.status).toBe(400)
     expect(JSON.stringify(refused.json.errors)).toContain('app')
+  })
+})
+
+describe('a key that has ended', () => {
+  it('is told the pack, the day and what to do', async () => {
+    const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '30d' })
+    await end(sam.id)
+    for (const path of ['/api/me', '/p/loud/api/me']) {
+      const refused = await api(sam.key, path)
+      expect([path, refused.status, refused.json.detail]).toEqual([path, 403, endedIn('Loud')])
+    }
+    expect((await api(sam.key, '/api/me', { headers: { 'x-gateway-pack': 'loud' } })).json.detail).toBe(endedIn('Loud'))
+  })
+
+  it('is told the pack it asked for when it opens it, else its default', async () => {
+    const ada = await keyFor({ name: 'Ada', packs: ['loud', 'desk'], expiresIn: '7d' })
+    await end(ada.id)
+    expect((await api(ada.key, '/p/desk/api/me')).json.detail).toBe(endedIn('Desk'))
+    expect((await api(ada.key, '/api/me', { headers: { 'x-gateway-pack': 'desk' } })).json.detail).toBe(endedIn('Desk'))
+    expect((await api(ada.key, '/api/me')).json.detail).toBe(endedIn('Loud'))
+    // A pack it never opened: nothing about that pack, only its own ending
+    const elsewhere = await api(ada.key, '/p/nope/api/me')
+    expect([elsewhere.status, elsewhere.json.detail]).toEqual([403, endedIn('Loud')])
+  })
+
+  it('is told when it expired, without a pack', async () => {
+    const script = await keyFor({ name: 'a script', upstreams: 'all', expiresIn: '1d' })
+    await end(script.id)
+    const refused = await api(script.key, '/api/me')
+    expect([refused.status, refused.json.detail]).toEqual([403, expiredToday()])
+  })
+
+  it('is refused on every route a pack serves', async () => {
+    const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '30d', resultCap: 1000 })
+    // A call whose result is held in pages, and a link its result handed over: both readable while the key works
+    const client = await mcp(sam.key, '/p/loud/mcp')
+    const cut = await client.callTool({
+      name: 'call_tool',
+      arguments: { name: 'fixture.echo', arguments: { text: `fixture://notes/7 ${'abcdefghij'.repeat(1000)}` } },
+    })
+    await client.close()
+    const held = cut._meta?.['yardhand/call'] as { id: string }
+    const me = (await api(sam.key, '/p/loud/api/me')).json
+    const [playbook] = me.pack.playbooks as string[]
+    const [manual] = me.pack.manuals as string[]
+    const SAMPLES: Record<string, { path: string; body?: unknown }> = {
+      'get /api': { path: '/api' },
+      'get /api/me': { path: '/api/me' },
+      'get /api/tools': { path: '/api/tools?q=echo' },
+      'get /api/tools/openapi.json': { path: '/api/tools/openapi.json' },
+      'get /api/tools/{name}': { path: '/api/tools/fixture.echo' },
+      'post /api/tools/{name}/calls': { path: '/api/tools/fixture.echo/calls', body: { text: 'x' } },
+      'get /api/calls': { path: '/api/calls' },
+      'post /api/calls': { path: '/api/calls', body: { tool: 'fixture.echo', arguments: { text: 'x' } } },
+      'get /api/calls/{id}': { path: `/api/calls/${held.id}` },
+      'get /api/calls/{id}/result': { path: `/api/calls/${held.id}/result?page=2` },
+      'get /api/upstreams': { path: '/api/upstreams' },
+      'get /api/upstreams/{id}': { path: '/api/upstreams/fixture' },
+      'get /api/playbooks': { path: '/api/playbooks' },
+      'get /api/playbooks/{name}': { path: `/api/playbooks/${playbook}` },
+      'get /api/playbooks/{name}/messages': {
+        path: `/api/playbooks/${playbook}/messages?arguments=${encodeURIComponent('{"topic":"x"}')}`,
+      },
+      'get /api/manuals': { path: '/api/manuals' },
+      'get /api/manuals/{name}': { path: `/api/manuals/${manual}` },
+      'get /api/links': { path: '/api/links' },
+      'get /api/resources': { path: `/api/resources?uri=${encodeURIComponent('fixture://notes/7')}` },
+    }
+    // A route a pack serves later needs a sample here
+    expect(Object.keys(SAMPLES).sort()).toEqual(
+      Object.entries(PACK_PATHS)
+        .flatMap(([path, methods]) => methods.map((method) => `${method} ${path}`))
+        .sort(),
+    )
+    const PAGES = ['/p/loud', '/p/loud/docs', '/p/loud/llms.txt', '/p/loud/openapi.json']
+    const ask = (name: string) => {
+      const sample = SAMPLES[name] as { path: string; body?: unknown }
+      return api(sam.key, `/p/loud${sample.path}`, {
+        method: name.split(' ')[0]?.toUpperCase() ?? 'GET',
+        ...(sample.body === undefined ? {} : { body: sample.body }),
+      })
+    }
+    // Each is a request the key is answered while it works
+    for (const name of Object.keys(SAMPLES)) expect([name, (await ask(name)).status < 400]).toEqual([name, true])
+    for (const path of PAGES) expect([path, (await api(sam.key, path)).status < 400]).toEqual([path, true])
+
+    await end(sam.id)
+    for (const name of Object.keys(SAMPLES)) {
+      const refused = await ask(name)
+      expect([name, refused.status, refused.json?.detail]).toEqual([name, 403, endedIn('Loud')])
+    }
+    for (const path of PAGES) {
+      const refused = await api(sam.key, path)
+      expect([path, refused.status, refused.json?.detail]).toEqual([path, 403, endedIn('Loud')])
+    }
+    expect((await api(sam.key, '/api/events')).status).toBe(403)
+    expect((await api(sam.key, '/u/fixture/r/files/a.txt')).status).toBe(403)
+  })
+})
+
+describe('the owner looking as someone whose access ended', () => {
+  it('is told who, which pack, the day and how to extend', async () => {
+    const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '7d' })
+    expect((await owner(`/api/tools?pack=loud&as=${sam.id}`)).status).toBe(200)
+    await end(sam.id)
+    const today = dayOf(new Date().toISOString())
+    for (const path of [
+      `/api/tools?pack=loud&as=${sam.id}`,
+      `/api/tools?as=${sam.id}`,
+      `/p/loud/api/tools?as=${sam.id}`,
+    ]) {
+      const refused = await owner(path)
+      expect([path, refused.status, refused.json.detail]).toEqual([
+        path,
+        409,
+        `Sam's access to Loud ended on ${today}, so there is nothing to see as Sam: extend it with PATCH /api/clients/${sam.id} {"expiresIn":"30d"}.`,
+      ])
+    }
+    expect((await extend(sam.id, '30d')).status).toBe(200)
+    expect((await owner(`/api/tools?pack=loud&as=${sam.id}`)).status).toBe(200)
+  })
+
+  it('is told a key without a pack expired', async () => {
+    const script = await keyFor({ name: 'a script', upstreams: 'all', expiresIn: '1d' })
+    await end(script.id)
+    const refused = await owner(`/api/tools?as=${script.id}`)
+    expect([refused.status, refused.json.detail]).toEqual([
+      409,
+      `a script's key expired on ${dayOf(new Date().toISOString())}, so there is nothing to see as a script: extend it with PATCH /api/clients/${script.id} {"expiresIn":"30d"}.`,
+    ])
   })
 })
