@@ -182,6 +182,23 @@ test('a pack’s Overview checks it as it is built: its steps, a search as its k
   // Nothing found: Add tools opens the pack's tools with the dialog to add some
   await tryIt.getByRole('link', { name: 'Add tools' }).click()
   await expect(page.getByRole('dialog').getByLabel('Search tools by what they do')).toBeVisible()
+
+  // A new pack opens on its Overview, at the first of its steps; a search of nothing is not a try
+  await page.goto('/app/packs')
+  await page.getByRole('button', { name: 'New pack' }).first().click()
+  await page.getByRole('dialog').getByLabel('Title').fill('Trial')
+  await page.getByRole('button', { name: 'Make the pack' }).click()
+  await expect(page).toHaveURL(/\/packs\/trial\?tab=overview/)
+  const trial = part('Set up Trial')
+  await expect(trial).toContainText('0 of 4')
+  const tryTrial = part('Try Trial as an agent')
+  await tryTrial.getByLabel('What an agent would ask').fill('echo')
+  await tryTrial.getByRole('button', { name: 'Search' }).click()
+  await expect(tryTrial.getByText('This pack holds no tools this key can use.')).toBeVisible()
+  await expect(trial).toContainText('0 of 4')
+  await page.getByRole('button', { name: 'Remove Trial' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click()
+  await expect(page).toHaveURL(/\/app\/packs$/)
 })
 
 test('the frame: a window and a scope narrow the numbers, searches show what came of them, tools as a key sees them', async ({
