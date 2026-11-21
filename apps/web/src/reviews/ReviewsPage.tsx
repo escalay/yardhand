@@ -151,7 +151,8 @@ const Change = ({
 
 /**
  * Pack tools to recheck: wording written for a tool its server has since rewritten (kept for agents until the owner
- * decides), or a fixed input the tool no longer takes (its calls fail until fixed), both settled in the pack.
+ * decides), or a fixed or default value the tool no longer takes (calls that use it fail until it is changed), both
+ * settled in the pack.
  */
 const PackFlags = () => {
   const flags = useQuery(flagsQuery)
@@ -175,7 +176,7 @@ const PackFlags = () => {
               </span>
               <span className="line-clamp-2 text-sm text-muted-foreground">
                 {flag.kind === 'input'
-                  ? `${flag.now}, which the pack fixes: its calls fail until you change what it fixes.`
+                  ? `${flag.now}. Open the pack to change the value.`
                   : `Its server now says: ${flag.now}`}
               </span>
             </span>
