@@ -283,9 +283,29 @@ export interface paths {
         put?: never;
         /**
          * Connect an OAuth upstream
-         * @description Starts (or refreshes) the OAuth connection of an upstream with `auth: oauth` (owner only). Answers `authorizeUrl` to open in a browser; after approving, the upstream syncs on its own.
+         * @description Starts (or refreshes) the OAuth connection of an upstream with `auth: oauth` (owner only). Answers `authorizeUrl` to open in a browser; after approving, the upstream syncs on its own. `?via=` chooses how the upstream sends you back; without it the last choice holds.
          */
         post: operations["connectUpstream"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/upstreams/{id}/connect/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish a loopback sign-in
+         * @description Finishes a connect started `via: loopback` (owner only): send the address the approval ended on (`http://localhost:8765/callback?code=…&state=…`). The code becomes tokens and the upstream syncs.
+         */
+        post: operations["completeUpstreamConnect"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1937,7 +1957,26 @@ export interface components {
             connected: boolean;
             /** @description Open it, sign in to the upstream and approve; it sends you back here. */
             authorizeUrl: string | null;
+            /**
+             * @description `gateway`: the upstream sends you back to this gateway. `loopback`: it sends you to `http://localhost:8765/callback`, as it would an app on your computer; that page never loads, and you paste its address into `POST /api/upstreams/{id}/connect/complete`. Use it when the upstream refuses to sign in a web app it doesn’t know.
+             * @enum {string}
+             */
+            via: "gateway" | "loopback";
             _links: components["schemas"]["Links"];
+        };
+        /** @description An OAuth upstream connected from a pasted sign-in address. */
+        ConnectCompleted: {
+            upstream: string;
+            /** @enum {boolean} */
+            connected: true;
+            /** @description Tools added or changed by the sync that followed. */
+            tools: number;
+            _links: components["schemas"]["Links"];
+        };
+        /** @description The address a loopback approval ended on. */
+        CompleteConnectInput: {
+            /** @description The whole address from the tab, starting `http://localhost:8765/callback?`. */
+            url: string;
         };
         /** @description OpenAPI 3.1. */
         ToolsOpenApi: {
@@ -4376,7 +4415,10 @@ export interface operations {
     };
     connectUpstream: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `gateway`: the upstream sends you back to this gateway. `loopback`: it sends you to `http://localhost:8765/callback`, as it would an app on your computer; that page never loads, and you paste its address into `POST /api/upstreams/{id}/connect/complete`. Use it when the upstream refuses to sign in a web app it doesn’t know. */
+                via?: "gateway" | "loopback";
+            };
             header?: {
                 /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
                 "Idempotency-Key"?: string;
@@ -4396,6 +4438,81 @@ export interface operations {
                 };
                 content: {
                     "application/hal+json": components["schemas"]["Connect"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `upstream`: A service this call depends on (a model, storage) failed. Retry after `Retry-After` seconds. `unavailable`: The data is still loading or being replaced. Retry after `Retry-After` seconds. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    completeUpstreamConnect: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description The upstream id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteConnectInput"];
+            };
+        };
+        responses: {
+            /** @description Connected and synced. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["ConnectCompleted"];
                 };
             };
             /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */

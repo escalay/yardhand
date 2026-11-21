@@ -20,6 +20,7 @@ import { Button } from '@/ui/shadcn/button'
 import { Input } from '@/ui/shadcn/input'
 import { RadioGroup, RadioGroupItem } from '@/ui/shadcn/radio-group'
 import { draftOf, ID_PATTERN, type KeyStyle, kindLabel, offersLine, readsOf, stageOf } from './connections.rules'
+import { LoopbackSignIn } from './LoopbackSignIn'
 
 const PREVIEW = 8
 
@@ -215,6 +216,9 @@ export const NewConnection = ({ fromSetup }: { fromSetup?: boolean } = {}) => {
           <Button variant="ghost" onClick={() => setOauthPending(false)}>
             I'll finish later
           </Button>
+          <div className="w-full max-w-xl border border-border">
+            <LoopbackSignIn id={made.id} title={made.title} onConnected={() => setOauthPending(false)} />
+          </div>
         </div>
       </Page>
     )
