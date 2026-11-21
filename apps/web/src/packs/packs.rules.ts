@@ -217,6 +217,18 @@ export const problemLines = (tool: Pick<PackTool, 'tool' | 'lostInputs' | 'input
   ...tool.inputs.flatMap((input) => (input.problem ? [input.problem] : [])),
 ]
 
+/**
+ * What a tool's flagged values do to calls until the owner changes them, the worst of what stands: a fixed value the
+ * tool refuses fails every call, a default it refuses only the calls that leave the input out, and a value for an
+ * input the tool dropped is still sent.
+ */
+export const failsLine = (tool: Pick<PackTool, 'lostInputs' | 'inputs'>) => {
+  const refused = tool.inputs.filter((input) => input.problem)
+  if (refused.some((input) => input.mode === 'fixed')) return 'every call fails until you change what the pack sets'
+  if (refused.length) return 'calls that don’t send their own value fail until you change what the pack sets'
+  return `the pack still sends ${tool.lostInputs.length === 1 ? 'it' : 'them'}, so calls fail only if the server refuses an input it doesn’t know. Change what the pack sets`
+}
+
 /** "limit was not checked: …" for the values the gateway could not check against the tool's schema, or null. */
 export const uncheckedLine = (tool: Pick<PackTool, 'inputs'>) => {
   const names = tool.inputs.filter((input) => input.unchecked).map((input) => input.name)

@@ -167,10 +167,29 @@ describe('the inputs of a pack tool', () => {
       }),
     )
     await modesOf('limit')
-    expect(screen.getByText('limit must be integer. Calls fail until you change the value.')).toBeTruthy()
+    // A default the tool refuses fails only the calls that leave the input out
+    expect(
+      screen.getByText('limit must be integer. Calls that leave it out fail until you change the value.'),
+    ).toBeTruthy()
     expect(screen.getByText(/items\.get_item no longer takes it\. Saving drops it from this pack\./)).toBeTruthy()
     expect(screen.getByText('2 values don’t fit the tool’s current schema: change them and save.')).toBeTruthy()
     expect(screen.queryByText(/Every value fits/)).toBeNull()
+  })
+
+  it('says a fixed value the tool no longer takes fails every call', async () => {
+    show(
+      toolOf({
+        fixed: { limit: 500 },
+        defaults: {},
+        inputs: toolOf().inputs.map((input) =>
+          input.name === 'limit'
+            ? { ...input, mode: 'fixed', value: 500, resolved: 500, problem: 'limit must be <= 100' }
+            : input,
+        ),
+      }),
+    )
+    await modesOf('limit')
+    expect(screen.getByText('limit must be <= 100. Every call fails until you change the value.')).toBeTruthy()
   })
 
   it('says a value was not checked, where the gateway could not read the input’s schema, and claims no fit', async () => {

@@ -2694,7 +2694,7 @@ export interface components {
             resolved?: unknown;
             /** @description The tool itself requires it. */
             required: boolean;
-            /** @description Why the value no longer fits the live tool, or null. Calls fail until it is changed. */
+            /** @description Why the value no longer fits the live tool, or null. Until it is changed, a fixed value fails every call and a default fails the calls that leave the input out. */
             problem: string | null;
             /** @description Worth a look, or null: a `{{word}}` that is no variable of the pack is sent as written. */
             note: string | null;
@@ -2728,7 +2728,7 @@ export interface components {
         /** @description Something the checks found in a pack. */
         PackFinding: {
             /**
-             * @description `error`: calls fail, or a save that sends it is refused. `warning`: worth a look; nothing fails.
+             * @description `error`: calls that use the value can fail (a tool input’s `problem` says which), and a save that sends it is refused. `warning`: worth a look; nothing fails.
              * @enum {string}
              */
             level: "error" | "warning";

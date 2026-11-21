@@ -151,7 +151,7 @@ const Change = ({
 
 /**
  * Pack tools to recheck: wording written for a tool its server has since rewritten (kept for agents until the owner
- * decides), or a fixed or default value the tool no longer takes (calls that use it fail until it is changed), both
+ * decides), or a fixed or default value the tool no longer takes (a fixed one fails every call until it is changed), both
  * settled in the pack.
  */
 const PackFlags = () => {

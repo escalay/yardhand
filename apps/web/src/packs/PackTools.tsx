@@ -24,7 +24,7 @@ import { Textarea } from '@/ui/shadcn/textarea'
 import { AddTools } from './AddTools'
 import { EntryEditor, type EntryMode } from './PackEntry'
 import { PackVariables } from './PackVariables'
-import { inputsLine, problemLines, reasonOf, wordingOf } from './packs.rules'
+import { failsLine, inputsLine, problemLines, reasonOf, wordingOf } from './packs.rules'
 
 type Pack = Schemas['Pack']
 type PackTool = Schemas['PackTool']
@@ -89,8 +89,8 @@ const InputProblems = ({ tool }: { tool: PackTool }) => {
     <div className="flex items-start gap-2 border border-error/40 bg-error/5 p-3 text-sm">
       <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-error" />
       <span>
-        {lines.join('; ')}. {tool.upstream} changed the tool after this pack set {lines.length === 1 ? 'it' : 'them'}:
-        calls that use {lines.length === 1 ? 'it' : 'them'} fail until you change what the pack sets (Name & inputs).
+        {lines.join('; ')}. {tool.upstream} changed the tool after this pack set {lines.length === 1 ? 'it' : 'them'}:{' '}
+        {failsLine(tool)} (Name & inputs).
       </span>
     </div>
   ) : null

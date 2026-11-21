@@ -116,9 +116,11 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   input the tool doesn't take, a value its schema refuses once the variables are filled in) or a warning (a
   `{{word}}` that is no variable, an unused variable, a value not checked because its input's schema can't be read).
 - **Flag**: pack wording written against a tool version whose description has since changed, or a fixed or default
-  value the live tool no longer takes (its input is gone, or no longer takes the value); agents keep the wording and
-  calls that use the value fail until the owner changes it (pack page, Reviews, Home nudge). A flag never blocks a
-  change that leaves it alone.
+  value the live tool no longer takes (its input is gone, or no longer takes the value), shown on the pack page, in
+  Reviews and as a Home nudge. Agents keep the wording. Until the owner changes the value, a fixed one the tool
+  refuses fails every call, a default it refuses fails the calls that leave the input out, and a value for a dropped
+  input is still sent (it fails only where the server refuses inputs it doesn't know). A flag never blocks a change
+  that leaves it alone.
 - **Asked**: a call whose upstream asked something mid-call (MCP input requests); the answers come as the next call
   with the sealed `requestState`.
 

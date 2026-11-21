@@ -446,6 +446,7 @@ describe('a pack’s variables', () => {
 
 describe('a value that stops fitting its tool', () => {
   const flagsOf = async () => (await owner('/api/packs/flags')).json._embedded.flags as { pack: string }[]
+  let hall = ''
   beforeAll(async () => {
     await packWith('hall', 'Hall', [
       { name: 'fixture.greet', alias: 'greet_default', defaults: { from: 'the porter' } },
@@ -456,6 +457,7 @@ describe('a value that stops fitting its tool', () => {
       method: 'PUT',
       body: { variables: [{ name: 'who', value: 'the desk' }] },
     })
+    hall = (await keyFor({ name: 'hall-agent', pack: 'hall' })).key
   })
   afterAll(() => greetTakes(true))
 
@@ -489,6 +491,9 @@ describe('a value that stops fitting its tool', () => {
     expect((await owner('/api/packs')).json._embedded.packs).toContainEqual(
       expect.objectContaining({ name: 'hall', flags: 2 }),
     )
+    // The pack still sends the value under the old name, and this tool takes no notice of an input it doesn't know
+    expect(await greeted(hall, 'greet_default', { to: 'Sam', sender: 'Ada' })).toBe('Hello Sam, from Ada')
+    expect(await greeted(hall, 'greet_fixed', { to: 'Sam', sender: 'Ada' })).toBe('Hello Sam, from Ada')
   })
 
   it('is flagged when the input stays and no longer takes the value', async () => {
@@ -511,6 +516,11 @@ describe('a value that stops fitting its tool', () => {
         now: 'from must be equal to one of the allowed values',
       }),
     ])
+    // A default the tool refuses fails only the calls that leave the input out
+    expect(await greeted(hall, 'greet_default', { to: 'Sam', from: 'the boss' })).toBe('Hello Sam, from the boss')
+    const left = (await greeted(hall, 'greet_default', { to: 'Sam' })) as { status: number; json: { detail: string } }
+    expect(left.status).toBe(400)
+    expect(left.json.detail).toContain('arguments.from must be equal to one of the allowed values')
   })
 
   it('refuses a variable’s new value that an input using it no longer takes', async () => {

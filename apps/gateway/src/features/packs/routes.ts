@@ -50,7 +50,8 @@ const VariableSchema = z
 const FindingSchema = z
   .object({
     level: z.enum(['error', 'warning']).openapi({
-      description: '`error`: calls fail, or a save that sends it is refused. `warning`: worth a look; nothing fails.',
+      description:
+        '`error`: calls that use the value can fail (a tool input’s `problem` says which), and a save that sends it is refused. `warning`: worth a look; nothing fails.',
     }),
     code: z.string().openapi({
       description:
@@ -75,7 +76,8 @@ const ToolInputSchema = z
     resolved: z.unknown().openapi({ description: 'The value with the pack’s variables filled in, or null.' }),
     required: z.boolean().openapi({ description: 'The tool itself requires it.' }),
     problem: z.string().nullable().openapi({
-      description: 'Why the value no longer fits the live tool, or null. Calls fail until it is changed.',
+      description:
+        'Why the value no longer fits the live tool, or null. Until it is changed, a fixed value fails every call and a default fails the calls that leave the input out.',
     }),
     note: z.string().nullable().openapi({
       description: 'Worth a look, or null: a `{{word}}` that is no variable of the pack is sent as written.',

@@ -2,7 +2,8 @@
  * Flags: something in a pack to recheck because its upstream changed the tool. Wording was written against one
  * version of a tool and the live description has moved on (the pack keeps its text for agents; the owner keeps or
  * rewrites it), or a value the pack fixes or gives as a default no longer fits the live tool: the input is gone, or
- * it no longer takes the value (the call fails until the owner changes it).
+ * it no longer takes the value. Until the owner changes it, a fixed value the tool refuses fails every call, a default
+ * it refuses fails the calls that leave the input out, and a value for a dropped input is still sent.
  */
 import type { ToolsRepo } from '../tools/repo.js'
 import { defaultsOf, fixedOf, type InputProblem, inputProblems } from './entries.js'

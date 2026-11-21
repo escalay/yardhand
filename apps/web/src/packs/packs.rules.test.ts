@@ -10,6 +10,7 @@ import {
   effectOf,
   emptyLine,
   expiryOf,
+  failsLine,
   filledIn,
   fixedLine,
   freeAlias,
@@ -378,6 +379,30 @@ describe('what a pack sets on a tool’s inputs', () => {
       }),
     ).toEqual(['fixture.greet no longer takes from, colour', 'tone must be equal to one of the allowed values'])
     expect(problemLines({ tool: 'fixture.greet', lostInputs: [], inputs: [] })).toEqual([])
+  })
+
+  it('says what a flagged value does to calls: the worst of what stands', () => {
+    const input = (mode: 'fixed' | 'default' | 'agent', problem: string | null) => ({
+      name: 'tone',
+      mode,
+      required: false,
+      problem,
+      note: null,
+      unchecked: false,
+    })
+    const refused = 'tone must be equal to one of the allowed values'
+    expect(failsLine({ lostInputs: [], inputs: [input('default', refused), input('fixed', refused)] })).toBe(
+      'every call fails until you change what the pack sets',
+    )
+    expect(failsLine({ lostInputs: ['from'], inputs: [input('default', refused), input('fixed', null)] })).toBe(
+      'calls that don’t send their own value fail until you change what the pack sets',
+    )
+    expect(failsLine({ lostInputs: ['from'], inputs: [input('agent', null)] })).toBe(
+      'the pack still sends it, so calls fail only if the server refuses an input it doesn’t know. Change what the pack sets',
+    )
+    expect(failsLine({ lostInputs: ['from', 'colour'], inputs: [] })).toBe(
+      'the pack still sends them, so calls fail only if the server refuses an input it doesn’t know. Change what the pack sets',
+    )
   })
 
   it('names the values the gateway could not check, so no fit is claimed for them', () => {

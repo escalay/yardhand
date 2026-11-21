@@ -98,7 +98,7 @@ const InputRow = ({
   mode: InputMode
   text: string
   variables: Variable[]
-  /** What the gateway says of the value as stored; shown until the value is changed. */
+  /** What the gateway says of the value as stored; shown until the value or its mode is changed. */
   stored: string | null
   problem: string | null
   onMode: (mode: InputMode) => void
@@ -164,7 +164,10 @@ const InputRow = ({
             />
           </div>
           {stored ? (
-            <span className="text-xs text-error">{stored}. Calls fail until you change the value.</span>
+            <span className="text-xs text-error">
+              {stored}. {mode === 'fixed' ? 'Every call fails' : 'Calls that leave it out fail'} until you change the
+              value.
+            </span>
           ) : problem ? (
             <span className="text-xs text-error">{problem}</span>
           ) : null}
