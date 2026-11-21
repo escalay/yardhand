@@ -7,7 +7,7 @@ import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { titleFromName } from '../catalog/content.js'
 import { requireOwner } from '../clients/principals.js'
-import { basedOnOf, checkPack, type Finding, judge, throwOnRefused } from './checks.js'
+import { basedOnOf, checkPack, docPathOf, type Finding, judge, throwOnRefused } from './checks.js'
 import { type DocFlag, docFlagOf } from './flags.js'
 import { noPack } from './names.js'
 import type { ownRoutes } from './own.routes.js'
@@ -20,9 +20,6 @@ import { packStateOf, withDoc } from './state.js'
 import { variablesFrom } from './values.js'
 
 type Routes = typeof ownRoutes
-
-/** Where the checks file a document's findings. */
-export const docPathOf = (kind: PackDocKind, name: string) => (kind === 'skill' ? 'skill' : `playbooks.${name}`)
 
 /** Findings as they are returned: without the stored key and the tool they sit in. */
 export const shownFindings = (findings: Finding[]) =>

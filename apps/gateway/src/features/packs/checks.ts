@@ -11,6 +11,7 @@ import { inputProblems } from './entries.js'
 import { withoutFrontMatter } from './frontmatter.js'
 import { MAX_STEPS, PLAYBOOK_NAME, parsePlaybook, stepsIn, toolRefsIn } from './playbook.js'
 import type { BasedOn } from './repo.js'
+import type { PackDocKind } from './schema.js'
 import { packSkillPathOf, packSkillUriOf, SKILL_SECTIONS, sectionsOf } from './skill.js'
 import type { PackState, PackStateDoc } from './state.js'
 import { namesIn, placeholdersIn, VARIABLE, type Variables } from './values.js'
@@ -47,6 +48,9 @@ export const writersOf = (state: PackState, name: string) =>
       .filter(([, value]) => namesIn(value).includes(name))
       .map(([input]) => ({ tool: tool.name, input })),
   )
+
+/** Where a document's findings are filed: `playbooks.<name>` for one of the pack's own playbooks, `skill`. */
+export const docPathOf = (kind: PackDocKind, name: string) => (kind === 'skill' ? 'skill' : `playbooks.${name}`)
 
 /** The most characters one playbook or the skill holds. */
 export const DOC_MAX = 60_000
@@ -175,7 +179,7 @@ const tooBig = (path: string, markdown: string): Finding[] =>
     : []
 
 const readPlaybook = (state: PackState, variables: Variables, doc: PackState['playbooks'][number]): DocRead => {
-  const path = `playbooks.${doc.name}`
+  const path = docPathOf('playbook', doc.name)
   const error = (code: string, message: string): Finding => ({ level: 'error', code, path, key: path, message })
   const name = [
     ...(PLAYBOOK_NAME.test(doc.name)
@@ -282,7 +286,9 @@ const readSkill = (state: PackState, variables: Variables, doc: PackStateDoc): D
 
 /** Each of the pack's documents, read once: by `playbooks.<name>` and `skill`. */
 const readDocs = (state: PackState, variables: Variables): Record<string, DocRead> => ({
-  ...Object.fromEntries(state.playbooks.map((doc) => [`playbooks.${doc.name}`, readPlaybook(state, variables, doc)])),
+  ...Object.fromEntries(
+    state.playbooks.map((doc) => [docPathOf('playbook', doc.name), readPlaybook(state, variables, doc)]),
+  ),
   ...(state.skill ? { skill: readSkill(state, variables, state.skill) } : {}),
 })
 

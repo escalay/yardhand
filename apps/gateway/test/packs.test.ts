@@ -1393,6 +1393,7 @@ describe('packs in the config', () => {
         playbooks: ['fixture-say-it-back'],
         manuals: ['fixture'],
         variables: [],
+        files: {},
       },
     ])
     expect(exported.clients).toContainEqual(expect.objectContaining({ name: 'loud-reader', pack: 'loud' }))
@@ -1501,6 +1502,7 @@ describe('packs in the config', () => {
       playbooks: [],
       manuals: [],
       variables: [{ name: 'who', value: 'the desk', description: 'Who greets.' }],
+      files: {},
     })
 
     const fresh = await createApp({

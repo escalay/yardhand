@@ -623,3 +623,127 @@ describe('a tool that leaves the pack under a text', () => {
     ])
   })
 })
+
+describe('in the config', () => {
+  const HELLO =
+    '---\ntitle: Say hello\narguments:\n  - name: guest\n---\n\n1. Run `greet_from_porch` for {{guest}}, from {{who}}.\n'
+  /** A pack without what differs between two gateways: ids, dates, links and keys. */
+  const comparable = (pack: Record<string, unknown>) => {
+    const { _links, createdAt, updatedAt, triedAt, lastCallAt, keys, keyList, ...rest } = pack
+    return rest
+  }
+  let exported: any
+
+  beforeAll(async () => {
+    await packWith('porch', 'Porch', [
+      { name: 'fixture.greet', alias: 'greet_from_porch', fixed: { from: '{{who}}' } },
+      { name: 'fixture.echo' },
+    ])
+    await owner('/api/packs/porch/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'who', value: 'the porch' }] },
+    })
+    const held = await owner('/api/packs/porch', {
+      method: 'PATCH',
+      body: { add: { playbooks: ['fixture-say-it-back'], manuals: ['fixture'] } },
+    })
+    expect(held.status).toBe(200)
+    expect((await write('porch', 'say-hello', HELLO)).status).toBe(201)
+    expect((await write('porch', 'say-back', 'Say it back with `fixture.echo`.')).status).toBe(201)
+    expect(
+      (
+        await owner('/api/packs/porch/skill', {
+          method: 'PUT',
+          body: { markdown: SKILL.replaceAll('greet_from_desk', 'greet_from_porch').replace('{{door}}', '{{who}}') },
+        })
+      ).status,
+    ).toBe(200)
+    exported = (await owner('/api/config')).json
+  })
+
+  it('leaves as plain Markdown files, one per playbook and one for the skill', async () => {
+    const porch = exported.packs.find((pack: { name: string }) => pack.name === 'porch')
+    expect(Object.keys(porch.files)).toEqual(['playbooks/say-hello.md', 'playbooks/say-back.md', 'SKILL.md'])
+    expect(porch.files['playbooks/say-hello.md']).toBe(HELLO)
+    // The skill as it is read, its variables left as written
+    expect(porch.files['SKILL.md']).toBe(
+      (await owner('/api/packs/porch/skill')).json.served.replace('the porch', '{{who}}'),
+    )
+  })
+
+  it('comes back the same on a fresh gateway, once its tools are in', async () => {
+    const fresh = await gateway()
+    const there = (path: string, init?: Init) => asking(fresh)(OWNER, path, init)
+    const config = { ...exported, packs: exported.packs.filter((pack: { name: string }) => pack.name === 'porch') }
+
+    // The connection waits for its credential: the pack comes in without tools, and its texts wait for them
+    const first = (await there('/api/config', { method: 'POST', body: config })).json
+    expect(first.packs).toEqual({ created: ['porch'], filled: [] })
+    expect(first.skipped).toEqual(
+      expect.arrayContaining([
+        'pack porch tool greet_from_porch: not live yet',
+        'pack porch playbooks/say-hello.md: names greet_from_porch, which is not in the pack yet (import again once its tools are in)',
+        'pack porch playbooks/say-back.md: names fixture.echo, which is not in the pack yet (import again once its tools are in)',
+        'pack porch SKILL.md: names greet_from_porch, fixture.echo, which are not in the pack yet (import again once its tools are in)',
+      ]),
+    )
+    expect((await there('/api/packs/porch')).json).toMatchObject({ ownPlaybooks: [], skill: null })
+
+    await there('/api/upstreams/fixture', {
+      method: 'PATCH',
+      body: { auth: { type: 'bearer', value: 'fixture-token' } },
+    })
+    const second = (await there('/api/config', { method: 'POST', body: config })).json
+    expect(second.packs).toEqual({ created: [], filled: ['porch'] })
+    expect(second.skipped.filter((line: string) => line.startsWith('pack'))).toEqual([])
+
+    const here = (await owner('/api/packs/porch')).json
+    const back = (await there('/api/packs/porch')).json
+    expect(comparable(back)).toEqual(comparable(here))
+    expect(back.ownPlaybooks.map((playbook: { name: string }) => playbook.name)).toEqual(['say-hello', 'say-back'])
+    expect((await there('/api/packs/porch/playbooks/say-hello')).json).toMatchObject({
+      markdown: HELLO,
+      versions: [{ source: 'import', live: true }],
+    })
+    expect((await there('/api/packs/porch/skill')).json.markdown).toBe(
+      (await owner('/api/packs/porch/skill')).json.markdown,
+    )
+
+    // Again changes nothing: a text the pack has is kept as it is
+    const third = (await there('/api/config', { method: 'POST', body: config })).json
+    expect(third.packs).toEqual({ created: [], filled: [] })
+    expect((await there('/api/packs/porch/playbooks/say-hello')).json.versions).toHaveLength(1)
+    expect((await there('/api/config')).json.packs[0].files).toEqual(config.packs[0].files)
+  })
+
+  it('skips a file that is no playbook or skill, and a text the checks refuse, saying why', async () => {
+    const fresh = await gateway()
+    const there = (path: string, init?: Init) => asking(fresh)(OWNER, path, init)
+    const sent = await there('/api/config', {
+      method: 'POST',
+      body: {
+        packs: [
+          {
+            name: 'porch',
+            title: 'Porch',
+            files: {
+              'notes/todo.md': 'Later.',
+              'playbooks/Say_Hello.md': 'Greet.',
+              'playbooks/say-hello.md': 'Greet {{guest}}.',
+              'playbooks/say-bye.md': 'Wave.',
+            },
+          },
+        ],
+      },
+    })
+    expect(sent.status).toBe(200)
+    expect(sent.json.skipped).toEqual([
+      'pack porch notes/todo.md: not a file a pack holds (SKILL.md, or playbooks/<name>.md)',
+      'pack porch playbooks/Say_Hello.md: Say_Hello is not a playbook name: start with a lowercase letter, then lowercase letters, digits or - (3 to 64), like find-roles',
+      'pack porch playbooks/say-hello.md: {{guest}} is neither an argument of this playbook nor a variable of Porch: declare one, or take it out.',
+    ])
+    expect(
+      (await there('/api/packs/porch')).json.ownPlaybooks.map((playbook: { name: string }) => playbook.name),
+    ).toEqual(['say-bye'])
+  })
+})
