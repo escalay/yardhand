@@ -1,7 +1,7 @@
 /**
  * Renaming a pack: its address moves, and while it has keys the old name keeps leading to it, served in place over
- * MCP and REST. A key that does not open the pack learns nothing from the old name, and no other pack can take it
- * until the owner frees it or the pack goes.
+ * MCP and REST and sending a reader of its pages on. A key that does not open the pack learns nothing from the old
+ * name, and no other pack can take it until the owner frees it or the pack goes.
  */
 import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
@@ -327,6 +327,33 @@ describe('the old address of a renamed pack', () => {
     expect(byHeader.getServerVersion()?.name).toBe('garden')
     expect(namesOf((await byHeader.listTools()).tools)).toContain('fixture.echo')
     await byHeader.close()
+  })
+
+  it('sends a reader of its pages on to the same page at the new address', async () => {
+    for (const page of PAGES) {
+      const sent = await at(sam.key, `/p/shed${page}`)
+      expect([page, sent.status, sent.headers.get('location')]).toEqual([page, 308, `/p/garden${page}`])
+      expect(sent.headers.get('cache-control')).toBe('private, no-cache')
+    }
+    const asked = await at(sam.key, '/p/shed/docs?theme=dark&layout=classic')
+    expect([asked.status, asked.headers.get('location')]).toEqual([308, '/p/garden/docs?theme=dark&layout=classic'])
+    expect((await at(sam.key, '/p/shed/')).headers.get('location')).toBe('/p/garden/')
+    // The owner, too
+    expect((await owner('/p/shed/llms.txt')).headers.get('location')).toBe('/p/garden/llms.txt')
+    // Where it sends them answers, under the name the pack has now
+    const guide = await app.request('/p/garden/llms.txt', { headers: { authorization: `Bearer ${sam.key}` } })
+    expect([guide.status, (await guide.text()).includes('http://localhost/p/garden/mcp')]).toEqual([200, true])
+    // Without credentials an old name is any name
+    for (const page of PAGES) {
+      const old = await at(null, `/p/shed${page}`)
+      const none = await at(null, `/p/nope${page}`)
+      expect([page, old.status, old.json?.detail, old.headers.get('location')]).toEqual([
+        page,
+        401,
+        none.json?.detail,
+        null,
+      ])
+    }
   })
 
   it('tells a key that does not open the pack nothing', async () => {

@@ -3,10 +3,13 @@
  * (`/p/<pack>/openapi.json`) and the docs page (`/p/<pack>/docs`), each describing the pack and nothing else of the
  * gateway. They need credentials that open the pack. What they list is read through the API as the caller, so the
  * rules for what a pack shows (`seenBy`, `shownAs`, `holds`) live in one place.
+ *
+ * Each page prints the pack's address into what it returns (the guide's Connect lines, the OpenAPI `servers`, the docs
+ * page's document URL), so under a name the pack used to have they send the reader on (308) instead of answering.
  */
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { Scalar } from '@scalar/hono-api-reference'
-import type { Context } from 'hono'
+import type { Context, MiddlewareHandler } from 'hono'
 import { originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { callerOf } from '../clients/principals.js'
@@ -226,6 +229,20 @@ export const mountPackDocs = (app: OpenAPIHono, { principals }: Pick<Services, '
     description: pack.description,
   })
   const urlOf = (c: Context, name: string) => `${originOf(c)}/p/${name}`
+
+  /**
+   * Sends a reader who came by a former name to the same page under the name the pack has now. A key that does not
+   * open the pack gets its 403 first, by the name it asked for: never the new name, never a redirect.
+   */
+  const sentOn: MiddlewareHandler = async (c, next) => {
+    const caller = callerOf(c)
+    if (!caller?.pack || caller.cameBy !== c.req.param('pack')) return next()
+    await principals.require(caller)
+    const rest = c.req.path.replace(/^\/p\/[^/]+/, '')
+    c.header('cache-control', PRIVATE)
+    return c.redirect(`/p/${caller.pack}${rest}${new URL(c.req.url).search}`, 308)
+  }
+  for (const page of ['', '/', '/llms.txt', '/openapi.json', '/docs']) app.get(`/p/:pack${page}`, sentOn)
 
   const front = async (c: Context) => c.redirect(`/p/${(await packOf(c)).pack?.name}/docs`, 302)
   app.get('/p/:pack', front)
