@@ -98,4 +98,10 @@ describe('standouts', () => {
     expect(await (await refreshed(MIN_ROWS, 1)).standouts('on topic', everything)).toEqual([nameOf(0)])
     expect(await searchOver(60, 1).standouts('on topic', everything)).toBeNull()
   })
+
+  it('says which tools it has a vector for: none before the first refresh', async () => {
+    const search = await refreshed(60, 1)
+    expect([search.has(nameOf(0)), search.has(nameOf(59)), search.has(nameOf(60))]).toEqual([true, true, false])
+    expect(searchOver(60, 1).has(nameOf(0))).toBe(false)
+  })
 })

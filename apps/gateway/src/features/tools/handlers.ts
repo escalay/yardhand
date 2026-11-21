@@ -184,7 +184,8 @@ export const toolsHandlers = ({
     tool.group?.key === group || tool.group?.title.toLowerCase() === group.toLowerCase()
   /**
    * What a search finds among the tools `mayMatch` allows, best first: a tool that stands out for the question among
-   * every tool, or carries its words and is near enough in meaning. A question that matches nothing finds nothing.
+   * every tool, or carries its words and is near enough in meaning (or has no vector yet to be scored by). A question
+   * that matches nothing finds nothing.
    * Where there is no bar (a small catalog, no search by meaning, or it failed): the nearest tools and every keyword hit.
    */
   const searchFor = async (
@@ -212,7 +213,8 @@ export const toolsHandlers = ({
       const near =
         stood &&
         (await meaning.standouts(words, { limit: 100, keep: (name) => hits.includes(name), minZ: KEYWORD_MIN_Z }))
-      return stood && near ? [hits.filter((name) => near.includes(name)), stood] : null
+      // A hit with no vector yet (synced or approved since the last refresh) can't be scored: it is kept
+      return stood && near ? [hits.filter((name) => near.includes(name) || !meaning.has(name)), stood] : null
     }
     const nearest = async () =>
       meaning ? (await meaning.names(words, 5000).catch(() => [])).filter(inPool).slice(0, 100) : []
@@ -403,6 +405,11 @@ export const toolsHandlers = ({
     state: approve ? ('live' as const) : ('rejected' as const),
     _links: linksOf(origin, { item: itemLink(row.kind, row.name, row.upstream), reviews: REVIEWS_PATH }),
   })
+  /** After an approval: agents list again, and an approved tool is embedded so search by meaning finds it. */
+  const approved = (rows: { kind: string }[]) => {
+    if (rows.length) listsChanged()
+    if (rows.some((row) => row.kind === 'tool')) void meaning?.refresh()
+  }
   const decide: RouteHandler<Routes['decide']> = async (c) => {
     requireOwner(c)
     const { versionId } = c.req.valid('param')
@@ -415,7 +422,7 @@ export const toolsHandlers = ({
         : new ProblemError('not_found', { detail: `No version ${versionId}. GET ${REVIEWS_PATH} lists pending ones.` })
     }
     await (decision === 'approve' ? row.approve() : row.reject())
-    if (decision === 'approve') listsChanged()
+    if (decision === 'approve') approved([row])
     return c.json(decidedOf(originOf(c), row, decision === 'approve'), 200)
   }
   const decideAll: RouteHandler<Routes['decideAll']> = async (c) => {
@@ -426,7 +433,7 @@ export const toolsHandlers = ({
       (row) => (!wanted || wanted.has(row.versionId)) && (!upstream || row.upstream === upstream),
     )
     for (const row of chosen) await (decision === 'approve' ? row.approve() : row.reject())
-    if (decision === 'approve' && chosen.length) listsChanged()
+    if (decision === 'approve') approved(chosen)
     const origin = originOf(c)
     const decided = chosen.map((row) => decidedOf(origin, row, decision === 'approve'))
     return c.json(

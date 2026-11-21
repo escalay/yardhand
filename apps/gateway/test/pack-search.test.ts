@@ -22,7 +22,7 @@ afterAll(() => upstream.close())
 type Init = { method?: string; body?: unknown }
 type Card = { name: string }
 /** A gateway with the fixture server connected, and its API as a key sees it. */
-const gateway = async (meaningOf: (db: Db) => MeaningSearch) => {
+const gateway = async <Search extends MeaningSearch>(meaningOf: (db: Db) => Search) => {
   const db = await testDb()
   const meaning = meaningOf(db)
   const app = await createApp({
@@ -58,13 +58,14 @@ const gateway = async (meaningOf: (db: Db) => MeaningSearch) => {
   return { app, api, made, keyFor, found, meaning }
 }
 type Gateway = Awaited<ReturnType<typeof gateway>>
+const REST = { kind: 'http', url: 'http://127.0.0.1:9/api', auth: { type: 'none' }, trust: 'trusted' }
+const endpoint = (name: string, description: string) => ({ name, method: 'get', path: `/${name}`, description })
 
 /** `count` GET endpoints, numbered 001 up. */
-const numbered = (count: number, endpoint: (n: number) => { name: string; description: string }) =>
+const numbered = (count: number, each: (n: number) => { name: string; description: string }) =>
   Array.from({ length: count }, (_, index) => {
-    const one = endpoint(index + 1)
-    const name = `${one.name}_${String(index + 1).padStart(3, '0')}`
-    return { name, method: 'get', path: `/${name}`, description: one.description }
+    const one = each(index + 1)
+    return endpoint(`${one.name}_${String(index + 1).padStart(3, '0')}`, one.description)
   })
 const KIT_TOOLS = [
   { name: 'fixture.echo' },
@@ -103,7 +104,22 @@ const said = async (client: Client, name: string, args: Record<string, unknown> 
     .join('\n')
 const small = await gateway(fakeMeaning)
 const refused = () => Promise.reject(new Error('embedding refused'))
-const broken = await gateway(() => ({ refresh: async () => {}, names: refused, standouts: refused }))
+const broken = await gateway(() => ({ refresh: async () => {}, names: refused, standouts: refused, has: () => false }))
+/** Search by meaning that counts the refreshes asked of it and can hold them back, as one that failed or stopped. */
+const watched = (db: Db) => {
+  const search = fakeMeaning(db)
+  const refresh = search.refresh
+  const state = { held: false, asked: 0, last: Promise.resolve() }
+  return Object.assign(search, {
+    state,
+    refresh: () => {
+      state.asked += 1
+      state.last = state.held ? Promise.resolve() : refresh()
+      return state.last
+    },
+  })
+}
+const behind = await gateway(watched)
 
 describe('on a large catalog', () => {
   const { app, api, made, keyFor, found } = large
@@ -112,28 +128,24 @@ describe('on a large catalog', () => {
   let notes = ''
   let full = ''
   beforeAll(async () => {
-    const rest = { kind: 'http', url: 'http://127.0.0.1:9/api', auth: { type: 'none' }, trust: 'trusted' }
     // 105 tools that say the asked words better than the one the pack holds, which ranks last among them
     await made('/api/upstreams', {
-      ...rest,
+      ...REST,
       id: 'crowd',
       title: 'Crowd',
       http: {
         endpoints: [
           ...numbered(105, (n) => ({ name: 'lamp', description: `Warehouse lamp ${n}.` })),
-          {
-            name: 'zz_lookup',
-            method: 'get',
-            path: '/zz_lookup',
-            description:
-              'Looks up one thing kept in the warehouse by its shelf code, and answers with where it stands, who moved it last and when it is due for a check.',
-          },
+          endpoint(
+            'zz_lookup',
+            'Looks up one thing kept in the warehouse by its shelf code, and answers with where it stands, who moved it last and when it is due for a check.',
+          ),
         ],
       },
     })
     for (const id of ['filler-a', 'filler-b', 'filler-c', 'filler-d'])
       await made('/api/upstreams', {
-        ...rest,
+        ...REST,
         id,
         http: { endpoints: numbered(200, (n) => ({ name: 'flag', description: `Reads beta flag ${n}.` })) },
       })
@@ -378,5 +390,63 @@ describe('when search by meaning fails', () => {
       count: 0,
       hint: { pack: { name: 'kit', title: 'Kit' }, covers: ['Fixture'], more: 0 },
     })
+  })
+})
+
+describe('when a live tool has no vector yet', () => {
+  const { api, made, found, meaning } = behind
+  let kit = ''
+  let full = ''
+  beforeAll(async () => {
+    await made('/api/upstreams', {
+      ...REST,
+      id: 'shelf',
+      http: { endpoints: numbered(60, (n) => ({ name: 'flag', description: `Reads beta flag ${n}.` })) },
+    })
+    ;({ kit, full } = await withKit(behind))
+    await meaning.refresh()
+    // No refresh from here on, as after one that failed or stopped at its budget
+    meaning.state.held = true
+    await made('/api/upstreams', {
+      ...REST,
+      id: 'late',
+      title: 'Late',
+      http: { endpoints: [endpoint('whisper_note', 'Whispers a quiet note.')] },
+    })
+    await made('/api/packs/kit', { add: { tools: [{ name: 'late.whisper_note' }] } }, 'PATCH')
+  })
+
+  it('still finds it by its words and its name: a keyword hit nothing has scored is kept', async () => {
+    expect(meaning.has('late.whisper_note')).toBe(false)
+    for (const key of [OWNER, full, kit])
+      for (const q of ['whisper', 'late.whisper_note', 'whispers a quiet note'])
+        expect([q, await found(key, q)]).toEqual([q, ['late.whisper_note']])
+    // A hit that has a score is still held to the floor
+    expect(meaning.has('fixture.echo')).toBe(true)
+    expect(await found(full, 'french text')).toEqual([])
+  })
+
+  it('embeds a tool the owner approves, so search by meaning finds it', async () => {
+    meaning.state.held = false
+    const first = endpoint('lamp_switch', 'Switches one lamp.')
+    await made('/api/upstreams', { ...REST, id: 'vendor', trust: 'review', http: { endpoints: [first] } })
+    await made(
+      '/api/upstreams/vendor',
+      { http: { endpoints: [first, endpoint('lamp_dimmer', 'Dims one lamp.')] } },
+      'PATCH',
+    )
+    await meaning.state.last
+    const reviews = (await api(OWNER, '/api/reviews')).json._embedded.reviews as { name: string; versionId: string }[]
+    const waiting = reviews.find((review) => review.name === 'vendor.lamp_dimmer')
+    expect(await found(full, 'thing')).toEqual(['vendor.lamp_switch'])
+    const asked = meaning.state.asked
+    const decided = await api(OWNER, `/api/reviews/${waiting?.versionId}`, {
+      method: 'POST',
+      body: { decision: 'approve' },
+    })
+    expect(decided.json.state).toBe('live')
+    expect(meaning.state.asked).toBe(asked + 1)
+    await meaning.state.last
+    expect(await found(full, 'thing')).toContain('vendor.lamp_dimmer')
   })
 })
