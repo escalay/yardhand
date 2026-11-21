@@ -714,6 +714,18 @@ describe('the people a pack is shared with', () => {
       404,
       'No pack orchard: it was renamed to grove. GET /api/packs/grove.',
     ])
+    // Someone whose access ended is still listed, to be extended, so the old address still counts them: the owner
+    // who frees it would cut off the setup an Extend brings back
+    await end(sam.id)
+    const ended = (await peopleOf('grove'))._embedded.people.find((person) => person.id === sam.id)
+    expect(ended).toMatchObject({ ended: true, oldAddress: { name: 'orchard' } })
+    expect((await owner('/api/packs/grove')).json).toMatchObject({
+      keys: 2,
+      ended: 1,
+      formerNames: [{ name: 'orchard', people: 1 }],
+    })
+    expect((await extend(sam.id, '30d')).status).toBe(200)
+    expect((await api(sam.key, '/p/orchard/api/me')).json.pack.name).toBe('grove')
     // Set up with the new address, the note goes
     expect((await api(sam.key, '/p/grove/api/me')).status).toBe(200)
     expect((await byName()).Sam).toBeNull()

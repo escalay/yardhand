@@ -490,7 +490,7 @@ describe('the old address of a renamed pack', () => {
     const client = await mcp(reader.key, '/p/pond/mcp')
     expect(client.getInstructions()).toBe(ended)
     await client.close()
-    // An ended key is not one of its people, here or by any name
+    // A refusal notes nothing: an old name counts the people listed who were let in by it
     expect(await formerOf('lake')).toEqual([{ name: 'pond', people: 0 }])
     const extended = await owner(`/api/clients/${reader.id}`, { method: 'PATCH', body: { expiresIn: '7d' } })
     expect(extended.status).toBe(200)

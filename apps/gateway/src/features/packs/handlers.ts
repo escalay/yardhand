@@ -150,10 +150,10 @@ export const packsHandlers = ({
     )
   }
 
-  /** The names that still lead to the pack, each with how many of its live keys last came by it. */
-  const formerNamesOf = async (pack: PackRow, keys: { id: string }[]) => {
-    const live = new Set(keys.map((key) => key.id))
-    const notes = (await clients.cameBy(pack.id)).filter((note) => live.has(note.clientId))
+  /** The names that still lead to the pack, each with how many of the people listed last came by it. */
+  const formerNamesOf = async (pack: PackRow, people: { id: string }[]) => {
+    const listed = new Set(people.map((person) => person.id))
+    const notes = (await clients.cameBy(pack.id)).filter((note) => listed.has(note.clientId))
     return (await packs.formerNames(pack.id)).map((former) => ({
       name: former.name,
       until: former.until,
@@ -165,7 +165,8 @@ export const packsHandlers = ({
     const { card, held, toolRows, keys } = await cardOf(origin, pack)
     const now = new Date()
     // As People lists them: `keys` counts those that work, `ended` the rest
-    const standings = listedOf(await clients.ofPack(pack.id), now).map((row) => standingOf(row, now))
+    const listed = listedOf(await clients.ofPack(pack.id), now)
+    const standings = listed.map((row) => standingOf(row, now))
     return {
       ...card,
       tools: toolRows,
@@ -183,7 +184,7 @@ export const packsHandlers = ({
       createdAt: pack.createdAt,
       triedAt: pack.triedAt,
       lastCallAt: await lastCallOf(pack),
-      formerNames: await formerNamesOf(pack, keys),
+      formerNames: await formerNamesOf(pack, listed),
     }
   }
 

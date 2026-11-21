@@ -125,7 +125,10 @@ export const PackSchema = PackCardSchema.extend({
       z.object({
         name: z.string(),
         until: z.string().openapi({ description: 'When it stopped being the pack’s name.' }),
-        people: z.number().int().openapi({ description: 'Live keys that last connected at this name.' }),
+        people: z.number().int().openapi({
+          description:
+            'People listed (`GET /api/packs/{name}/people`) who last connected at this name: those whose access ended count too, since Extend brings their setup back.',
+        }),
       }),
     )
     .openapi({

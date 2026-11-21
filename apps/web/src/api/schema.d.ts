@@ -2672,7 +2672,7 @@ export interface components {
                 name: string;
                 /** @description When it stopped being the pack’s name. */
                 until: string;
-                /** @description Live keys that last connected at this name. */
+                /** @description People listed (`GET /api/packs/{name}/people`) who last connected at this name: those whose access ended count too, since Extend brings their setup back. */
                 people: number;
             }[];
         };

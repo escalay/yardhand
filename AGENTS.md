@@ -107,8 +107,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   own pages answer 308 to the new address. A key that does not open the pack is refused by the name it asked for
   (`packFor`), so an old name tells it nothing of the name now; only the owner is told where a pack went (`noPack`).
   No pack can take an old name until the owner frees it (`DELETE /api/packs/{name}/names/{former}`) or removes the
-  pack. Each key's link to the pack notes the old name it last came by (`client_packs.came_by`), which a pack's
-  `formerNames` count.
+  pack. Each key's link to the pack notes the old name it was last let in by (`client_packs.came_by`), which a pack's
+  `formerNames` count over the people it lists (`listedOf`), ended ones too.
 - **Extend**: sets a key's end anew, counted from today (`PATCH /api/clients/{id}` with `expiresIn`: 7 days, 30 days
   or never), also for a key that has ended: it works again with the same key. A revoked key does not come back.
   The kit's `Idempotency-Key` store knows nothing of it: a request refused while the key had ended is answered that
