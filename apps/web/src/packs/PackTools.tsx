@@ -24,7 +24,7 @@ import { Textarea } from '@/ui/shadcn/textarea'
 import { AddTools } from './AddTools'
 import { EntryEditor, type EntryMode } from './PackEntry'
 import { PackVariables } from './PackVariables'
-import { failsLine, inputsLine, problemLines, reasonOf, wordingOf } from './packs.rules'
+import { failsLine, inputsLine, problemLines, reasonOf, setsAccount, withAccountLabels, wordingOf } from './packs.rules'
 
 type Pack = Schemas['Pack']
 type PackTool = Schemas['PackTool']
@@ -116,15 +116,7 @@ const ToolRow = ({
   const [editing, setEditing] = useState(false)
   const [entry, setEntry] = useState<EntryMode | null>(null)
   // An account shows by its label where the pack's connection lists it
-  const sets = inputsLine({
-    fixed: Object.fromEntries(
-      Object.entries(tool.fixed).map(([key, value]) => [
-        key,
-        key === 'account' && typeof value === 'string' ? (labelOf(tool.upstream, value) ?? value) : value,
-      ]),
-    ),
-    defaults: tool.defaults,
-  })
+  const sets = inputsLine(withAccountLabels(tool, (account) => labelOf(tool.upstream, account)))
   const [draft, setDraft] = useState('')
   const save = useWording(pack)
   const shown = wordingOf(tool)
@@ -265,9 +257,7 @@ export const PackTools = ({
   onAdding: (open: boolean) => void
 }) => {
   const taken = new Set(pack.tools.map((tool) => tool.name))
-  const accountUpstreams = [
-    ...new Set(pack.tools.filter((tool) => typeof tool.fixed.account === 'string').map((tool) => tool.upstream)),
-  ]
+  const accountUpstreams = [...new Set(pack.tools.filter(setsAccount).map((tool) => tool.upstream))]
   const accounts = useQuery({
     queryKey: ['accounts', accountUpstreams],
     enabled: accountUpstreams.length > 0,

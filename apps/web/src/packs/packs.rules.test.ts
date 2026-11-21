@@ -30,6 +30,7 @@ import {
   reasonOf,
   refusedInputs,
   refusedVariables,
+  setsAccount,
   shortAddress,
   slugOf,
   stoodOutLine,
@@ -39,6 +40,7 @@ import {
   usedLine,
   variableProblem,
   variableValueOf,
+  withAccountLabels,
   withVariable,
   wordingOf,
   writesVariable,
@@ -287,6 +289,25 @@ describe('what a pack sets on a tool’s inputs', () => {
     )
     expect(inputsLine({ fixed: {}, defaults: { limit: '{{page_size}}' } })).toBe('Default limit = {{page_size}}')
     expect(inputsLine({ fixed: {}, defaults: {} })).toBe('')
+  })
+
+  it('shows an account by its label, fixed or as a default, and keeps one the connection doesn’t list', () => {
+    const labelOf = (account: string) => ({ ca_1: 'Work inbox', ca_2: 'Home inbox' })[account]
+    expect(inputsLine(withAccountLabels({ fixed: { account: 'ca_1' }, defaults: { limit: 5 } }, labelOf))).toBe(
+      'Fixed account = Work inbox · Default limit = 5',
+    )
+    expect(inputsLine(withAccountLabels({ fixed: {}, defaults: { account: 'ca_2', limit: 5 } }, labelOf))).toBe(
+      'Default account = Home inbox · limit = 5',
+    )
+    expect(inputsLine(withAccountLabels({ fixed: {}, defaults: { account: '{{account}}' } }, labelOf))).toBe(
+      'Default account = {{account}}',
+    )
+  })
+
+  it('knows a tool whose account the pack sets, in either mode', () => {
+    expect(setsAccount({ fixed: { account: 'ca_1' }, defaults: {} })).toBe(true)
+    expect(setsAccount({ fixed: {}, defaults: { account: 'ca_2' } })).toBe(true)
+    expect(setsAccount({ fixed: { from: 'the desk' }, defaults: { limit: 5 } })).toBe(false)
   })
 
   it('knows a value that writes a variable, as the gateway reads it', () => {

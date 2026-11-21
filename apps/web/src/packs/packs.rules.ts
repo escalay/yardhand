@@ -159,6 +159,17 @@ export const inputsLine = (tool: Sets) =>
     .map(([label, values]) => `${label} ${fixedLine(values)}`)
     .join(' · ')
 
+/** Does the pack set this tool's account, fixed or as a default? */
+export const setsAccount = (tool: Sets) =>
+  typeof tool.fixed.account === 'string' || typeof tool.defaults.account === 'string'
+
+/** What a pack tool sets, with its account by the label its connection lists it under; one it doesn't list stays. */
+export const withAccountLabels = (tool: Sets, labelOf: (account: string) => string | undefined): Sets => {
+  const labelled = (values: Record<string, unknown>) =>
+    typeof values.account === 'string' ? { ...values, account: labelOf(values.account) ?? values.account } : values
+  return { fixed: labelled(tool.fixed), defaults: labelled(tool.defaults) }
+}
+
 /** `{{name}}` as the gateway reads it (`features/packs/values.ts`): anything else between braces is plain text. */
 const PLACEHOLDER = /\{\{\s*([a-z][a-z0-9_]*)\s*\}\}/g
 const WHOLE = /^\s*\{\{\s*[a-z][a-z0-9_]*\s*\}\}\s*$/
