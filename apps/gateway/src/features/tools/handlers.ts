@@ -187,7 +187,8 @@ export const toolsHandlers = ({
    * every tool, or carries its words and is near enough in meaning (or has no vector yet to be scored by). A question
    * that matches nothing finds nothing.
    * Where there is no bar (a small catalog, no search by meaning): the nearest tools and every keyword hit. Where
-   * search by meaning fails: every keyword hit.
+   * search by meaning fails: every keyword hit. Names are ranked first and only the ranked tools are loaded, so a
+   * search costs the same however many tools the caller reaches. `own` is a pack key's tools, for what the pack covers.
    */
   const searchFor = async (
     principal: Principal,
@@ -198,18 +199,19 @@ export const toolsHandlers = ({
     const within = (await upstreams.list())
       .filter((row) => row.enabled && allows(principal, row.id) && (!upstream || row.id === upstream))
       .map((row) => row.id)
-    const own = principal.pack
-      ? await tools.liveMany([...new Set([...principal.pack.tools.values()].map((entry) => entry.tool))])
-      : await tools.listLive({ upstreams: within, limit: 5000 })
-    const pool = new Map(own.filter(mayMatch).map((tool) => [tool.name, tool]))
-    const inPool = (name: string) => pool.has(name)
+    const reach = new Set(within)
     // A pack's tools are ranked among themselves: the best hundred of their connections can hold none of them
-    const hits = (await tools.searchNames(words, 100, within, principal.pack ? [...pool.keys()] : undefined)).filter(
-      inPool,
-    )
+    const own = principal.pack
+      ? (await tools.liveMany([...new Set([...principal.pack.tools.values()].map((entry) => entry.tool))])).filter(
+          mayMatch,
+        )
+      : null
+    const packed = own && new Set(own.map((tool) => tool.name))
+    const inReach = (name: string) => (packed ? packed.has(name) : reach.has(name.slice(0, name.indexOf('.'))))
+    const hits = await tools.searchNames(words, 100, within, packed ? [...packed] : undefined)
     const barred = async () => {
       if (!meaning) return null
-      const stood = await meaning.standouts(words, { limit: 100, keep: inPool })
+      const stood = await meaning.standouts(words, { limit: 100, keep: inReach })
       // The question is embedded once: the second look reads it from the embedder's cache
       const near =
         stood &&
@@ -218,12 +220,12 @@ export const toolsHandlers = ({
       return stood && near ? [hits.filter((name) => near.includes(name) || !meaning.has(name)), stood] : null
     }
     const nearest = async () =>
-      meaning ? (await meaning.names(words, 5000).catch(() => [])).filter(inPool).slice(0, 100) : []
+      meaning ? (await meaning.names(words, 5000).catch(() => [])).filter(inReach).slice(0, 100) : []
     // A question that could not be embedded is not sent again for its nearest tools: the words answer alone
     const lists = (await barred().catch(() => [hits])) ?? [hits, await nearest()]
-    // Keyword and meaning results fused by rank
-    const found = fuse(lists, 300, MEANING_WEIGHT).flatMap((name) => pool.get(name) ?? [])
-    return { found, pool: [...pool.values()] }
+    // Keyword and meaning results fused by rank, then cut to what this search may show
+    const found = (await tools.liveMany(fuse(lists, 300, MEANING_WEIGHT))).filter(mayMatch)
+    return { found, own: own ?? [] }
   }
   const list: RouteHandler<Routes['list']> = async (c) => {
     const { q, upstream, group, limit, as } = c.req.valid('query')
@@ -268,7 +270,7 @@ export const toolsHandlers = ({
       searched && principal.pack && !searched.found.length && !upstream && !group
         ? {
             pack: { name: principal.pack.name, title: principal.pack.title },
-            ...(await coveredBy(searched.pool.filter(visible))),
+            ...(await coveredBy(searched.own.filter(visible))),
           }
         : null
     const origin = originOf(c)

@@ -129,6 +129,13 @@ const watched = (db: Db) => {
   })
 }
 const behind = await gateway(watched)
+/** No bar for most questions, so the words answer; for "murmur" one tool stands out, if the caller may be shown it. */
+const crowded = await gateway(() => ({
+  refresh: async () => {},
+  names: async () => [],
+  standouts: async (q, pick) => (q === 'murmur' ? ['zed.whisper_note'].filter(pick.keep) : null),
+  has: () => true,
+}))
 
 describe('on a large catalog', () => {
   const { app, api, made, keyFor, found } = large
@@ -459,5 +466,37 @@ describe('when a live tool has no vector yet', () => {
     expect(meaning.state.asked).toBe(asked + 1)
     await meaning.state.last
     expect(await found(full, 'thing')).toContain('vendor.lamp_dimmer')
+  })
+})
+
+describe('on a gateway with more tools than one list reads', () => {
+  const { api, made, keyFor, found } = crowded
+  let full = ''
+  let elsewhere = ''
+  beforeAll(async () => {
+    const flags = numbered(200, (n) => ({ name: 'flag', description: `Reads beta flag ${n}.` }))
+    for (const { name } of numbered(25, () => ({ name: 'bulk', description: '' })))
+      await made('/api/upstreams', { ...REST, id: name.replace('_', '-'), http: { endpoints: flags } })
+    // The last tool by name, past the first 5,000
+    await made('/api/upstreams', {
+      ...REST,
+      id: 'zed',
+      http: { endpoints: [endpoint('whisper_note', 'Whispers a quiet note.')] },
+    })
+    full = await keyFor({ name: 'laptop', upstreams: 'all' })
+    elsewhere = await keyFor({ name: 'tablet', upstreams: ['bulk-001'] })
+    expect((await api(OWNER, '/api/tools?upstream=bulk-025&limit=1')).json.count).toBe(1)
+  })
+
+  it('finds a tool wherever its name sorts, by its words and by meaning', async () => {
+    expect(await found(full, 'whispers a quiet note')).toEqual(['zed.whisper_note'])
+    expect(await found(full, 'zed.whisper_note')).toEqual(['zed.whisper_note'])
+    expect(await found(full, 'murmur')).toEqual(['zed.whisper_note'])
+  })
+
+  it('still keeps to the connections the caller is allowed', async () => {
+    expect(await found(elsewhere, 'murmur')).toEqual([])
+    expect(await found(elsewhere, 'whispers a quiet note')).toEqual([])
+    expect(await found(elsewhere, 'flag 007')).toContain('bulk-001.flag_007')
   })
 })
