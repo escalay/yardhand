@@ -344,7 +344,11 @@ export const packsHandlers = ({
     if (next) await nameFree(next, pack)
     if (add) await checkAdds(add)
     // Any key that is not revoked keeps the old name: an ended one can be extended and must find its address
-    if (next) await packs.rename(pack, next, (await clients.ofPack(pack.id)).length > 0)
+    if (next) {
+      await packs.rename(pack, next, (await clients.ofPack(pack.id)).length > 0)
+      // Back to a name it had: whoever was noted coming by it is at the pack's address again
+      await clients.forgetAddress(pack.id, next)
+    }
     await packs.update(pack.id, {
       ...(title === undefined ? {} : { title }),
       ...(description === undefined ? {} : { description }),

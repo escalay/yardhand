@@ -204,12 +204,16 @@ describe('renaming a pack', () => {
 
   it('takes a name off the list when the pack goes back to it', async () => {
     await packOf('yard', 'Yard')
-    await keyFor({ name: 'Sam in the yard', pack: 'yard' })
+    const reader = await keyFor({ name: 'Sam in the yard', pack: 'yard' })
     expect(await rename('yard', 'lawn').then((moved) => moved.json.formerNames)).toEqual([
       expect.objectContaining({ name: 'yard' }),
     ])
+    expect((await at(reader.key, '/p/yard/api/me')).json.pack.name).toBe('lawn')
+    expect(await formerOf('lawn')).toEqual([{ name: 'yard', people: 1 }])
     expect((await rename('lawn', 'yard')).status).toBe(200)
     expect(await formerOf('yard')).toEqual([{ name: 'lawn', people: 0 }])
+    // Whoever came by it is at the pack's address again: nothing is left noting them at an old one
+    expect(await db.all(sql`select came_by from client_packs where client_id = ${reader.id}`)).toEqual([[null]])
     // Every name it had leads to it, newest first
     expect((await rename('yard', 'meadow')).status).toBe(200)
     expect(await formerOf('meadow')).toEqual([
