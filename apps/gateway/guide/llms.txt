@@ -44,8 +44,8 @@ and `packs` when the key opens several). A pack is a small server of its own at 
   at the root), with links that stay under that address.
 - Its own guide at `/p/<pack>/llms.txt` and OpenAPI document at `/p/<pack>/openapi.json`, rendered at
   `/p/<pack>/docs`. They describe the pack and nothing else: with a pack key, read them rather than this guide.
-- The older ways still work: MCP at `/mcp/p/<pack>`, and REST naming the pack with the `x-gateway-pack` header. Plain
-  `/mcp` and `/api` serve the key's default pack.
+- The older ways still work: MCP at `/mcp/p/<pack>`, and REST or `/mcp` naming the pack with the `x-gateway-pack`
+  header. Plain `/mcp` and `/api` serve the key's default pack.
 
 A pack key sees only the pack. Over MCP the server is named after the pack and its description opens the server
 instructions. It has the gateway's shape: `search_tools`, `describe_tool`, `call_tool` and the others work over the

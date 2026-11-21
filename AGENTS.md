@@ -95,11 +95,11 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Pack key**: a key locked to one or more packs, optionally expiring (8 h, 1 day, 7 days). Each pack is its own
   server at `/p/<pack>/`: MCP at `/p/<pack>/mcp` and REST under `/p/<pack>/api` (rewritten to `/mcp` and `/api` up
   front, the choice carried in `features/clients/pack-choice.ts`), with its own guide, OpenAPI document and docs page
-  beside them (`features/packs/docs.ts`). `/mcp/p/<pack>` and REST with the `x-gateway-pack` header still work; plain
-  `/mcp` and REST serve the key's default pack. A request sees and runs only its one pack. A pack connection has the
-  gateway's shape under the pack's name: the meta-tools over the pack, and every tool of the pack listed directly, or
-  only the key's own pins. The owner asking for a pack (its address or the header) is answered as a write key of that
-  pack and refused the routes that manage the gateway (`requireOwner`).
+  beside them (`features/packs/docs.ts`). `/mcp/p/<pack>` and the `x-gateway-pack` header (on REST and on `/mcp`)
+  still work; plain `/mcp` and REST serve the key's default pack. A request sees and runs only its one pack. A pack
+  connection has the gateway's shape under the pack's name: the meta-tools over the pack, and every tool of the pack
+  listed directly, or only the key's own pins. The owner asking for a pack (its address or the header) is answered as
+  a write key of that pack and refused the routes that manage the gateway (`requireOwner`).
 - **Alias**: a pack's own name for one of its tools (`team_inbox_search`); the same tool can be in a pack under
   several aliases. A pack tool is keyed by that name; `entryOf` resolves it to the tool.
 - **Fixed input**: an input a pack tool fills on every call, hidden from the pack's keys; a call that sends it is a
