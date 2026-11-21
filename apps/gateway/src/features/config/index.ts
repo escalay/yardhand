@@ -232,6 +232,13 @@ export const feature: Feature = {
       }
       for (const wanted of input.packs) {
         const existing = await packs.get(wanted.name)
+        const holder = existing ? undefined : await packs.holderOf(wanted.name)
+        if (holder) {
+          result.skipped.push(
+            `pack ${wanted.name}: the name still leads to ${holder.pack.name} (free it with DELETE /api/packs/${holder.pack.name}/names/${wanted.name})`,
+          )
+          continue
+        }
         const packId =
           existing?.id ??
           (await packs.create({ name: wanted.name, title: wanted.title, description: wanted.description }))

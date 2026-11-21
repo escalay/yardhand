@@ -819,7 +819,7 @@ export interface paths {
         head?: never;
         /**
          * Change a pack
-         * @description Renames it, rewrites what it is for, adds or removes tools, playbooks and manuals.
+         * @description Changes its name (its address moves; the old one keeps answering while it has keys), its title, what it is for, and adds or removes tools, playbooks and manuals. A name another pack has, or that still leads to one, is a 409.
          */
         patch: operations["updatePack"];
         trace?: never;
@@ -839,6 +839,26 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/names/{former}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop an old name leading here
+         * @description Frees a name the pack used to have: anyone still connecting at `/p/<former>/` is refused from now on, and another pack can take the name.
+         */
+        delete: operations["freePackName"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2619,6 +2639,14 @@ export interface components {
             triedAt: string | null;
             /** @description The newest call in the log (90 days) by any key that opens the pack, or null. A key with several packs counts for each of them. */
             lastCallAt: string | null;
+            /** @description Names it used to have that still lead to it, newest first, each with how many of its people last connected there. `DELETE /api/packs/{name}/names/{former}` frees one. */
+            formerNames: {
+                name: string;
+                /** @description When it stopped being the pack’s name. */
+                until: string;
+                /** @description Live keys that last connected at this name. */
+                people: number;
+            }[];
         };
         /** @description One tool in a pack. */
         PackTool: {
@@ -2724,6 +2752,11 @@ export interface components {
         };
         /** @description Changes to a pack. */
         PackPatch: {
+            /**
+             * @description A new name: the pack’s address becomes `/p/<name>/`. While it has a key that is not revoked, the old name keeps leading to it.
+             * @example design
+             */
+            name?: string;
             title?: string;
             description?: string;
             /** @description What to add, at the end; anything already in stays as it is. A tool goes in under its alias when it has one, so the same tool can go in again under another alias (with other fixed inputs). */
@@ -6527,6 +6560,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getPackSetup: {
@@ -6552,6 +6594,62 @@ export interface operations {
                 content: {
                     "application/hal+json": components["schemas"]["PackSetup"];
                 };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    freePackName: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+                /**
+                 * @description The old name, as the pack’s `formerNames` lists it.
+                 * @example design
+                 */
+                former: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Freed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
             401: {

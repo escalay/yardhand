@@ -4,6 +4,7 @@
  * nothing else.
  * `based_on` is the tool version a pack's wording was written against: when the live version's description moves
  * on, the wording is flagged until the owner keeps or rewrites it.
+ * A name a shared pack used to have keeps leading to it (`pack_names`) until the owner frees it or the pack goes.
  */
 import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -55,6 +56,14 @@ export const packItems = sqliteTable(
   (table) => [primaryKey({ columns: [table.packId, table.kind, table.name] })],
 )
 
+/** Names packs used to have that still lead to them, each at most one pack's. */
+export const packNames = sqliteTable('pack_names', {
+  name: text('name').primaryKey(),
+  packId: text('pack_id').notNull(),
+  /** When it stopped being the pack's name. */
+  until: text('until').notNull(),
+})
+
 export const PACKS_MIGRATIONS = [
   `create table if not exists packs (id text primary key, name text not null unique, title text not null,
     description text not null, created_at text not null, updated_at text not null)`,
@@ -71,8 +80,11 @@ export const PACKS_MIGRATIONS = [
   drop table pack_tools;
   alter table pack_tools_next rename to pack_tools`,
   'alter table packs add column tried_at text',
+  `create table if not exists pack_names (name text primary key, pack_id text not null, until text not null);
+  create index if not exists pack_names_pack on pack_names (pack_id)`,
 ] as const
 
 export type PackRow = typeof packs.$inferSelect
 export type PackToolRow = typeof packTools.$inferSelect
 export type PackItemRow = typeof packItems.$inferSelect
+export type PackNameRow = typeof packNames.$inferSelect

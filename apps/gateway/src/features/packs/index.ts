@@ -18,6 +18,7 @@ export const feature: Feature = {
     app.openapi(routes.setup, handlers.setup)
     app.openapi(routes.update, handlers.update)
     app.openapi(routes.remove, handlers.remove)
+    app.openapi(routes.freeName, handlers.freeName)
     app.openapi(routes.wording, handlers.wording)
     app.openapi(routes.entry, handlers.entry)
     app.openapi(routes.uses, handlers.uses)

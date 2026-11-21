@@ -1,6 +1,6 @@
 /** Packs, their tools and their playbooks and manuals: the only queries on these tables. */
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, inArray, isNull, like, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, like, sql } from 'drizzle-orm'
 import type { Db } from '../../kit/index.js'
 import type { Fixed } from './entries.js'
 import {
@@ -9,6 +9,7 @@ import {
   type PackRow,
   type PackToolRow,
   packItems,
+  packNames,
   packs,
   packTools,
 } from './schema.js'
@@ -52,6 +53,9 @@ export const packsRepo = (db: Db) => {
       .where(eq(table.packId, packId))
     return Number(row?.top ?? -1) + 1
   }
+  const get = async (name: string) => (await db.select().from(packs).where(eq(packs.name, name)))[0]
+  const byId = async (id: string) => (await db.select().from(packs).where(eq(packs.id, id)))[0]
+  const formerName = async (name: string) => (await db.select().from(packNames).where(eq(packNames.name, name)))[0]
 
   return {
     list: () => db.select().from(packs).orderBy(asc(packs.title)),
@@ -61,8 +65,42 @@ export const packsRepo = (db: Db) => {
       for (const item of items)
         await db.delete(packItems).where(and(eq(packItems.kind, item.kind), eq(packItems.name, item.name)))
     },
-    get: async (name: string) => (await db.select().from(packs).where(eq(packs.name, name)))[0],
-    byId: async (id: string) => (await db.select().from(packs).where(eq(packs.id, id)))[0],
+    get,
+    byId,
+    /** The pack a name leads to: the one named so now (`until: null`), else the one that was, and until when. */
+    holderOf: async (name: string): Promise<{ pack: PackRow; until: string | null } | undefined> => {
+      const named = await get(name)
+      if (named) return { pack: named, until: null }
+      const former = await formerName(name)
+      const pack = former && (await byId(former.packId))
+      return pack && former ? { pack, until: former.until } : undefined
+    },
+    /** For a name a pack used to have: the name it has now. Nothing for any other name. */
+    currentNameOf: async (name: string) => {
+      const former = await formerName(name)
+      return former ? (await byId(former.packId))?.name : undefined
+    },
+    /** The names a pack used to have that still lead to it, newest first. */
+    formerNames: (packId: string) =>
+      db
+        .select()
+        .from(packNames)
+        .where(eq(packNames.packId, packId))
+        .orderBy(desc(packNames.until), asc(packNames.name)),
+    /** Gives a pack another name; with `keepOld`, the one it had keeps leading to it. Its own old name comes back. */
+    rename: async (pack: PackRow, to: string, keepOld: boolean) => {
+      const now = new Date().toISOString()
+      await db.delete(packNames).where(eq(packNames.name, to))
+      if (keepOld) await db.insert(packNames).values({ name: pack.name, packId: pack.id, until: now })
+      await db.update(packs).set({ name: to, updatedAt: now }).where(eq(packs.id, pack.id))
+    },
+    /** Stops an old name leading to a pack; false when it wasn't one of its names. */
+    freeName: async (packId: string, name: string) => {
+      const former = await formerName(name)
+      if (former?.packId !== packId) return false
+      await db.delete(packNames).where(eq(packNames.name, name))
+      return true
+    },
     contentsOf,
     /** Every pack's tools with wording, for the flags across packs. */
     reworded: () =>
@@ -102,6 +140,7 @@ export const packsRepo = (db: Db) => {
     remove: async (packId: string) => {
       await db.delete(packTools).where(eq(packTools.packId, packId))
       await db.delete(packItems).where(eq(packItems.packId, packId))
+      await db.delete(packNames).where(eq(packNames.packId, packId))
       await db.delete(packs).where(eq(packs.id, packId))
     },
     /** Adds tools at the end; a name already in (the alias, else the tool's) keeps its place, wording and reason. */

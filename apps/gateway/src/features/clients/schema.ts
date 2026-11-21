@@ -42,13 +42,19 @@ export const pins = sqliteTable(
   (table) => [primaryKey({ columns: [table.clientId, table.toolName] })],
 )
 
-/** Every pack a key opens, each at `/p/<pack>/`; `clients.pack_id` names the default among them. */
+/**
+ * Every pack a key opens, each at `/p/<pack>/`; `clients.pack_id` names the default among them. The one row per
+ * client and pack: what belongs to a person in a pack goes here.
+ */
 export const clientPacks = sqliteTable(
   'client_packs',
   {
     clientId: text('client_id').notNull(),
     packId: text('pack_id').notNull(),
     position: integer('position').notNull(),
+    /** The former name of the pack this client last came by, and when; null once it comes by the name now. */
+    cameBy: text('came_by'),
+    cameByAt: text('came_by_at'),
   },
   (table) => [primaryKey({ columns: [table.clientId, table.packId] })],
 )
@@ -65,8 +71,11 @@ export const CLIENTS_MIGRATIONS = [
     primary key (client_id, pack_id));
   insert into client_packs (client_id, pack_id, position) select id, pack_id, 0 from clients where pack_id is not null`,
   'alter table clients add column app text',
+  'alter table client_packs add column came_by text',
+  'alter table client_packs add column came_by_at text',
 ] as const
 
 export type ClientRow = typeof clients.$inferSelect
+export type ClientPackRow = typeof clientPacks.$inferSelect
 export const GLOBAL_PINS = '*'
 export const DEFAULT_RESULT_CAP = 25_000
