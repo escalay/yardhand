@@ -201,10 +201,12 @@ const ON_DEMAND = [
 /** How a pack connection is worked: every tool of the pack is listed, or only the key's own pins, or none of them. */
 const howToWork = (pack: NonNullable<Me['pack']>, pins: Pin[]) =>
   !pack.ownPins
-    ? [
-        'Every tool of this pack is listed here: call one as it is. search_tools finds one by what you want to do,',
-        'describe_tool shows its full description and input schema, and call_tool runs any of them by name.',
-      ]
+    ? pins.length
+      ? [
+          'Every tool of this pack is listed here: call one as it is. search_tools finds one by what you want to do,',
+          'describe_tool shows its full description and input schema, and call_tool runs any of them by name.',
+        ]
+      : ['This pack holds no tools this key can use.']
     : [
         pins.length
           ? 'Your pinned tools are listed here: call them as they are. The rest of the pack is found on demand:'
