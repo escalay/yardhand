@@ -21,7 +21,7 @@ import { cn } from '@/ui/cn'
 import { CompareSwitch, DoorPick, FilterBar, RangePick } from '@/ui/FilterBar'
 import { duration, plural } from '@/ui/format'
 import { Page, Section } from '@/ui/Page'
-import { Dot, HEALTH, Status } from '@/ui/Status'
+import { Dot, HEALTH } from '@/ui/Status'
 import { Button } from '@/ui/shadcn/button'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { CallsChart } from './CallsChart'
@@ -72,20 +72,26 @@ const Nudges = ({ nudges }: { nudges: Overview['nudges'] }) =>
   nudges.length ? (
     <Section title="Needs you">
       <ul className="border border-border bg-card">
-        {nudges.map((nudge) => (
-          <li
-            key={`${nudge.kind}${nudge.href}${nudge.message}`}
-            className="flex items-center gap-4 border-b border-border px-5 py-3.5 last:border-b-0"
-          >
-            <Status tone={nudgeTone(nudge.kind)} className="sr-only">
-              {nudge.kind}
-            </Status>
-            <p className="flex-1 text-sm text-pretty">{nudge.message}</p>
-            <Button asChild variant="muted" size="sm">
-              <Link to={routeOf(nudge.href) as never}>{nudge.action}</Link>
-            </Button>
-          </li>
-        ))}
+        {nudges.map((nudge) => {
+          const tone = nudgeTone(nudge.kind)
+          return (
+            <li
+              key={`${nudge.kind}${nudge.href}${nudge.message}`}
+              className="flex items-center gap-4 border-b border-border px-5 py-3.5 last:border-b-0"
+            >
+              <Dot tone={tone} />
+              <p className="flex-1 text-sm text-pretty">
+                {tone === 'neutral' ? null : (
+                  <span className="sr-only">{tone === 'error' ? 'Error: ' : 'Warning: '}</span>
+                )}
+                {nudge.message}
+              </p>
+              <Button asChild variant="muted" size="sm">
+                <Link to={routeOf(nudge.href) as never}>{nudge.action}</Link>
+              </Button>
+            </li>
+          )
+        })}
       </ul>
     </Section>
   ) : null

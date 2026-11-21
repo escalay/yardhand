@@ -356,6 +356,9 @@ test('Home says whose access is about to end, Extend leads to the pack’s Peopl
   const nudge = (name: string) =>
     needs.getByRole('listitem').filter({ hasText: `${name}'s access to Loud ends in 2 days (21 Dec 2026).` })
   await expect(nudge('Sam')).toBeVisible()
+  // Marked as a warning, to the eye and to a screen reader
+  await expect(nudge('Sam').locator('.bg-warn')).toBeVisible()
+  await expect(nudge('Sam').getByText('Warning:')).toBeAttached()
   await nudge('Ada').getByRole('link', { name: 'Extend' }).click()
   await expect(page).toHaveURL(/\/app\/packs\/loud\?tab=people$/)
   await expect(
