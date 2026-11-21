@@ -92,7 +92,7 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Pack**: a curated kit for one kind of work (`features/packs`): tools from any upstreams, each with an optional
   pack wording, alias and fixed inputs, plus playbooks and manuals. Starting from a playbook brings in the tools it names or calls by route
   (a server publishes a tool's route in `_meta` under a `<vendor>/route` key, the kit as `agent-api-kit/route`; stored on the tool row, never versioned).
-- **Pack key**: a key locked to one or more packs, optionally expiring (8 h, 1 day, 7 days). Each pack is its own
+- **Pack key**: a key locked to one or more packs, optionally expiring (8 h, 1 day, 7 days, 30 days). Each pack is its own
   server at `/p/<pack>/`: MCP at `/p/<pack>/mcp` and REST under `/p/<pack>/api` (rewritten to `/mcp` and `/api` up
   front, the choice carried in `features/clients/pack-choice.ts`), with its own guide, OpenAPI document and docs page
   beside them (`features/packs/docs.ts`). `/mcp/p/<pack>` and the `x-gateway-pack` header (on REST and on `/mcp`)
@@ -100,6 +100,12 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   connection has the gateway's shape under the pack's name: the meta-tools over the pack, and every tool of the pack
   listed directly, or only the key's own pins. The owner asking for a pack (its address or the header) is answered as
   a write key of that pack and refused the routes that manage the gateway (`requireOwner`).
+- **Extend**: sets a key's end anew, counted from today (`PATCH /api/clients/{id}` with `expiresIn`: 7 days, 30 days
+  or never), also for a key that has ended: it works again with the same key. A revoked key does not come back.
+- **Ended**: a key past its end. Every route refuses it with a 403 that names its pack, the day and whom to ask
+  (`refusalOf`); over MCP it still connects, to read that as the instructions and from every tool
+  (`principals.ended` at the `/mcp` door). That is safe only while every route resolves its caller through
+  `principals` or `requireOwner`. The owner looking as an ended client reads `endedNote` instead.
 - **Alias**: a pack's own name for one of its tools (`team_inbox_search`); the same tool can be in a pack under
   several aliases. A pack tool is keyed by that name; `entryOf` resolves it to the tool.
 - **Fixed input**: an input a pack tool fills on every call, hidden from the pack's keys; a call that sends it is a
