@@ -480,6 +480,16 @@ describe('when a live tool has no vector yet', () => {
     await meaning.state.last
     expect(await found(full, 'thing')).toContain('vendor.lamp_dimmer')
   })
+
+  it('counts nothing for a pack key on a connection that is switched off, as its lists hold nothing', async () => {
+    expect((await api(kit, '/api/upstreams/late')).json.toolCount).toBe(1)
+    await made('/api/upstreams/late', { enabled: false }, 'PATCH')
+    expect((await api(kit, '/api/upstreams/late')).json).toMatchObject({
+      toolCount: 0,
+      offers: { manuals: 0, playbooks: 0, links: 0 },
+    })
+    expect((await api(kit, '/api/tools?upstream=late')).json.count).toBe(0)
+  })
 })
 
 describe('on a gateway with more tools than one list reads', () => {

@@ -92,7 +92,8 @@ export const upstreamsHandlers = (services: Services) => {
   type Counts = { tools: number; offers: Offers }
   /**
    * Each upstream's tools and offers as this caller is told them. A pack key gets the pack's own: every name it is
-   * listed there, the playbooks and manuals the pack holds, and no links (it opens only those its tools hand it).
+   * listed there, the playbooks and manuals the pack holds, and no links (it opens only those its tools hand it);
+   * nothing on a connection that is switched off, as its lists hold nothing from one.
    * Anyone else gets the connection's, with playbooks only while it offers them (the owner sees all).
    */
   const countsBy = async (principal: Principal, rows: UpstreamRow[]) => {
@@ -107,11 +108,13 @@ export const upstreamsHandlers = (services: Services) => {
     const byUpstream = new Map<string, Counts>()
     const countsOf = (id: string) => byUpstream.get(id) ?? { tools: 0, offers: NONE }
     const own = await tools.liveMany([...new Set([...pack.tools.values()].map((entry) => entry.tool))])
-    for (const tool of own.filter(seenBy(principal))) {
+    const on = rows.filter((row) => row.enabled).map((row) => row.id)
+    const listed = seenBy(principal)
+    for (const tool of own.filter((tool) => on.includes(tool.upstreamId) && listed(tool))) {
       const counts = countsOf(tool.upstreamId)
       byUpstream.set(tool.upstreamId, { ...counts, tools: counts.tools + shownAs(principal, tool).length })
     }
-    const offered = await catalog.listLive({ kinds: ['manual', 'playbook'], upstreams: rows.map((row) => row.id) })
+    const offered = await catalog.listLive({ kinds: ['manual', 'playbook'], upstreams: on })
     for (const item of offered.filter((item) => holds(principal, item))) {
       const counts = countsOf(item.upstreamId)
       const key = item.kind === 'manual' ? 'manuals' : 'playbooks'
