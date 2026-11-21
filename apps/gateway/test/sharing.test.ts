@@ -568,6 +568,39 @@ describe('sharing a pack with one person', () => {
     }
   })
 
+  it('writes the address the owner set for people into the message, whatever address the owner asked by', async () => {
+    // The same gateway with PUBLIC_HOST set, asked over the LAN
+    const reached = await createApp({
+      db,
+      env: {
+        API_KEYS: `owner:${hashApiKey(OWNER)}`,
+        GATEWAY_MASTER_KEY: randomBytes(32).toString('base64'),
+        PUBLIC_HOST: 'gw.example.com',
+      },
+    })
+    const ask = async (body: Record<string, unknown>) => {
+      const response = await reached.request('http://192.168.1.20:4400/api/packs/garden/people', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${OWNER}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      expect(response.status).toBe(201)
+      return (await response.json()) as Shared
+    }
+    const sam = await ask({ name: 'Sam', app: 'claude-code' })
+    expect(sam.message).toContain(
+      `claude mcp add --transport http --scope user gw-garden https://gw.example.com/p/garden/mcp \\\n  --header "Authorization: Bearer ${sam.key}"`,
+    )
+    const lena = await ask({ name: 'Lena' })
+    expect(lena.message).toContain(`Its address is https://gw.example.com/p/garden/mcp and your key is ${lena.key}.`)
+    for (const made of [sam, lena]) {
+      expect(made.message).not.toContain('192.168.1.20')
+      // The answer's own links stay where the owner asked
+      expect(made._links.self?.href).toBe(`http://192.168.1.20:4400/api/clients/${made.id}`)
+      expect((await owner(`/api/clients/${made.id}`, { method: 'DELETE' })).status).toBe(204)
+    }
+  })
+
   it('will not share a pack that holds no tools', async () => {
     const made = await owner('/api/packs', { method: 'POST', body: { name: 'bare', title: 'Bare' } })
     expect(made.status).toBe(201)

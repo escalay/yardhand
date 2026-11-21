@@ -155,6 +155,8 @@ export const createServices = async ({
   }
   /** Where this gateway is reached; OAuth upstreams send the owner back here. */
   const publicOrigin = publicOriginOf(env.PUBLIC_HOST)
+  /** The address the owner set for people and agents (`PUBLIC_HOST`); null when none is set. */
+  const statedOrigin = env.PUBLIC_HOST ? publicOrigin : null
   const redirectUrlOf = (via: SignInVia) => (via === 'loopback' ? loopbackRedirect : `${publicOrigin}${callbackPath}`)
   /** Refreshes never send a callback, so background connections take the default; connects pass how they sign in. */
   const oauthProviderFor = (upstreamId: string, onRedirect?: (url: URL) => void, via: SignInVia = 'gateway') =>
@@ -296,6 +298,7 @@ export const createServices = async ({
     oauthProviderFor,
     redirectUrlOf,
     publicOrigin,
+    statedOrigin,
     principals,
     packs,
     credentialOf,

@@ -23,7 +23,7 @@ export const listedOf = <Row extends Pick<ClientRow, 'createdAt' | 'expiresAt' |
   now = new Date(),
 ) => rows.filter((row) => standingOf(row, now) !== 'gone')
 
-export const peopleHandlers = ({ packs, clients, calls, principals, listsChanged }: Services) => {
+export const peopleHandlers = ({ packs, clients, calls, principals, listsChanged, statedOrigin }: Services) => {
   const packOf = async (name: string) => {
     const pack = await packs.get(name)
     if (!pack) throw new ProblemError('not_found', { detail: await noPack(packs, name) })
@@ -124,7 +124,16 @@ export const peopleHandlers = ({ packs, clients, calls, principals, listsChanged
     if (!row) throw new ProblemError('not_found', { detail: `No client ${id}. GET /api/clients lists them.` })
     const origin = originOf(c)
     const person = await personOf(origin, pack, row, await factsOf(pack, new Date()))
-    const message = shareMessage({ pack, person: name, scope, expiresAt: row.expiresAt, app: row.app, origin, key })
+    const message = shareMessage({
+      pack,
+      person: name,
+      scope,
+      expiresAt: row.expiresAt,
+      app: row.app,
+      // Sent to someone else: the address set for people, not the one the owner happens to ask by
+      origin: statedOrigin ?? origin,
+      key,
+    })
     return c.json({ ...person, key, message }, 201, { location: `/api/clients/${id}` })
   }
 

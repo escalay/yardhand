@@ -459,7 +459,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Share a pack with a person',
     description:
-      'Makes one person’s key for this pack alone, read only and for 30 days unless said, and answers with a message ready to send them: what the pack is, what they can do, until when, and the setup for their app with the key in it. The key and the message are shown this once. Extend and Revoke are the client’s own routes (`PATCH` and `DELETE /api/clients/{id}`). A pack that holds no tools is a 409.',
+      'Makes one person’s key for this pack alone, read only and for 30 days unless said, and answers with a message ready to send them: what the pack is, what they can do, until when, and the setup for their app with the key in it, at the address set in `PUBLIC_HOST` (unset, the address this request came by). The key and the message are shown this once. Extend and Revoke are the client’s own routes (`PATCH` and `DELETE /api/clients/{id}`). A pack that holds no tools is a 409.',
     request: { params: z.object({ name }), body: json(ShareInputSchema) },
     responses: {
       201: ok('The person, their key and the message.', SharedPackSchema),
