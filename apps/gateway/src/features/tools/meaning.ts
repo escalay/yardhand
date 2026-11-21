@@ -1,7 +1,8 @@
 /**
  * Search by meaning over tool descriptions, with the kit's vectors (Gemini Embedding 2): a ledger on the state volume
  * that only pays for new or changed descriptions, refreshed after every sync. `fuse` merges it with keyword search by
- * reciprocal-rank fusion, so an exact name still wins and a paraphrase still finds the tool.
+ * reciprocal-rank fusion, so an exact name still wins and a paraphrase still finds the tool. `standouts` is the search
+ * that can answer nothing; `names` always answers.
  */
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -14,6 +15,7 @@ import {
   embedRequest,
   nearest,
   readLedger,
+  standouts,
   type VectorSpace,
   vectorSpace,
 } from '../../kit/vectors/index.js'
@@ -22,6 +24,16 @@ import type { LiveTool, ToolsRepo } from './repo.js'
 const RRF_K = 60
 /** One refresh never spends more than this (USD); a rerun continues where it stopped. */
 const REFRESH_BUDGET = 0.25
+/**
+ * With fewer tools than this there is no bar: too few to tell a match from noise, so search answers with the nearest,
+ * as it always did. Set by replaying logged searches (the numbers are in docs/releases/0.5.0.md).
+ */
+export const MIN_ROWS = 50
+/**
+ * A keyword hit counts only when it stands at least this far above the question's mean over every tool. Set by
+ * replaying logged searches (the numbers are in docs/releases/0.5.0.md).
+ */
+export const KEYWORD_MIN_Z = 2
 
 /** Reciprocal-rank fusion: names in any list, best combined rank first; `weights` scale each list (default 1). */
 export const fuse = (lists: string[][], limit: number, weights: number[] = []) => {
@@ -47,7 +59,18 @@ export const contextOf = (upstream: { title: string; instructions: string | null
 
 export type MeaningSearch = {
   refresh: () => Promise<void>
+  /** The nearest tools, best first: an answer every time, for a suggestion someone confirms. */
   names: (q: string, limit: number) => Promise<string[]>
+  /**
+   * The tools that stand out for `q`, best first. Every tool is scored, so the spread is the whole catalog's, and
+   * `keep` then holds it to the caller's. Without `minZ` the bar is the kit's own, which rises with the catalog, on
+   * purpose; `KEYWORD_MIN_Z` is the lower one for tools the words already found. Null when there is no bar to hold
+   * a tool to (fewer than `MIN_ROWS` tools, nothing embedded yet, no key): the caller then searches as before.
+   */
+  standouts: (
+    q: string,
+    pick: { limit: number; keep: (name: string) => boolean; minZ?: number },
+  ) => Promise<string[] | null>
   /** Whether it can search now (it has a key); absent means yes. */
   ready?: () => boolean
 }
@@ -99,6 +122,8 @@ export const createMeaningSearch = ({
     },
     names: async (q, limit) =>
       space?.keys.length ? nearest(space, await query(q), { limit }).map((match) => match.key) : [],
+    standouts: async (q, pick) =>
+      space && space.keys.length >= MIN_ROWS ? standouts(space, await query(q), pick).map((match) => match.key) : null,
   }
 }
 

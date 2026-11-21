@@ -190,6 +190,7 @@ export const createServices = async ({
     ({
       refresh: () => current?.refresh() ?? Promise.resolve(),
       names: (q, limit) => current?.names(q, limit) ?? Promise.resolve([]),
+      standouts: (q, pick) => current?.standouts(q, pick) ?? Promise.resolve(null),
       ready: () => Boolean(current),
     } satisfies MeaningSearch)
   /** Picks up a new search key: a fresh meaning index, filled in the background. */
