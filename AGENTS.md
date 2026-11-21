@@ -111,7 +111,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   pack. Each key's link to the pack notes the old name it last came by (`client_packs.came_by`), which a pack's
   `formerNames` count.
 - **Extend**: sets a key's end anew, counted from today (`PATCH /api/clients/{id}` with `expiresIn`: 7 days, 30 days
-  or never), also for a key that has ended: it works again with the same key. A revoked key does not come back.
+  or never), also for a key that has ended: it works again with the same key. A revoked key does not come back, and
+  a pack key none of whose packs is left is refused (409) unless the same change gives it one.
   The kit's `Idempotency-Key` store knows nothing of it: a request refused while the key had ended is answered that
   refusal for a day, until it is sent with a new `Idempotency-Key`.
 - **Ended**: a key past its end. Every route a pack serves (`PACK_PATHS` and the pack's pages) refuses it with a 403
