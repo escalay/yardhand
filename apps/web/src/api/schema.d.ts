@@ -1695,7 +1695,7 @@ export interface components {
             /** @description For a pack key: its default pack, one of the packs it opens. */
             pack?: string;
             /**
-             * @description Extend: how long it works from now, 7 days, 30 days or until revoked (it replaces when it ends). An ended key works again with the same key; a revoked one does not.
+             * @description Extend: how long it works from now, 7 days, 30 days or until revoked (it replaces when it ends). An ended key works again with the same key; a revoked one does not. A request it was refused with an `Idempotency-Key` keeps answering that refusal for a day: its holder sends it again with a new `Idempotency-Key`.
              * @enum {string}
              */
             expiresIn?: "7d" | "30d" | "never";

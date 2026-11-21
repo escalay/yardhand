@@ -111,12 +111,15 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   `formerNames` count.
 - **Extend**: sets a key's end anew, counted from today (`PATCH /api/clients/{id}` with `expiresIn`: 7 days, 30 days
   or never), also for a key that has ended: it works again with the same key. A revoked key does not come back.
+  The kit's `Idempotency-Key` store knows nothing of it: a request refused while the key had ended is answered that
+  refusal for a day, until it is sent with a new `Idempotency-Key`.
 - **Ended**: a key past its end. Every route a pack serves (`PACK_PATHS` and the pack's pages) refuses it with a 403
-  that names its pack, the day and whom to ask (`refusalOf`); owner-only routes refuse it as any client key, and the
-  gateway's own `/llms.txt`, `/openapi.json` and `/docs` still answer it. Over MCP it still connects, to read the
-  refusal as the instructions and from every tool (`principals.ended` at the `/mcp` door): safe only while every
-  route resolves its caller through `principals` or `requireOwner`. The owner looking as an ended client reads
-  `endedNote` instead.
+  that names its pack, the day and whom to ask (`refusalOf`), but for a request repeated with an `Idempotency-Key`
+  it sent while it worked: the kit answers that with what the key was already given, before any route, and nothing
+  runs. Owner-only routes refuse it as any client key, and the gateway's own `/llms.txt`, `/openapi.json` and `/docs`
+  still answer it. Over MCP it still connects, to read the refusal as the instructions and from every tool
+  (`principals.ended` at the `/mcp` door): safe only while every route resolves its caller through `principals` or
+  `requireOwner`. The owner looking as an ended client reads `endedNote` instead.
 - **Alias**: a pack's own name for one of its tools (`team_inbox_search`); the same tool can be in a pack under
   several aliases. A pack tool is keyed by that name; `entryOf` resolves it to the tool.
 - **Fixed input**: an input a pack tool fills on every call, hidden from the pack's keys; a call that sends it is a

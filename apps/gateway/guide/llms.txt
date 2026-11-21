@@ -62,7 +62,8 @@ last day (through `/u/{upstream}/r/…` and `read_resource`), so `GET /api/links
 playbooks and its manuals. A search that matches nothing in the pack says what the pack covers: `hint` on
 `GET /api/tools?q=…`, and over MCP `Nothing in <pack> matches "<query>". This pack covers: …`. Ask again by one of
 those, or say it can't be done with this pack. Access can end: a 403 then says which pack, the day it ended and to
-ask the owner for a new invite; over MCP the connection still opens and says the same.
+ask the owner for a new invite; over MCP the connection still opens and says the same. Once the owner has extended
+it, send a request that was refused with a new `Idempotency-Key`: the old one answers the refusal again for a day.
 
 A key that opens several packs has one connection per pack, and is refused (403) a pack it doesn't open with the
 addresses of those it does. An `Idempotency-Key` is remembered per key and route, not per pack: sent again with the
