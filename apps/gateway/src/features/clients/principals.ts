@@ -8,14 +8,14 @@
  * The owner asking for a pack (its address or the header) is answered as a write key of that pack would be.
  */
 import type { Context } from 'hono'
-import { type Caller, ProblemError } from '../../kit/index.js'
+import { type Caller, mintApiKey, ProblemError } from '../../kit/index.js'
 import type { CatalogRepo } from '../catalog/repo.js'
 import { fixedOf, type PackEntry, presented } from '../packs/entries.js'
 import { noPack } from '../packs/names.js'
 import type { PacksRepo } from '../packs/repo.js'
 import { isOff, type LiveTool, needsWrite } from '../tools/repo.js'
 import { dayOf } from './lifetimes.js'
-import type { ClientsRepo } from './repo.js'
+import type { ClientDraft, ClientsRepo } from './repo.js'
 import type { ClientPackRow, ClientRow } from './schema.js'
 
 /** The pack a key is locked to, as the lock needs it. */
@@ -329,7 +329,13 @@ export const createPrincipals = ({
     loadKeys: async () => {
       for (const row of await clients.activeKeys()) if (row.keyHash) keys.set(row.keyHash, `${CLIENT_KEY}${row.id}`)
     },
-    addKey: (hash: string, clientId: string) => keys.set(hash, `${CLIENT_KEY}${clientId}`),
+    /** Makes a key client and lets it in at once. The key is returned this once; only its hash is kept. */
+    issue: async (draft: Omit<ClientDraft, 'kind' | 'keyHash'>): Promise<{ id: string; key: string }> => {
+      const { key, hash } = mintApiKey('gw')
+      const id = await clients.create({ ...draft, kind: 'key', keyHash: hash })
+      keys.set(hash, `${CLIENT_KEY}${id}`)
+      return { id, key }
+    },
     dropKey: (hash: string | null) => hash && keys.delete(hash),
     /** The principal behind a request, or null when it has none (revoked or expired client). */
     of: async (caller: ReturnType<typeof callerOf>): Promise<Principal | null> => {
