@@ -292,7 +292,8 @@ export const dayOf = (iso: string) => {
 }
 
 /**
- * When someone's access ends: "never", "21 Dec", "in 3 d" within three days, "ended 2 Dec". `warn` is the API's
+ * When someone's access ends: "never", "21 Dec", "in 3 d" within three days, "ended 2 Dec". Days are UTC days, as
+ * Home's nudge counts them and as `dayOf` names the day; under a day it is hours, then minutes. `warn` is the API's
  * `ending`, which a key made for a day or less never is: that one ends soon because it was meant to.
  */
 export const endsOf = (
@@ -300,11 +301,12 @@ export const endsOf = (
   now = Date.now(),
 ) => {
   if (!person.expiresAt) return { text: 'never', warn: false }
-  const left = Date.parse(person.expiresAt) - now
+  const end = Date.parse(person.expiresAt)
+  const left = end - now
   if (person.ended || left <= 0) return { text: `ended ${dayOf(person.expiresAt)}`, warn: false }
   if (left > SOON_MS) return { text: dayOf(person.expiresAt), warn: false }
   const warn = Boolean(person.ending)
-  if (left >= DAY_MS) return { text: `in ${Math.round(left / DAY_MS)} d`, warn }
+  if (left >= DAY_MS) return { text: `in ${Math.floor(end / DAY_MS) - Math.floor(now / DAY_MS)} d`, warn }
   if (left >= HOUR_MS) return { text: `in ${Math.round(left / HOUR_MS)} h`, warn }
   return { text: `in ${Math.max(1, Math.round(left / 60_000))} min`, warn }
 }

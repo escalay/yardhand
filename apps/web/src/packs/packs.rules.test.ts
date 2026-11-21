@@ -355,6 +355,15 @@ describe('a pack’s people', () => {
     expect(endsOf(person('2026-12-01T10:20:00Z', { ending: true }), NOW)).toEqual({ text: 'in 20 min', warn: true })
   })
 
+  it('counts the days as Home’s nudge does: UTC days, not hours rounded', () => {
+    // Home: "ends in 2 days (3 Dec 2026)"
+    expect(endsOf(person('2026-12-03T23:00:00Z', { ending: true }), NOW).text).toBe('in 2 d')
+    // 26 hours left across two midnights: Home says "in 2 days"
+    const late = Date.parse('2026-12-01T23:00:00Z')
+    expect(endsOf(person('2026-12-03T01:00:00Z', { ending: true }), late).text).toBe('in 2 d')
+    expect(endsOf(person('2026-12-04T22:59:00Z', { ending: true }), late).text).toBe('in 3 d')
+  })
+
   it('says a key made for a day or less ends soon, without the warning: it was meant to', () => {
     expect(endsOf(person('2026-12-01T18:00:00Z'), NOW)).toEqual({ text: 'in 8 h', warn: false })
     expect(endsOf(person('2026-12-02T10:00:00Z'), NOW)).toEqual({ text: 'in 1 d', warn: false })
