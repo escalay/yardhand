@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0](https://github.com/escalay/yardhand/compare/v0.4.0...v0.5.0) (2026-11-21)
+
+
+### Features
+
+* **packs:** serve each pack at its own address ([#25](https://github.com/escalay/yardhand/issues/25)) ([72b5058](https://github.com/escalay/yardhand/commit/72b5058730bb70c24a60953e867eccf53777335e)), closes [#19](https://github.com/escalay/yardhand/issues/19)
+* **search:** return only tools that clearly match ([#24](https://github.com/escalay/yardhand/issues/24)) ([dde2abb](https://github.com/escalay/yardhand/commit/dde2abbe319203e58daafda5841f0a80141752f5)), closes [#19](https://github.com/escalay/yardhand/issues/19)
+
+
+### Fixes
+
+* **search:** fit the bar to the size of the catalog ([#26](https://github.com/escalay/yardhand/issues/26)) ([a1641f1](https://github.com/escalay/yardhand/commit/a1641f1163dcf1a1a39072c5b813abde92cc6e9a)), closes [#19](https://github.com/escalay/yardhand/issues/19)
+
+
+### Documentation
+
+* decide packs as their own servers, with sharing and authoring ([#18](https://github.com/escalay/yardhand/issues/18)) ([7306c77](https://github.com/escalay/yardhand/commit/7306c77f6dc2cf114a1e91e763ba9eaa1021c5b5))
+
 ## [0.4.0](https://github.com/escalay/yardhand/compare/v0.3.1...v0.4.0) (2026-11-21)
 
 
