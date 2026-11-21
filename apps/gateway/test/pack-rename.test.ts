@@ -1,8 +1,13 @@
 /**
- * Renaming a pack: its address moves, and while it has keys the old name keeps leading to it. No other pack can take
- * that name until the owner frees it or the pack goes.
+ * Renaming a pack: its address moves, and while it has keys the old name keeps leading to it, served in place over
+ * MCP and REST. A key that does not open the pack learns nothing from the old name, and no other pack can take it
+ * until the owner frees it or the pack goes.
  */
 import { randomBytes } from 'node:crypto'
+import type { AddressInfo } from 'node:net'
+import { serve } from '@hono/node-server'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { dayOf } from '../src/features/clients/lifetimes.js'
@@ -16,7 +21,13 @@ const app = await createApp({
   db,
   env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: randomBytes(32).toString('base64') },
 })
-afterAll(() => upstream.close())
+const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 })
+await new Promise<void>((resolve) => server.once('listening', () => resolve()))
+const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+afterAll(async () => {
+  await upstream.close()
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+})
 
 type Init = { method?: string; body?: unknown; headers?: Record<string, string> }
 /** An answer with its headers, with a key or (null) without credentials. Nothing follows a redirect here. */
@@ -33,6 +44,22 @@ const at = async (key: string | null, path: string, init: Init = {}) => {
   return { status: response.status, headers: response.headers, json: (await response.json().catch(() => null)) as any }
 }
 const owner = (path: string, init?: Init) => at(OWNER, path, init)
+const mcp = async (key: string, path = '/mcp', headers: Record<string, string> = {}) => {
+  const client = new Client({ name: 'test', version: '1.0.0' })
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(path, origin), {
+      requestInit: { headers: { authorization: `Bearer ${key}`, ...headers } },
+    }),
+  )
+  return client
+}
+/** A tools/list sent as it is, with no session: what the door answers. */
+const knock = (key: string, path: string, headers: Record<string, string> = {}) =>
+  at(key, path, {
+    method: 'POST',
+    headers: { accept: 'application/json, text/event-stream', ...headers },
+    body: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+  })
 type Made = { id: string; key: string }
 const keyFor = async (body: Record<string, unknown>) => {
   const made = await owner('/api/clients', { method: 'POST', body: { scope: 'write', ...body } })
@@ -231,5 +258,211 @@ describe('renaming a pack', () => {
     expect((await owner('/api/packs/hut')).json.detail).toBe(unknown('hut'))
     expect((await owner('/api/packs', { method: 'POST', body: { name: 'hut', title: 'Hut' } })).status).toBe(201)
     expect((await owner('/api/packs/hut')).json.formerNames).toEqual([])
+  })
+})
+
+describe('the old address of a renamed pack', () => {
+  const PAGES = ['', '/docs', '/llms.txt', '/openapi.json']
+  let ada: Made
+  let plain: Made
+  beforeAll(async () => {
+    ada = await keyFor({ name: 'Ada', pack: 'desk' })
+    plain = await keyFor({ name: 'a script', upstreams: 'all' })
+  })
+  /** Ends a key a moment ago, as time would; answers the day it ended, as the refusals print it. */
+  const end = async (id: string) => {
+    const time = new Date(Date.now() - 1000).toISOString()
+    await db.run(sql`update clients set expires_at = ${time} where id = ${id}`)
+    return dayOf(time)
+  }
+
+  it('is not where its keys are sent: the new name is served at its address, plain REST and plain /mcp', async () => {
+    for (const path of ['/p/garden/api/me', '/api/me'])
+      expect([path, (await at(sam.key, path)).json.pack]).toEqual([
+        path,
+        expect.objectContaining({ name: 'garden', title: 'Garden' }),
+      ])
+    expect((await at(sam.key, '/api/me')).json.packs).toEqual([
+      expect.objectContaining({ name: 'garden', mcpUrl: 'http://localhost/p/garden/mcp' }),
+    ])
+    const client = await mcp(sam.key)
+    expect(client.getServerVersion()?.name).toBe('garden')
+    await client.close()
+    expect(await formerOf('garden')).toEqual([{ name: 'shed', people: 0 }])
+  })
+
+  it('keeps answering REST, as the pack it is now', async () => {
+    const me = await at(sam.key, '/p/shed/api/me')
+    expect([me.status, me.json.pack.name]).toEqual([200, 'garden'])
+    const ran = await at(sam.key, '/p/shed/api/calls', {
+      method: 'POST',
+      body: { tool: 'fixture.echo', arguments: { text: 'still here' } },
+    })
+    expect([ran.status, ran.json.result.content[0].text]).toEqual([200, 'still here'])
+    const byHeader = await at(sam.key, '/api/me', { headers: { 'x-gateway-pack': 'shed' } })
+    expect([byHeader.status, byHeader.json.pack.name]).toEqual([200, 'garden'])
+    // What it links to is the address the pack has now
+    const home = await at(sam.key, '/p/shed/api')
+    expect(home.json.name).toBe('Garden')
+    expect(new URL(home.json._links.tools.href).pathname).toBe('/p/garden/api/tools')
+    expect(new URL((await at(sam.key, '/p/shed/api/tools')).json._links.self.href).pathname).toBe('/p/garden/api/tools')
+    // A key that opens it among others is served it there too
+    expect((await at(both.key, '/p/shed/api/me')).json.pack.name).toBe('garden')
+  })
+
+  it('and MCP, in place: no client has to follow a redirect', async () => {
+    for (const path of ['/p/shed/mcp', '/mcp/p/shed']) {
+      const door = await knock(sam.key, path)
+      expect([path, door.status, door.headers.get('location')]).toEqual([path, 200, null])
+      const client = await mcp(sam.key, path)
+      expect([path, client.getServerVersion()?.name]).toEqual([path, 'garden'])
+      expect(namesOf((await client.listTools()).tools)).toEqual(
+        expect.arrayContaining(['fixture.echo', 'fixture.shout']),
+      )
+      const shouted = await client.callTool({ name: 'fixture.shout', arguments: { text: 'by the old door' } })
+      expect((shouted.content as { text: string }[])[0]?.text).toBe('BY THE OLD DOOR')
+      await client.close()
+    }
+    const byHeader = await mcp(sam.key, '/mcp', { 'x-gateway-pack': 'shed' })
+    expect(byHeader.getServerVersion()?.name).toBe('garden')
+    expect(namesOf((await byHeader.listTools()).tools)).toContain('fixture.echo')
+    await byHeader.close()
+  })
+
+  it('tells a key that does not open the pack nothing', async () => {
+    for (const stranger of [ada, plain]) {
+      const never = (await at(stranger.key, '/p/nope/api/me')).json.detail as string
+      const told = never.replaceAll('nope', 'shed')
+      const answers = [
+        await at(stranger.key, '/p/shed/api/me'),
+        await at(stranger.key, '/api/me', { headers: { 'x-gateway-pack': 'shed' } }),
+        await at(stranger.key, '/p/shed/api/calls', {
+          method: 'POST',
+          body: { tool: 'fixture.echo', arguments: { text: 'hello' } },
+        }),
+        await knock(stranger.key, '/p/shed/mcp'),
+        await knock(stranger.key, '/mcp/p/shed'),
+        await knock(stranger.key, '/mcp', { 'x-gateway-pack': 'shed' }),
+        ...(await Promise.all(PAGES.map((page) => at(stranger.key, `/p/shed${page}`)))),
+      ]
+      expect(answers).toHaveLength(10)
+      for (const answer of answers) {
+        expect([answer.status, answer.json?.detail, answer.headers.get('location')]).toEqual([403, told, null])
+        expect(JSON.stringify(answer.json).toLowerCase()).not.toContain('garden')
+      }
+    }
+    // What each is told, in full: the name it asked for and the packs it does open
+    expect((await at(ada.key, '/p/shed/api/me')).json.detail).toBe(
+      "This key doesn't open the pack shed. It opens desk (/p/desk/mcp).",
+    )
+    expect((await at(plain.key, '/p/shed/api/me')).json.detail).toBe(
+      "This key isn't locked to packs: connect to /mcp, which serves everything it may reach.",
+    )
+  })
+
+  it('answers the owner as the pack', async () => {
+    const home = await owner('/p/shed/api')
+    expect([home.status, home.json.name]).toEqual([200, 'Garden'])
+    expect((await owner('/p/shed/api/me')).json).toMatchObject({ owner: false, pack: { name: 'garden' } })
+    const managing = await owner('/p/shed/api/packs')
+    expect([managing.status, managing.json.detail]).toEqual([
+      403,
+      'This request is for the pack garden only: manage the gateway at /api or in /app, without a pack.',
+    ])
+    expect((await owner('/p/nope/api/me')).json.detail).toBe(unknown('nope'))
+  })
+
+  it('notes who still comes by it, until they come by the new one', async () => {
+    for (const key of [sam.key, both.key]) expect((await at(key, '/p/garden/api/me')).status).toBe(200)
+    expect(await formerOf('garden')).toEqual([{ name: 'shed', people: 0 }])
+    expect((await at(sam.key, '/p/shed/api/me')).status).toBe(200)
+    expect(await formerOf('garden')).toEqual([{ name: 'shed', people: 1 }])
+    // Plain REST names no address, so it says nothing of which one the app is set up with
+    expect((await at(sam.key, '/api/me')).status).toBe(200)
+    expect(await formerOf('garden')).toEqual([{ name: 'shed', people: 1 }])
+    const client = await mcp(both.key, '/mcp/p/shed')
+    await client.listTools()
+    await client.close()
+    expect(await formerOf('garden')).toEqual([{ name: 'shed', people: 2 }])
+    expect((await at(sam.key, '/p/garden/api/me')).status).toBe(200)
+    expect(await formerOf('garden')).toEqual([{ name: 'shed', people: 1 }])
+    // The owner looking as a key is not that key coming by, and a key that is refused there never came
+    expect((await owner(`/p/shed/api/tools?as=${sam.id}`)).status).toBe(200)
+    expect((await at(ada.key, '/p/shed/api/me')).status).toBe(403)
+    expect(await formerOf('garden')).toEqual([{ name: 'shed', people: 1 }])
+  })
+
+  it('writes the note once, then at most hourly, however busy the key', async () => {
+    /** The note on the key's link to the pack, as stored: the name it came by and when. */
+    const noted = async () =>
+      (await db.all(
+        sql`select came_by, came_by_at from client_packs where client_id = ${both.id} and came_by is not null`,
+      )) as [string, string][]
+    const first = await noted()
+    expect(first).toEqual([['shed', expect.any(String)]])
+    expect((await at(both.key, '/p/shed/api/tools')).status).toBe(200)
+    expect(await noted()).toEqual(first)
+    const before = new Date(Date.now() - 2 * 3_600_000).toISOString()
+    await db.run(sql`update client_packs set came_by_at = ${before} where client_id = ${both.id} and came_by = 'shed'`)
+    expect((await at(both.key, '/p/shed/api/tools')).status).toBe(200)
+    expect(Date.parse((await noted())[0]?.[1] ?? '')).toBeGreaterThan(Date.now() - 60_000)
+  })
+
+  it('keeps what was noted when a key’s packs change', async () => {
+    const changed = await owner(`/api/clients/${both.id}`, {
+      method: 'PATCH',
+      body: { packs: ['desk', 'garden'], pack: 'desk' },
+    })
+    expect([changed.status, changed.json.pack, changed.json.packs]).toEqual([200, 'desk', ['desk', 'garden']])
+    expect(await formerOf('garden')).toEqual([{ name: 'shed', people: 1 }])
+    expect((await at(both.key, '/api/me')).json.pack.name).toBe('desk')
+    expect((await at(both.key, '/p/shed/api/me')).json.pack.name).toBe('garden')
+    // A pack it no longer opens is forgotten with its note
+    const narrowed = await owner(`/api/clients/${both.id}`, { method: 'PATCH', body: { packs: ['desk'] } })
+    expect(narrowed.json.packs).toEqual(['desk'])
+    expect(await formerOf('garden')).toEqual([{ name: 'shed', people: 0 }])
+    expect((await at(both.key, '/p/shed/api/me')).json.detail).toBe(
+      "This key doesn't open the pack shed. It opens desk (/p/desk/mcp).",
+    )
+  })
+
+  it('is kept for a pack whose only key has ended: Extend brings it back', async () => {
+    await packOf('pond', 'Pond')
+    const reader = await keyFor({ name: 'Ada at the pond', pack: 'pond', expiresIn: '7d' })
+    const day = await end(reader.id)
+    expect((await rename('pond', 'lake')).json).toMatchObject({ keys: 0, formerNames: [{ name: 'pond', people: 0 }] })
+    const ended = `Your access to Pond ended on ${day}. Ask the owner for a new invite.`
+    const refused = await at(reader.key, '/p/pond/api/me')
+    expect([refused.status, refused.json.detail]).toEqual([403, ended])
+    // Over MCP it still connects there, to be told why
+    const client = await mcp(reader.key, '/p/pond/mcp')
+    expect(client.getInstructions()).toBe(ended)
+    await client.close()
+    // An ended key is not one of its people, here or by any name
+    expect(await formerOf('lake')).toEqual([{ name: 'pond', people: 0 }])
+    const extended = await owner(`/api/clients/${reader.id}`, { method: 'PATCH', body: { expiresIn: '7d' } })
+    expect(extended.status).toBe(200)
+    const back = await at(reader.key, '/p/pond/api/me')
+    expect([back.status, back.json.pack.name]).toEqual([200, 'lake'])
+    expect(await formerOf('lake')).toEqual([{ name: 'pond', people: 1 }])
+  })
+
+  it('stops answering once the owner frees the name, also when another pack takes it', async () => {
+    expect((await at(sam.key, '/p/shed/api/me')).status).toBe(200)
+    expect(await formerOf('garden')).toEqual([{ name: 'shed', people: 1 }])
+    expect((await owner('/api/packs/garden/names/shed', { method: 'DELETE' })).status).toBe(204)
+    expect(await formerOf('garden')).toEqual([])
+    expect((await owner('/api/packs/shed')).json.detail).toBe(unknown('shed'))
+    const refusal = "This key doesn't open the pack shed. It opens garden (/p/garden/mcp)."
+    const before = await at(sam.key, '/p/shed/api/me')
+    expect([before.status, before.json.detail]).toEqual([403, refusal])
+    await packOf('shed', 'Shed')
+    const after = await at(sam.key, '/p/shed/api/me')
+    expect([after.status, after.json.detail]).toEqual([403, refusal])
+    expect((await knock(sam.key, '/p/shed/mcp')).status).toBe(403)
+    expect((await at(sam.key, '/p/shed/docs')).status).toBe(403)
+    expect((await at(sam.key, '/p/garden/api/me')).status).toBe(200)
+    // The name is that pack's own now: taking it back is refused as any taken name
+    expect((await rename('garden', 'shed')).json.detail).toBe('A pack is already named shed: pick another name.')
   })
 })

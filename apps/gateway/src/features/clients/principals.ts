@@ -16,7 +16,7 @@ import type { PacksRepo } from '../packs/repo.js'
 import { isOff, type LiveTool, needsWrite } from '../tools/repo.js'
 import { dayOf } from './lifetimes.js'
 import type { ClientsRepo } from './repo.js'
-import type { ClientRow } from './schema.js'
+import type { ClientPackRow, ClientRow } from './schema.js'
 
 /** The pack a key is locked to, as the lock needs it. */
 export type PackScope = {
@@ -64,8 +64,12 @@ export const OWNER: Principal = {
   packs: [],
 }
 
-/** The caller, with the pack its address or `x-gateway-pack` header asked for (see `packChoice`). */
-export const callerOf = (c: Context) => c.get('caller' as never) as (Caller & { pack?: string }) | undefined
+/**
+ * The caller, with the pack its address or `x-gateway-pack` header asked for (see `packChoice`): by the name the
+ * pack has now, with the former name that was asked as `cameBy` when it came by one.
+ */
+export const callerOf = (c: Context) =>
+  c.get('caller' as never) as (Caller & { pack?: string; cameBy?: string }) | undefined
 
 export const isOwner = (caller: Caller | undefined) =>
   caller?.kind === 'person' || (caller?.kind === 'key' && !caller.name.startsWith(CLIENT_KEY))
@@ -220,23 +224,29 @@ export const createPrincipals = ({
     ].sort()
   }
   /**
-   * The pack a request is locked to: the one asked for when the key opens it, else the key's default. Asked for a
-   * pack the key doesn't open, it is the default with a `refusal`, so an ended key is still told a pack of its own.
+   * The pack a request is locked to: the one asked for when the key opens it (with the key's `link` to it), else the
+   * key's default. Asked for a pack the key doesn't open, it is the default with a `refusal`, so an ended key is
+   * still told a pack of its own. The refusal names the pack as it was `asked` for, never as `choice`, the name it
+   * has now: a key that does not open a pack never learns what it is called today.
    */
   const packFor = async (
     row: ClientRow,
     choice: string | undefined,
-  ): Promise<{ id: string | null; opened: Opened[]; refusal?: string }> => {
-    const ids = await clients.packsOf(row)
+    asked = choice,
+  ): Promise<{ id: string | null; opened: Opened[]; link?: ClientPackRow; refusal?: string }> => {
+    const links = await clients.linksOf(row.id)
+    // A key from before lists stays on its one pack
+    const ids = links.length ? links.map((link) => link.packId) : row.packId ? [row.packId] : []
     const opened = (await Promise.all(ids.map((id) => packs.byId(id)))).filter((pack) => pack !== undefined)
     const byDefault = { id: row.packId ?? ids[0] ?? null, opened }
     if (!choice) return byDefault
     const chosen = opened.find((pack) => pack.name === choice)
-    if (chosen) return { id: chosen.id, opened }
+    const link = links.find((held) => held.packId === chosen?.id)
+    if (chosen) return { id: chosen.id, opened, ...(link ? { link } : {}) }
     return {
       ...byDefault,
       refusal: ids.length
-        ? `This key doesn't open the pack ${choice}. It opens ${opened.map((pack) => `${pack.name} (/p/${pack.name}/mcp)`).join(', ')}.`
+        ? `This key doesn't open the pack ${asked}. It opens ${opened.map((pack) => `${pack.name} (/p/${pack.name}/mcp)`).join(', ')}.`
         : `This key isn't locked to packs: connect to /mcp, which serves everything it may reach.`,
     }
   }
@@ -307,8 +317,12 @@ export const createPrincipals = ({
     if (isOwner(caller)) return caller.pack ? inPack(caller.pack) : OWNER
     const { row, scopeCap } = await rowOf(caller)
     if (!row) return 'This key is not known to the gateway.'
-    const chosen = await packFor(row, caller.pack)
-    return refusalOf(row, titled(chosen)) ?? chosen.refusal ?? fromRow(row, scopeCap, chosen)
+    const chosen = await packFor(row, caller.pack, caller.cameBy ?? caller.pack)
+    const refusal = refusalOf(row, titled(chosen)) ?? chosen.refusal
+    if (refusal) return refusal
+    // Which address it is set up with: the pack's old one, or (clearing the note) the one it has now
+    if (chosen.link) await clients.noteAddress(chosen.link, caller.cameBy ?? null)
+    return fromRow(row, scopeCap, chosen)
   }
 
   return {
