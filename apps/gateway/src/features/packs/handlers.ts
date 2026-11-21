@@ -251,12 +251,18 @@ export const packsHandlers = ({
     })
   }
 
+  /** For a write that failed: the 409 that says so when the name was taken while it ran, else the failure itself. */
+  const takenMeanwhile = (name: string, self?: PackRow) => async (error: unknown) => {
+    await nameFree(name, self)
+    throw error
+  }
+
   const create: RouteHandler<Routes['create']> = async (c) => {
     requireOwner(c)
     const { name, title, description, playbook } = c.req.valid('json')
     await nameFree(name)
     const start = playbook ? await usesOf(playbook, new Set()) : null
-    const id = await packs.create({ name, title, description })
+    const id = await packs.create({ name, title, description }).catch(takenMeanwhile(name))
     if (start && playbook) {
       await packs.addItems(id, 'playbook', [playbook])
       const manual = await manualOf(start.item.upstreamId)
@@ -345,7 +351,7 @@ export const packsHandlers = ({
     if (add) await checkAdds(add)
     // Any key that is not revoked keeps the old name: an ended one can be extended and must find its address
     if (next) {
-      await packs.rename(pack, next, (await clients.ofPack(pack.id)).length > 0)
+      await packs.rename(pack, next, (await clients.ofPack(pack.id)).length > 0).catch(takenMeanwhile(next, pack))
       // Back to a name it had: whoever was noted coming by it is at the pack's address again
       await clients.forgetAddress(pack.id, next)
     }

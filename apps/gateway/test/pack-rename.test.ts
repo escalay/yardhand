@@ -11,6 +11,7 @@ import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { dayOf } from '../src/features/clients/lifetimes.js'
+import { packsRepo } from '../src/features/packs/repo.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
 import { startUpstream } from './fixtures/upstream.js'
 
@@ -495,5 +496,78 @@ describe('the old address of a renamed pack', () => {
     expect((await at(sam.key, '/p/garden/api/me')).status).toBe(200)
     // The name is that pack's own now: taking it back is refused as any taken name
     expect((await rename('garden', 'shed')).json.detail).toBe('A pack is already named shed: pick another name.')
+  })
+})
+
+describe('two renames at once', () => {
+  const formerRows = async (name: string) =>
+    (await db.all(sql`select name from pack_names where name = ${name}`)) as unknown[]
+  const paired = async (first: string, second: string) => {
+    for (const name of [first, second]) {
+      await packOf(name, name)
+      await keyFor({ name: `Sam of ${name}`, pack: name })
+    }
+  }
+
+  it('gives the name to one and tells the other it is taken, leaving its own name as it was', async () => {
+    await paired('north', 'south')
+    const answers = await Promise.all([rename('north', 'pole'), rename('south', 'pole')])
+    expect(answers.map((answer) => answer.status).sort()).toEqual([200, 409])
+    const lost = answers[0]?.status === 409 ? 'north' : 'south'
+    expect(answers.find((answer) => answer.status === 409)?.json.detail).toBe(
+      'A pack is already named pole: pick another name.',
+    )
+    expect(await formerOf(lost)).toEqual([])
+    expect(await formerRows(lost)).toEqual([])
+    expect((await owner(`/p/${lost}/docs`)).status).toBe(200)
+    expect((await rename(lost, `${lost}-again`)).status).toBe(200)
+  })
+
+  it('tells a rename it lost to a new pack of that name', async () => {
+    await paired('east', 'west')
+    const [renamed, made] = await Promise.all([
+      rename('east', 'dawn'),
+      owner('/api/packs', { method: 'POST', body: { name: 'dawn', title: 'Dawn' } }),
+    ])
+    // Whichever wrote first has the name, the other a 409: the rename is never left half done
+    const won = renamed.status === 200
+    expect([renamed.status, made.status]).toEqual(won ? [200, 409] : [409, 201])
+    expect(await formerRows('east')).toHaveLength(won ? 1 : 0)
+    expect((await owner('/p/east/docs')).status).toBe(won ? 308 : 200)
+  })
+
+  it('tells one of two new packs of a name that it is taken', async () => {
+    const make = () => owner('/api/packs', { method: 'POST', body: { name: 'twin', title: 'Twin' } })
+    const answers = await Promise.all([make(), make()])
+    expect(answers.map((answer) => answer.status).sort()).toEqual([201, 409])
+    expect(answers.find((answer) => answer.status === 409)?.json.detail).toBe(
+      'A pack is already named twin: pick another name.',
+    )
+  })
+
+  it('answers the same rename sent twice with the pack both times', async () => {
+    await paired('dusk', 'noon')
+    const answers = await Promise.all([rename('dusk', 'night'), rename('dusk', 'night')])
+    expect(answers.map((answer) => answer.status)).toEqual([200, 200])
+    expect(await formerOf('night')).toEqual([{ name: 'dusk', people: 0 }])
+  })
+
+  it('undoes the name it held back when the name it asked for is taken as it writes', async () => {
+    await paired('reed', 'moss')
+    const [[id]] = (await db.all(sql`select id from packs where name = 'reed'`)) as [[string]]
+    // The pack as a request read it, before another took the name it is about to ask for
+    const read = { id, name: 'reed', title: 'reed', description: '', createdAt: '', updatedAt: '', triedAt: null }
+    await expect(packsRepo(db).rename(read, 'moss', true)).rejects.toThrow()
+    expect(await formerRows('reed')).toEqual([])
+  })
+
+  it('never reads the name a pack has now as one it used to have', async () => {
+    const [[id]] = (await db.all(sql`select id from packs where name = 'moss'`)) as [[string]]
+    // What a lost race left behind before it was undone
+    await db.run(sql`insert into pack_names (name, pack_id, until) values ('moss', ${id}, ${new Date().toISOString()})`)
+    for (const page of ['/docs', '/llms.txt', '/openapi.json'])
+      expect([page, (await owner(`/p/moss${page}`)).status]).toEqual([page, 200])
+    expect((await rename('moss', 'fern')).status).toBe(200)
+    expect(await formerOf('fern')).toEqual([{ name: 'moss', people: 0 }])
   })
 })
