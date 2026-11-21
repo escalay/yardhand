@@ -79,6 +79,11 @@ const clientFields = {
 const ClientInputSchema = z.object(clientFields).openapi('ClientInput', { description: 'A new API-key client.' })
 const ClientPatchSchema = ClientInputSchema.partial()
   .extend({
+    // Without a new key's default: a change that leaves the scope out keeps it
+    scope: z
+      .enum(['read', 'write'])
+      .optional()
+      .openapi({ description: '`write` lets it call tools that change things. Left out, it stays as it is.' }),
     packs: z.array(z.string().min(1).max(60)).min(1).max(20).optional().openapi({
       description: 'For a pack key: the packs it opens from now on (replaces the list).',
     }),

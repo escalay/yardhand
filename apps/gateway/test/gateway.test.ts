@@ -179,6 +179,18 @@ describe('clients', () => {
     expect((await api(key, '/api/tools')).status).toBe(401)
   })
 
+  it('keeps a client’s scope when a change leaves it out', async () => {
+    const made = await api(OWNER, '/api/clients', {
+      method: 'POST',
+      body: { name: 'writer', scope: 'write', upstreams: 'all' },
+    })
+    const renamed = await api(OWNER, `/api/clients/${made.json.id}`, { method: 'PATCH', body: { name: 'author' } })
+    expect(renamed.json).toMatchObject({ name: 'author', scope: 'write' })
+    const narrowed = await api(OWNER, `/api/clients/${made.json.id}`, { method: 'PATCH', body: { scope: 'read' } })
+    expect(narrowed.json.scope).toBe('read')
+    await api(OWNER, `/api/clients/${made.json.id}`, { method: 'DELETE' })
+  })
+
   it('refuses pins that are not live tools', async () => {
     expect((await api(OWNER, '/api/pins', { method: 'PUT', body: { tools: ['fixture.ghost'] } })).status).toBe(400)
   })
