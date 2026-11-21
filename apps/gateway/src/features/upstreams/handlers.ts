@@ -7,7 +7,7 @@ import type { Credential } from '../../adapters/index.js'
 import { SAMPLE_URL } from '../../adapters/sample.js'
 import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
-import { allows, callerOf, type Principal, requireOwner, seenBy } from '../clients/principals.js'
+import { allows, callerOf, holds, type Principal, requireOwner, seenBy, shownAs } from '../clients/principals.js'
 import { connectionSecretOf } from '../connections/provider.js'
 import { probeUpstream } from './probe.js'
 import { PATH, type routes } from './routes.js'
@@ -89,6 +89,36 @@ export const upstreamsHandlers = (services: Services) => {
     }
     return (id: string) => byUpstream.get(id) ?? NONE
   }
+  type Counts = { tools: number; offers: Offers }
+  /**
+   * Each upstream's tools and offers as this caller is told them. A pack key gets the pack's own: every name it is
+   * listed there, the playbooks and manuals the pack holds, and no links (it opens only those its tools hand it).
+   * Anyone else gets the connection's, with playbooks only while it offers them (the owner sees all).
+   */
+  const countsBy = async (principal: Principal, rows: UpstreamRow[]) => {
+    const { pack } = principal
+    if (!pack) {
+      const offersOf = await offersBy()
+      return (row: UpstreamRow): Counts => {
+        const offers = offersOf(row.id)
+        return { tools: row.toolCount, offers: principal.owner || row.playbooks ? offers : { ...offers, playbooks: 0 } }
+      }
+    }
+    const byUpstream = new Map<string, Counts>()
+    const countsOf = (id: string) => byUpstream.get(id) ?? { tools: 0, offers: NONE }
+    const own = await tools.liveMany([...new Set([...pack.tools.values()].map((entry) => entry.tool))])
+    for (const tool of own.filter(seenBy(principal))) {
+      const counts = countsOf(tool.upstreamId)
+      byUpstream.set(tool.upstreamId, { ...counts, tools: counts.tools + shownAs(principal, tool).length })
+    }
+    const offered = await catalog.listLive({ kinds: ['manual', 'playbook'], upstreams: rows.map((row) => row.id) })
+    for (const item of offered.filter((item) => holds(principal, item))) {
+      const counts = countsOf(item.upstreamId)
+      const key = item.kind === 'manual' ? 'manuals' : 'playbooks'
+      byUpstream.set(item.upstreamId, { ...counts, offers: { ...counts.offers, [key]: counts.offers[key] + 1 } })
+    }
+    return (row: UpstreamRow) => countsOf(row.id)
+  }
   type GroupCount = { key: string; title: string; tools: number }
   /**
    * Each upstream's groups with the tools this caller is listed, biggest first and Other last. A pack key gets none:
@@ -111,7 +141,7 @@ export const upstreamsHandlers = (services: Services) => {
         (a, b) => Number(a.key === 'other') - Number(b.key === 'other') || b.tools - a.tools,
       )
   }
-  const cardOf = (origin: string, row: UpstreamRow, owner: boolean, offers: Offers, groups: GroupCount[]) => ({
+  const cardOf = (origin: string, row: UpstreamRow, owner: boolean, counts: Counts, groups: GroupCount[]) => ({
     id: row.id,
     title: row.title,
     kind: row.kind,
@@ -122,9 +152,9 @@ export const upstreamsHandlers = (services: Services) => {
     trust: row.trust,
     enabled: row.enabled,
     status: row.status,
-    toolCount: row.toolCount,
+    toolCount: counts.tools,
     groups,
-    offers: owner || row.playbooks ? offers : { ...offers, playbooks: 0 },
+    offers: counts.offers,
     playbooks: row.playbooks,
     linkProxy: row.linkProxy,
     instructions: row.instructions,
@@ -144,7 +174,7 @@ export const upstreamsHandlers = (services: Services) => {
     const principal = await principalOf(c)
     const origin = originOf(c)
     const rows = (await upstreams.list()).filter((row) => allows(principal, row.id) && (principal.owner || row.enabled))
-    const offersOf = await offersBy()
+    const countsOf = await countsBy(principal, rows)
     const groupsOf = await groupsBy(
       principal,
       rows.map((row) => row.id),
@@ -154,7 +184,7 @@ export const upstreamsHandlers = (services: Services) => {
         count: rows.length,
         _links: linksOf(origin, { self: PATH }),
         _embedded: {
-          upstreams: rows.map((row) => cardOf(origin, row, principal.owner, offersOf(row.id), groupsOf(row.id))),
+          upstreams: rows.map((row) => cardOf(origin, row, principal.owner, countsOf(row), groupsOf(row.id))),
         },
       },
       200,
@@ -165,12 +195,13 @@ export const upstreamsHandlers = (services: Services) => {
     const { id } = c.req.valid('param')
     if (!allows(principal, id))
       throw new ProblemError('not_found', { detail: `No upstream ${id} for this client. GET ${PATH} lists yours.` })
+    const row = await rowOf(id)
     return c.json(
       cardOf(
         originOf(c),
-        await rowOf(id),
+        row,
         principal.owner,
-        (await offersBy())(id),
+        (await countsBy(principal, [row]))(row),
         (await groupsBy(principal, [id]))(id),
       ),
       200,
@@ -216,14 +247,16 @@ export const upstreamsHandlers = (services: Services) => {
     await storeAuth(input.id, input.auth)
     const summary = await syncQuietly(input.id)
     void watcher.restart(input.id)
+    const made = await rowOf(input.id)
+    const principal = await principalOf(c)
     return c.json(
       {
         ...cardOf(
           originOf(c),
-          await rowOf(input.id),
+          made,
           true,
-          (await offersBy())(input.id),
-          (await groupsBy(await principalOf(c), [input.id]))(input.id),
+          (await countsBy(principal, [made]))(made),
+          (await groupsBy(principal, [input.id]))(input.id),
         ),
         sync: summary,
       },
@@ -265,13 +298,15 @@ export const upstreamsHandlers = (services: Services) => {
     // Listening follows the address, the key and the switch
     if (change.enabled === false) await watcher.stop(id)
     else if (change.url || change.auth || change.enabled) await watcher.restart(id)
+    const changed = await rowOf(id)
+    const principal = await principalOf(c)
     return c.json(
       cardOf(
         originOf(c),
-        await rowOf(id),
+        changed,
         true,
-        (await offersBy())(id),
-        (await groupsBy(await principalOf(c), [id]))(id),
+        (await countsBy(principal, [changed]))(changed),
+        (await groupsBy(principal, [id]))(id),
       ),
       200,
     )

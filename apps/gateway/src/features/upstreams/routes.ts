@@ -109,7 +109,10 @@ export const UpstreamSchema = z
     trust: z.enum(['trusted', 'review']),
     enabled: z.boolean(),
     status: z.enum(['new', 'live', 'failing']),
-    toolCount: z.number().int(),
+    toolCount: z.number().int().openapi({
+      description:
+        'Its live tools. For a pack key: the names the pack gives this key there, as `GET /api/tools?upstream=` lists them.',
+    }),
     groups: z.array(z.object({ key: z.string(), title: z.string(), tools: z.number().int() })).openapi({
       description:
         'Its groups with the tools you are listed in each, biggest first: narrow `GET /api/tools` with `upstream` and `group`. Empty for a pack key.',
@@ -120,7 +123,10 @@ export const UpstreamSchema = z
         playbooks: z.number().int(),
         links: z.number().int().openapi({ description: 'Resource templates and listed resources.' }),
       })
-      .openapi({ description: 'What it offers besides tools, live now.' }),
+      .openapi({
+        description:
+          'What it offers besides tools, live now. For a pack key: the playbooks and manuals its pack holds, and no links (it opens only the links its tools hand it).',
+      }),
     playbooks: z.boolean().openapi({ description: 'Its playbooks are offered to agents (the owner’s switch).' }),
     linkProxy: z.boolean().openapi({
       description: 'Links to its own host open through the gateway with its credential (`/u/{id}/r/*`).',

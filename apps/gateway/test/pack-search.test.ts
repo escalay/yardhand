@@ -1,7 +1,8 @@
 /**
  * Search that can say nothing, on a catalog large enough to tell a match from noise (909 tools): a key finds only what
  * stands out among every tool, or carries the asked words and is near enough in meaning, and a pack's empty search
- * says what the pack covers. A small catalog, and a gateway whose search by meaning fails, search as before.
+ * says what the pack covers. A small catalog, and a gateway whose search by meaning fails, search as before. Around the
+ * search, a pack key is told only the pack: its connections' counts, no links, its own playbooks.
  */
 import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
@@ -267,6 +268,63 @@ describe('on a large catalog', () => {
     const outside = await mcp(full)
     expect(await said(outside, 'search_tools', { query: 'zzqx' })).toBe(`No tools match. ${plain}`)
     await outside.close()
+  })
+
+  type UpstreamCard = { id: string; toolCount: number; offers: Record<string, number>; groups: unknown[] }
+  /** Each connection a key is listed, with its counts. */
+  const cardsOf = async (key: string) =>
+    Object.fromEntries(
+      ((await api(key, '/api/upstreams')).json._embedded.upstreams as UpstreamCard[]).map((card) => [
+        card.id,
+        { toolCount: card.toolCount, offers: card.offers },
+      ]),
+    )
+
+  it('counts on a pack key’s connections only what the pack holds', async () => {
+    const cards = await cardsOf(kit)
+    expect(cards).toEqual({
+      crowd: { toolCount: 2, offers: { manuals: 0, playbooks: 0, links: 0 } },
+      // Three tools under four names, one of the connection's two playbooks, and not its manual
+      fixture: { toolCount: 4, offers: { manuals: 0, playbooks: 1, links: 0 } },
+    })
+    // Each number is what the same key's lists hold
+    for (const [id, card] of Object.entries(cards)) {
+      const counted = async (path: string) => (await api(kit, `${path}?upstream=${id}`)).json.count
+      expect([id, await counted('/api/tools')]).toEqual([id, card.toolCount])
+      expect([id, await counted('/api/playbooks')]).toEqual([id, card.offers.playbooks])
+      expect([id, await counted('/api/manuals')]).toEqual([id, card.offers.manuals])
+    }
+    expect((await api(kit, '/api/upstreams/fixture')).json).toMatchObject({
+      toolCount: 4,
+      offers: { manuals: 0, playbooks: 1, links: 0 },
+      groups: [],
+    })
+    // A read-only key is not listed shout, which changes things
+    expect((await cardsOf(kitReader)).fixture?.toolCount).toBe(3)
+    expect(await cardsOf(notes)).toEqual({ fixture: { toolCount: 1, offers: { manuals: 1, playbooks: 0, links: 0 } } })
+  })
+
+  it('keeps a connection’s own counts for a key outside packs', async () => {
+    const cards = await cardsOf(full)
+    expect(cards.crowd).toEqual({ toolCount: 106, offers: { manuals: 0, playbooks: 205, links: 0 } })
+    expect(cards.fixture?.offers).toEqual({ manuals: 1, playbooks: 2, links: 1 })
+    expect(cards.fixture?.toolCount).toBe((await api(full, '/api/tools?upstream=fixture&limit=200')).json.count)
+  })
+
+  it('prints the pack’s own counts in list_upstreams, and a manual only when the pack holds it', async () => {
+    const agent = await mcp(kit)
+    const listed = await said(agent, 'list_upstreams')
+    expect(listed).toMatch(/^crowd: Crowd, 2 tools$/m)
+    expect(listed).toMatch(/^fixture: Fixture, 4 tools, 1 playbook$/m)
+    expect(listed).not.toContain('Manual:')
+    expect(await said(agent, 'describe_tool', { name: 'fixture.echo' })).not.toContain('has a manual')
+    await agent.close()
+    const holder = await mcp(notes)
+    const held = await said(holder, 'list_upstreams')
+    expect(held).toMatch(/^fixture: Fixture, 1 tool$/m)
+    expect(held).toContain('Manual: read_resource "gateway://u/fixture/manual"')
+    expect(await said(holder, 'describe_tool', { name: 'fixture.echo' })).toContain('has a manual')
+    await holder.close()
   })
 
   it('lists a pack key no links: it opens only the ones its tools hand it', async () => {
