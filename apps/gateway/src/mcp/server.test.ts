@@ -74,6 +74,32 @@ describe('a pack connection’s instructions', () => {
     )
   })
 
+  it('send the agent to the pack’s skill first, and name the pack’s own playbooks before its connections’', () => {
+    const told = packInstructions(
+      {
+        ...pack,
+        playbooks: ['fixture-warm-up'],
+        ownPlaybooks: ['say-hello'],
+        skill: 'skill://desk/SKILL.md',
+        ownPins: false,
+      },
+      { pins: [pin], readOnly: false },
+    )
+    expect(told).toMatch(
+      /^Front desk: Greets for the desk\.\n\nStart with the skill, read once before the tools: read_resource "skill:\/\/desk\/SKILL\.md"\.\n\nEvery tool of this pack is listed here/,
+    )
+    expect(told).toContain(
+      'Playbooks (step-by-step ways to do one task, as prompts or with get_playbook): say-hello, fixture-warm-up.',
+    )
+    // Without a skill nothing is said of one
+    expect(packInstructions({ ...pack, ownPins: false }, { pins: [pin], readOnly: false })).not.toContain('skill')
+    const ownOnly = packInstructions(
+      { ...pack, ownPlaybooks: ['say-hello'], ownPins: false },
+      { pins: [], readOnly: false },
+    )
+    expect(ownOnly).toContain('get_playbook): say-hello.')
+  })
+
   it('say so when nothing is listed: no pin in this pack, or a pack with no tools for this key', () => {
     const none = packInstructions({ ...pack, ownPins: true }, { pins: [], readOnly: false })
     expect(none).toContain('No tool of this pack is listed here. Each is found on demand:')

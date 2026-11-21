@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countOf, META_TOOLS } from './tools.js'
+import { countOf, META_TOOLS, metaToolsFor } from './tools.js'
 
 const search = META_TOOLS.find((tool) => tool.name === 'search_tools')
 const nothing = { query: 'taxes', hiddenForScope: 0, hint: null, playbooks: [], _embedded: { tools: [] } }
@@ -14,6 +14,34 @@ describe('countOf', () => {
       '0 tools',
       '1 playbook',
     ])
+  })
+})
+
+describe('the meta-tools over a pack', () => {
+  const described = (pack: Parameters<typeof metaToolsFor>[0], name: string) => {
+    const tool = metaToolsFor(pack).find((one) => one.name === name)
+    if (!tool) throw new Error(`no ${name}`)
+    const input = (tool.input as unknown as { shape: Record<string, { description?: string }> }).shape
+    return { description: tool.description, name: input.name?.description, uri: input.uri?.description }
+  }
+
+  it('word get_playbook for a pack: its playbooks are not all a connection’s', () => {
+    const forPack = described(kit, 'get_playbook')
+    expect(forPack.description).toBe(
+      'A playbook filled in with your arguments: a step-by-step way to do one task with this pack’s tools. search_tools suggests them; follow the steps it returns.',
+    )
+    expect(forPack.name).toBe('The playbook name as search_tools or the prompt list gives it.')
+    expect(JSON.stringify(forPack)).not.toContain('<upstream>-<prompt>')
+    // The gateway's own keeps its words
+    expect(described(undefined, 'get_playbook').name).toContain('`<upstream>-<prompt>`')
+  })
+
+  it('say where a pack’s skill is read, only for a pack that has one', () => {
+    const withSkill = described({ ...kit, skill: 'skill://kit/SKILL.md' }, 'read_resource')
+    expect(withSkill.description).toContain('or this pack’s skill (skill://kit/SKILL.md)')
+    expect(withSkill.uri).toContain('skill://kit/SKILL.md')
+    for (const pack of [kit, { ...kit, skill: null }, undefined])
+      expect(JSON.stringify(described(pack, 'read_resource'))).not.toContain('skill')
   })
 })
 

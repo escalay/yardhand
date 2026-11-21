@@ -216,7 +216,8 @@ const howToWork = (pack: NonNullable<Me['pack']>, pins: Pin[]) =>
       ]
 
 /**
- * A pack connection's instructions: the pack's own words, how to work it, then what it holds. `connections` are its
+ * A pack connection's instructions: the pack's own words, its skill to start with, how to work it, then what it
+ * holds, the playbooks written for it before those of its connections. `connections` are its
  * upstreams as `GET /api/upstreams` counts them for the pack; `pins` are the tools listed directly; `shadowed` are
  * the pack's names that one of the connection's own tools holds.
  */
@@ -233,6 +234,7 @@ export const packInstructions = (
   [
     `${pack.title}: ${pack.description}`.trim(),
     '',
+    ...(pack.skill ? [`Start with the skill, read once before the tools: read_resource "${pack.skill}".`, ''] : []),
     ...howToWork(pack, pins),
     ...(shadowed.length
       ? [
@@ -248,10 +250,10 @@ export const packInstructions = (
         ]
       : []),
     ...(readOnly ? ['This key is read-only: tools in the pack that change things are left out.'] : []),
-    ...(pack.playbooks.length
+    ...(pack.ownPlaybooks.length + pack.playbooks.length
       ? [
           '',
-          `Playbooks (step-by-step ways to do one task, as prompts or with get_playbook): ${pack.playbooks.join(', ')}.`,
+          `Playbooks (step-by-step ways to do one task, as prompts or with get_playbook): ${[...pack.ownPlaybooks, ...pack.playbooks].join(', ')}.`,
         ]
       : []),
     ...(pack.manuals.length

@@ -4,6 +4,10 @@
  * what was written for the pack its request is locked to.
  */
 import { randomBytes } from 'node:crypto'
+import type { AddressInfo } from 'node:net'
+import { serve } from '@hono/node-server'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { SkillsClient } from '@modelcontextprotocol/client/ext/skills'
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
@@ -17,7 +21,13 @@ const app = await createApp({
   db,
   env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: randomBytes(32).toString('base64') },
 })
-afterAll(() => upstream.close())
+const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 })
+await new Promise<void>((resolve) => server.once('listening', () => resolve()))
+const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+afterAll(async () => {
+  await upstream.close()
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+})
 
 type Init = { method?: string; body?: unknown; headers?: Record<string, string> }
 /** An answer with its text, with a key. */
@@ -38,6 +48,36 @@ const at = async (key: string, path: string, init: Init = {}) => {
   return { status: response.status, text, json }
 }
 const owner = (path: string, init?: Init) => at(OWNER, path, init)
+const mcp = async (key: string, path = '/mcp', headers: Record<string, string> = {}) => {
+  const client = new Client({ name: 'test', version: '1.0.0' })
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(path, origin), {
+      requestInit: { headers: { authorization: `Bearer ${key}`, ...headers } },
+    }),
+  )
+  return client
+}
+/** What a tool answers over MCP, as the agent reads it, and whether it is an error. */
+const said = async (client: Client, name: string, args: Record<string, unknown> = {}) => {
+  const answer = await client.callTool({ name, arguments: args })
+  return {
+    isError: Boolean(answer.isError),
+    text: (answer.content as { text?: string }[]).map((block) => block.text ?? '').join('\n'),
+  }
+}
+/** A prompt's text over MCP, or the error it is refused with. */
+const prompted = (client: Client, name: string, args: Record<string, string> = {}) =>
+  client.getPrompt({ name, arguments: args }).then(
+    (got) => (got.messages[0]?.content as { text?: string } | undefined)?.text ?? '',
+    (error: Error) => `refused: ${error.message}`,
+  )
+/** The skills a connection lists, by address. */
+const skillsOf = async (client: Client) => (await new SkillsClient(client).list()).skills.map((entry) => entry.uri)
+/** The last reads in the call log, newest first, as kind, name, upstream and door. */
+const lastReads = async (count: number) =>
+  (
+    (await owner(`/api/calls?kind=manual,playbook&limit=${count}`)).json._embedded.calls as Record<string, unknown>[]
+  ).map((call) => [call.kind, call.tool, call.upstream, call.via, call.status])
 type Made = { id: string; key: string }
 const keyFor = async (body: Record<string, unknown>) => {
   const made = await owner('/api/clients', { method: 'POST', body: { scope: 'write', ...body } })
@@ -463,5 +503,229 @@ describe('changing a pack’s variables', () => {
     await variables('desk', { door: 'the front door' })
     stop()
     expect(seen).toEqual([{ tools: true, prompts: true, resources: true }])
+  })
+})
+
+describe('a pack connection over MCP', () => {
+  const HELLO_SAM =
+    '1. Run `greet_from_desk` with `to` set to Sam, at the front door.\n2. Say it back with `fixture.echo`, sounding .\n'
+
+  it('lists the pack’s own playbooks as prompts, first, and fills one in', async () => {
+    const client = await mcp(ada.key, '/p/desk/mcp')
+    const { prompts } = await client.listPrompts()
+    expect(namesOf(prompts)).toEqual(['use_pack', 'say-hello', 'fixture-warm-up'])
+    expect(prompts[1]).toMatchObject({
+      title: 'Front desk · Say hello',
+      description: 'Greets a guest by name, from the desk.',
+      arguments: [
+        { name: 'guest', description: 'Who to greet.', required: true },
+        { name: 'mood', required: false },
+      ],
+    })
+    expect(await prompted(client, 'say-hello', { guest: 'Sam' })).toBe(HELLO_SAM)
+    expect(await lastReads(1)).toEqual([['playbook', 'say-hello', null, 'mcp', 'ok']])
+    await client.close()
+  })
+
+  it('gives the same text through get_playbook, and suggests it from a search', async () => {
+    const client = await mcp(ada.key, '/p/desk/mcp')
+    const got = await said(client, 'get_playbook', { name: 'say-hello', arguments: { guest: 'Sam' } })
+    expect(got).toEqual({ isError: false, text: `Greets a guest by name, from the desk.\n\n${HELLO_SAM}` })
+    const refused = await said(client, 'get_playbook', { name: 'say-hello' })
+    expect(refused).toEqual({
+      isError: true,
+      text: '400 bad_request Bad request: say-hello needs guest: guest (Who to greet.); mood.',
+    })
+    const found = await said(client, 'search_tools', { query: 'greet a guest' })
+    expect(found.text).toContain(
+      'Playbooks made for this (step-by-step ways to do it with these tools; get_playbook):\nsay-hello: Front desk · Say hello. Greets a guest by name, from the desk.',
+    )
+    const tools = (await client.listTools()).tools
+    expect(tools.find((tool) => tool.name === 'get_playbook')?.description).toContain('with this pack’s tools')
+    expect(tools.find((tool) => tool.name === 'read_resource')?.description).toContain(
+      'or this pack’s skill (skill://desk/SKILL.md)',
+    )
+    await client.close()
+  })
+
+  it('opens its instructions on the skill, names its own playbooks first, and counts none on a connection', async () => {
+    const client = await mcp(ada.key, '/p/desk/mcp')
+    const told = client.getInstructions() ?? ''
+    expect(told).toMatch(
+      /^Front desk: Front desk: says things to people\.\n\nStart with the skill, read once before the tools: read_resource "skill:\/\/desk\/SKILL\.md"\.\n/,
+    )
+    expect(told).toContain('with get_playbook): say-hello, fixture-warm-up.')
+    expect(told).toMatch(/^- fixture: Fixture \(2 tools, 1 playbook\)$/m)
+    expect((await said(client, 'list_upstreams')).text).toMatch(/^fixture: Fixture, 2 tools, 1 playbook$/m)
+    await client.close()
+  })
+
+  it('serves the skill as a skill, as a resource and through read_resource, each read logged', async () => {
+    const client = await mcp(ada.key, '/p/desk/mcp')
+    const skills = new SkillsClient(client)
+    expect(skills.supported).toBe(true)
+    const { skills: entries } = await skills.list()
+    expect(entries.map((entry) => entry.uri)).toEqual(['skill://desk/SKILL.md'])
+    expect(entries[0]?.frontmatter).toEqual({
+      name: 'desk',
+      description: 'Working with Front desk: Front desk: says things to people.',
+    })
+    const [entry] = entries
+    if (!entry) throw new Error('no skill listed')
+    const read = await skills.read(entry)
+    expect(read.text).toMatch(/^---\nname: desk\n/)
+    expect(read.text).toContain('# Working with Front desk\n\n## What it is for\n\nGreeting people at the front door.')
+    expect(await lastReads(1)).toEqual([['manual', 'skill://desk/SKILL.md', null, 'mcp', 'ok']])
+
+    const resource = await client.readResource({ uri: 'skill://desk/SKILL.md' })
+    expect((resource.contents[0] as { text: string }).text).toBe(read.text)
+    const viaTool = await said(client, 'read_resource', { uri: 'skill://desk/SKILL.md' })
+    expect(viaTool).toEqual({ isError: false, text: read.text })
+    expect(await lastReads(3)).toEqual(Array(3).fill(['manual', 'skill://desk/SKILL.md', null, 'mcp', 'ok']))
+    await client.close()
+  })
+
+  it('serves the skill with a variable as it is now, in the list too', async () => {
+    const before = await mcp(ada.key, '/p/desk/mcp')
+    const [was] = (await new SkillsClient(before).list()).skills
+    await before.close()
+    await variables('desk', { door: 'the side door' })
+    const client = await mcp(ada.key, '/p/desk/mcp')
+    const skills = new SkillsClient(client)
+    const [now] = (await skills.list()).skills
+    if (!was || !now) throw new Error('no skill listed')
+    expect((await skills.read(now)).text).toContain('Greeting people at the side door.')
+    // An entry carries a digest of its text: a client that kept the old one sees that it changed
+    expect(JSON.stringify(now)).not.toBe(JSON.stringify(was))
+    await client.close()
+    await variables('desk', { door: 'the front door' })
+  })
+
+  it('gives a key nothing written for another pack', async () => {
+    const client = await mcp(sam.key)
+    expect(namesOf((await client.listPrompts()).prompts)).toEqual(['use_pack', 'shout-it'])
+    expect(await prompted(client, 'say-hello', { guest: 'Sam' })).toMatch(/^refused: /)
+    expect(await said(client, 'get_playbook', { name: 'say-hello', arguments: { guest: 'Sam' } })).toEqual({
+      isError: true,
+      text: '404 not_found Not found: No playbook say-hello for this client. GET /api/playbooks?q=<what you want to do> finds yours.',
+    })
+    expect((await said(client, 'search_tools', { query: 'greet a guest' })).text).not.toContain('say-hello')
+    expect(await skillsOf(client)).toEqual(['skill://loud/SKILL.md'])
+    const other = await said(client, 'read_resource', { uri: 'skill://desk/SKILL.md' })
+    expect(other).toEqual({
+      isError: true,
+      text: "404 not_found Not found: No skill at skill://desk/SKILL.md for this client. GET /api/manuals lists the manuals you may read, and this pack's skill is skill://loud/SKILL.md.",
+    })
+    await expect(client.readResource({ uri: 'skill://desk/SKILL.md' })).rejects.toThrow()
+    const told = client.getInstructions() ?? ''
+    expect(told).toContain('read_resource "skill://loud/SKILL.md"')
+    expect(told).toContain('get_playbook): shout-it.')
+    for (const word of ['say-hello', 'skill://desk', 'Front desk', 'front door']) expect(told).not.toContain(word)
+    await client.close()
+  })
+
+  it('gives a key outside packs, and the owner, no pack’s own', async () => {
+    for (const key of [plain.key, OWNER]) {
+      const client = await mcp(key)
+      const prompts = namesOf((await client.listPrompts()).prompts)
+      expect(prompts.filter((name) => !name.startsWith('fixture-'))).toEqual(['use_gateway'])
+      expect(await skillsOf(client)).toEqual(['skill://fixture/SKILL.md'])
+      expect((await said(client, 'read_resource', { uri: 'skill://desk/SKILL.md' })).isError).toBe(true)
+      expect(client.getInstructions()).not.toContain('skill://desk')
+      await client.close()
+    }
+  })
+
+  it('follows the address for a key that opens two packs', async () => {
+    for (const [path, prompts, skill] of [
+      ['/p/desk/mcp', ['use_pack', 'say-hello', 'fixture-warm-up'], 'skill://desk/SKILL.md'],
+      ['/p/loud/mcp', ['use_pack', 'shout-it'], 'skill://loud/SKILL.md'],
+    ] as const) {
+      const client = await mcp(both.key, path)
+      expect([path, namesOf((await client.listPrompts()).prompts)]).toEqual([path, prompts])
+      expect([path, await skillsOf(client)]).toEqual([path, [skill]])
+      await client.close()
+    }
+    const loud = await mcp(both.key, '/p/loud/mcp')
+    expect((await said(loud, 'get_playbook', { name: 'say-hello', arguments: { guest: 'Sam' } })).isError).toBe(true)
+    expect((await said(loud, 'read_resource', { uri: 'skill://desk/SKILL.md' })).isError).toBe(true)
+    await loud.close()
+  })
+
+  it('serves a renamed pack’s own at each of its old addresses', async () => {
+    const old = await keyFor({ name: 'Second porch key', pack: 'veranda' })
+    const doors: [string, Record<string, string>][] = [
+      ['/p/porch/mcp', {}],
+      ['/mcp/p/porch', {}],
+      ['/mcp', { 'x-gateway-pack': 'porch' }],
+    ]
+    for (const [path, headers] of doors) {
+      const client = await mcp(old.key, path, headers)
+      const door = `${path} ${Object.values(headers).join()}`
+      expect([door, client.getServerVersion()?.name]).toEqual([door, 'veranda'])
+      expect([door, namesOf((await client.listPrompts()).prompts)]).toEqual([door, ['use_pack', 'say-it']])
+      expect([door, await prompted(client, 'say-it')]).toEqual([
+        door,
+        '1. Run `fixture.echo` with the line.\n2. Run `fixture.echo` with the same line.\n',
+      ])
+      expect([door, (await said(client, 'get_playbook', { name: 'say-it' })).isError]).toEqual([door, false])
+      expect([door, await skillsOf(client)]).toEqual([door, ['skill://veranda/SKILL.md']])
+      const skill = await said(client, 'read_resource', { uri: 'skill://veranda/SKILL.md' })
+      expect([door, skill.isError, skill.text.includes('Talking on the porch.')]).toEqual([door, false, true])
+      expect([door, client.getInstructions()?.includes('read_resource "skill://veranda/SKILL.md"')]).toEqual([
+        door,
+        true,
+      ])
+      await client.close()
+    }
+    // A key that does not open it is refused at each door, and told nothing of it
+    for (const [path, headers] of doors) {
+      const refused = await at(sam.key, path, {
+        method: 'POST',
+        headers: { accept: 'application/json, text/event-stream', ...headers },
+        body: { jsonrpc: '2.0', id: 1, method: 'prompts/list' },
+      })
+      expect([path, refused.status]).toEqual([path, 403])
+      for (const word of ['veranda', 'say-it', 'Talking']) expect(refused.text).not.toContain(word)
+    }
+  })
+})
+
+describe('a pack named like a connection whose manual it holds', () => {
+  let key: Made
+  beforeAll(async () => {
+    await packWith('fixture', 'Fixture kit', [{ name: 'fixture.echo' }])
+    const held = await owner('/api/packs/fixture', { method: 'PATCH', body: { add: { manuals: ['fixture'] } } })
+    expect([held.status, held.json?.detail]).toEqual([200, undefined])
+    await skillOf('fixture', skillText('Echoing, for the kit.', '`fixture.echo` says it back.'))
+    key = await keyFor({ name: 'Kit key', pack: 'fixture' })
+  })
+
+  it('lists one skill per address: the pack’s, which wins the address', async () => {
+    const client = await mcp(key.key)
+    const skills = new SkillsClient(client)
+    const { skills: entries } = await skills.list()
+    expect(entries.map((entry) => entry.uri)).toEqual(['skill://fixture/SKILL.md'])
+    const [entry] = entries
+    if (!entry) throw new Error('no skill listed')
+    expect(entry.frontmatter.description).toBe('Working with Fixture kit: Fixture kit: says things to people.')
+    expect((await skills.read(entry)).text).toContain('# Working with Fixture kit')
+    const viaTool = await said(client, 'read_resource', { uri: 'skill://fixture/SKILL.md' })
+    expect(viaTool.text).toContain('Echoing, for the kit.')
+    expect(viaTool.text).not.toContain('Start with echo')
+    await client.close()
+  })
+
+  it('still reads the manual where a manual is read, and its other files under the same root', async () => {
+    const client = await mcp(key.key)
+    const manual = await said(client, 'read_resource', { uri: 'gateway://u/fixture/manual' })
+    expect(manual.text).toContain('Start with echo for anything you want said back.')
+    expect(manual.text).not.toContain('Working with Fixture kit')
+    const notes = await said(client, 'read_resource', { uri: 'skill://fixture/references/notes.md' })
+    expect(notes.text).toContain('# Notes')
+    expect(client.getInstructions()).toContain('gateway://u/fixture/manual')
+    await client.close()
+    const byRest = await at(key.key, '/api/manuals/fixture')
+    expect([byRest.status, byRest.json.text.includes('Start with echo')]).toEqual([200, true])
   })
 })
