@@ -145,7 +145,7 @@ type Sets = Pick<PackTool, 'fixed' | 'defaults'>
 
 /** Who fills an input, from what the pack stores: an input in neither map is the agent's. */
 export const modeOf = (tool: Sets, input: string): InputMode =>
-  input in tool.fixed ? 'fixed' : input in tool.defaults ? 'default' : 'agent'
+  Object.hasOwn(tool.fixed, input) ? 'fixed' : Object.hasOwn(tool.defaults, input) ? 'default' : 'agent'
 
 /** "Fixed account = {{account}} · Default posted_since = 7", or empty when the pack sets nothing. */
 export const inputsLine = (tool: Sets) =>

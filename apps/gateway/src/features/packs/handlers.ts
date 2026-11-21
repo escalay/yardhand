@@ -13,7 +13,7 @@ import { KEY_PLACEHOLDER, surfacesOf } from '../clients/setup.js'
 import { summaryOf } from '../tools/handlers.js'
 import { type LiveTool, needsWrite } from '../tools/repo.js'
 import { checkPack, judge, throwOnRefused, writersOf } from './checks.js'
-import { defaultsOf, fixedOf, inputProblems, lostInputs } from './entries.js'
+import { defaultsOf, fixedOf, inputProblems, lostInputs, modeOf } from './entries.js'
 import { flagOf, packFlags } from './flags.js'
 import type { PackContents } from './repo.js'
 import { FLAGS_PATH, PATH, type routes } from './routes.js'
@@ -89,8 +89,7 @@ export const packsHandlers = ({
           fixed,
           defaults,
           inputs: Object.keys((tool?.inputSchema.properties ?? {}) as object).map((input) => {
-            const mode =
-              input in fixed ? ('fixed' as const) : input in defaults ? ('default' as const) : ('agent' as const)
+            const mode = modeOf({ fixed, defaults }, input)
             const value = mode === 'fixed' ? fixed[input] : mode === 'default' ? defaults[input] : null
             return {
               name: input,

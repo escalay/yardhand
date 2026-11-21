@@ -274,6 +274,9 @@ describe('what a pack sets on a tool’s inputs', () => {
     expect(modeOf(tool, 'account')).toBe('fixed')
     expect(modeOf(tool, 'posted_since')).toBe('default')
     expect(modeOf(tool, 'query')).toBe('agent')
+    // An input named like something every object has is the agent's until the pack sets it
+    expect(modeOf(tool, 'constructor')).toBe('agent')
+    expect(modeOf({ fixed: {}, defaults: { toString: 'x' } }, 'toString')).toBe('default')
   })
 
   it('says what a pack tool sets, by mode', () => {

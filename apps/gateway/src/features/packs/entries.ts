@@ -53,7 +53,7 @@ export const shownSchema = (
       .filter(([key]) => !hidden.includes(key))
       .map(([key, property]) => [
         key,
-        key in entry.defaults ? { ...property, default: entry.defaults[key] } : property,
+        Object.hasOwn(entry.defaults, key) ? { ...property, default: entry.defaults[key] } : property,
       ]),
   )
   const required = Array.isArray(schema.required)
@@ -77,7 +77,7 @@ export const presented = <T extends { name: string; description: string; inputSc
 /** The values whose input the tool's schema no longer has: the upstream dropped or renamed it. */
 export const lostInputs = (schema: Record<string, unknown>, values: Fixed) => {
   const properties = propertiesOf(schema)
-  return Object.keys(values).filter((key) => !(key in properties))
+  return Object.keys(values).filter((key) => !Object.hasOwn(properties, key))
 }
 
 const ajv = new Ajv({ allErrors: true, strict: false, validateFormats: false })
@@ -105,6 +105,10 @@ const checkOf = (schema: Record<string, unknown>) => {
 }
 
 export type InputMode = 'fixed' | 'default'
+
+/** Who fills an input, from what the pack stores: an input in neither map is the agent's. */
+export const modeOf = (raw: { fixed: Fixed; defaults: Fixed }, input: string): InputMode | 'agent' =>
+  Object.hasOwn(raw.fixed, input) ? 'fixed' : Object.hasOwn(raw.defaults, input) ? 'default' : 'agent'
 export type InputProblem = {
   input: string
   mode: InputMode
@@ -127,7 +131,7 @@ export const inputProblems = (
   const properties = propertiesOf(tool.inputSchema)
   const of = (mode: InputMode, values: Fixed) =>
     Object.entries(values).flatMap(([input, value]): InputProblem[] => {
-      if (mode === 'default' && input in raw.fixed)
+      if (mode === 'default' && Object.hasOwn(raw.fixed, input))
         return [
           {
             input,
@@ -137,7 +141,7 @@ export const inputProblems = (
             message: `${input} is both fixed and a default: keep it in one`,
           },
         ]
-      const schema = properties[input]
+      const schema = Object.hasOwn(properties, input) ? properties[input] : undefined
       if (!schema)
         return [{ input, mode, level: 'error', code: 'unknown_input', message: `${tool.name} has no input ${input}` }]
       const resolved = resolveValue(value, variables)

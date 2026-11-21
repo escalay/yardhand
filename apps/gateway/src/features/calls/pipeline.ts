@@ -107,7 +107,7 @@ export const createPipeline =
         tool.upstreamId,
       )
     base = { ...base, tool: tool.name }
-    const overridden = Object.keys(entry.fixed).filter((key) => key in args)
+    const overridden = Object.keys(entry.fixed).filter((key) => Object.hasOwn(args, key))
     if (overridden.length)
       return refuse(
         new ProblemError('bad_request', {

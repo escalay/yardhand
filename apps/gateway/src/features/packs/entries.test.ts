@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inputProblems, lostInputs, presented, resolveEntry, shownSchema } from './entries.js'
+import { inputProblems, lostInputs, modeOf, presented, resolveEntry, shownSchema } from './entries.js'
 
 const schema = {
   type: 'object',
@@ -184,5 +184,35 @@ describe('inputProblems', () => {
 describe('lostInputs', () => {
   it('names the values whose input the tool dropped', () => {
     expect(lostInputs(schema, { from: 'the desk', sender: 'the desk' })).toEqual(['sender'])
+  })
+})
+
+describe('an input named like something every object has', () => {
+  const built = {
+    name: 'fixture.build',
+    description: 'Builds.',
+    inputSchema: { type: 'object', properties: { constructor: { type: 'string' }, toString: { type: 'boolean' } } },
+  }
+
+  it('is the agent’s until the pack sets it, and then in the mode the pack chose', () => {
+    expect(modeOf({ fixed: {}, defaults: {} }, 'constructor')).toBe('agent')
+    expect(modeOf({ fixed: {}, defaults: { constructor: 'x' } }, 'constructor')).toBe('default')
+    expect(modeOf({ fixed: { constructor: 'x' }, defaults: {} }, 'constructor')).toBe('fixed')
+  })
+
+  it('takes a default without being read as fixed too', () => {
+    expect(inputProblems(built, { fixed: {}, defaults: { constructor: 'x' } }, {})).toEqual([])
+  })
+
+  it('is shown as the tool has it when the pack gives another input a default', () => {
+    const shown = shownSchema(built.inputSchema, { fixed: {}, defaults: { constructor: 'x' } })
+    expect(shown.properties).toEqual({ constructor: { type: 'string', default: 'x' }, toString: { type: 'boolean' } })
+  })
+
+  it('is unknown to a tool that has no such input, and lost when the tool drops it', () => {
+    expect(inputProblems(greet, { fixed: { constructor: 'x' }, defaults: {} }, {})).toEqual([
+      expect.objectContaining({ code: 'unknown_input', message: 'fixture.greet has no input constructor' }),
+    ])
+    expect(lostInputs(schema, { constructor: 'x', from: 'the desk' })).toEqual(['constructor'])
   })
 })
