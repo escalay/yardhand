@@ -16,6 +16,7 @@ import {
   isAlias,
   isPackName,
   lineOf,
+  nameProblem,
   packQueryOf,
   preselected,
   reasonOf,
@@ -233,6 +234,15 @@ describe('trying a pack', () => {
   it('says how many matches a read-only key is not shown', () => {
     expect(hiddenLine(1)).toBe('1 matching tool changes things and is hidden from this read-only key.')
     expect(hiddenLine(2)).toBe('2 matching tools change things and are hidden from this read-only key.')
+  })
+
+  it('says why a name cannot be a pack’s', () => {
+    expect(nameProblem('draft')).toBeNull()
+    expect(nameProblem('')).toBeNull()
+    expect(nameProblem('Draft one')).toBe('Lowercase letters, digits and dashes, starting with a letter or digit.')
+    expect(nameProblem('-draft')).toBe('Lowercase letters, digits and dashes, starting with a letter or digit.')
+    // Reserved by the API, though it fits the pattern
+    expect(nameProblem('flags')).toBe('flags is taken: pick another name.')
   })
 
   it('says who a rename leaves working at the old address', () => {

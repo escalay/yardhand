@@ -19,7 +19,17 @@ export const slugOf = (title: string) =>
     .slice(0, 40)
     .replace(/-+$/, '')
 
-export const isPackName = (name: string) => /^[a-z0-9][a-z0-9-]{0,39}$/.test(name) && name !== 'flags'
+/** The one name of the right shape no pack can have: `/api/packs/flags` is a route. */
+const RESERVED = 'flags'
+export const isPackName = (name: string) => /^[a-z0-9][a-z0-9-]{0,39}$/.test(name) && name !== RESERVED
+
+/** Why a typed name can't be a pack's; null for one that can, and while nothing is typed. */
+export const nameProblem = (name: string) =>
+  !name || isPackName(name)
+    ? null
+    : name === RESERVED
+      ? `${RESERVED} is taken: pick another name.`
+      : 'Lowercase letters, digits and dashes, starting with a letter or digit.'
 
 /** What renaming a pack means for those set up with its address: its working keys go on at the old one. */
 export const renameNote = (keys: number, from: string) =>

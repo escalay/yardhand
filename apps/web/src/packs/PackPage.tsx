@@ -38,7 +38,7 @@ import { AddressCard } from './AddressCard'
 import { Checklist } from './Checklist'
 import { UpstreamChips } from './PacksPage'
 import { PackTools } from './PackTools'
-import { expiryOf, holdsLine, isPackName, renameNote } from './packs.rules'
+import { expiryOf, holdsLine, isPackName, nameProblem, renameNote } from './packs.rules'
 import { packQuery, packsQuery } from './queries'
 import { TRY_ID, TryIt } from './TryIt'
 
@@ -136,11 +136,7 @@ const EditPack = ({
                 Its address is <Mono>/p/{name || '…'}</Mono>.{renamed ? ` ${renameNote(pack.keys, pack.name)}` : null}
               </>
             }
-            error={
-              name && !isPackName(name)
-                ? 'Lowercase letters, digits and dashes, starting with a letter or digit.'
-                : null
-            }
+            error={nameProblem(name)}
           >
             {(id) => (
               <Input
