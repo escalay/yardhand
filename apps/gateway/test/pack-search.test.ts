@@ -136,9 +136,9 @@ describe('on a large catalog', () => {
         id,
         http: { endpoints: numbered(200, (n) => ({ name: 'flag', description: `Reads beta flag ${n}.` })) },
       })
-    // Playbooks elsewhere that say the asked words better than the pack's own
+    // Playbooks elsewhere that say the asked words better than the pack's own, more than a search reads
     const { catalog } = app.services
-    for (const { name } of numbered(35, () => ({ name: 'say-back', description: '' }))) {
+    for (const { name } of numbered(205, () => ({ name: 'say-back', description: '' }))) {
       const id = `crowd:playbook:${name}`
       await catalog.create({ id, upstreamId: 'crowd', kind: 'playbook', remoteName: name, name: `crowd-${name}` })
       const content = { kind: 'playbook' as const, prompt: name, title: 'Say a topic back', arguments: [] }
@@ -267,6 +267,23 @@ describe('on a large catalog', () => {
     const outside = await mcp(full)
     expect(await said(outside, 'search_tools', { query: 'zzqx' })).toBe(`No tools match. ${plain}`)
     await outside.close()
+  })
+
+  it('lists a pack key no links: it opens only the ones its tools hand it', async () => {
+    expect((await api(kit, '/api/links')).json).toMatchObject({ count: 0, _embedded: { links: [] } })
+    expect((await api(notes, '/api/links?upstream=fixture')).json.count).toBe(0)
+    expect((await api(full, '/api/links')).json.count).toBe(1)
+  })
+
+  it('searches playbooks among the ones the caller may read', async () => {
+    const asked = '/api/playbooks?q=say%20a%20topic%20back'
+    const names = async (key: string, more = '') =>
+      ((await api(key, `${asked}${more}`)).json._embedded.playbooks as Card[]).map((playbook) => playbook.name)
+    expect(await names(kit)).toEqual(['fixture-say-it-back'])
+    expect(await names(notes)).toEqual([])
+    // Outside a pack, a connection's own playbook is found behind 205 better matches elsewhere
+    expect(await names(full, '&upstream=fixture')).toEqual(['fixture-say-it-back'])
+    expect(await names(full, '&limit=5')).toHaveLength(5)
   })
 })
 

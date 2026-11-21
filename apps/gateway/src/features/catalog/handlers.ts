@@ -76,8 +76,15 @@ export const catalogHandlers = ({ catalog, upstreams, principals, reads, calls }
       rows.has(item.upstreamId) &&
       (!upstream || item.upstreamId === upstream) &&
       offeredTo(principal, item, rows.get(item.upstreamId))
+    // Searched among the ones this caller may read, so better matches elsewhere never take their places
     const found = q?.trim()
-      ? (await catalog.liveByIds(await catalog.searchIds(q, 200))).filter((item) => item.kind === 'playbook')
+      ? await catalog.liveByIds(
+          await catalog.searchIds(q, 200, {
+            kind: 'playbook',
+            upstreams: [...rows.keys()].filter((id) => !upstream || id === upstream),
+            names: principal.pack ? [...principal.pack.playbooks] : undefined,
+          }),
+        )
       : await catalog.listLive({ kinds: ['playbook'], upstreams: upstream ? [upstream] : 'all' })
     const origin = originOf(c)
     const items = found
@@ -202,9 +209,11 @@ export const catalogHandlers = ({ catalog, upstreams, principals, reads, calls }
     const { upstream } = c.req.valid('query')
     const rows = await reachable(principal)
     const origin = originOf(c)
-    const items = (
-      await catalog.listLive({ kinds: ['template', 'resource'], upstreams: upstream ? [upstream] : 'all' })
-    )
+    // A pack key is listed none: it opens only the links its tools handed it
+    const listed = principal.pack
+      ? []
+      : await catalog.listLive({ kinds: ['template', 'resource'], upstreams: upstream ? [upstream] : 'all' })
+    const items = listed
       .filter((item) => rows.has(item.upstreamId))
       .map((item) => {
         const content = item.content as Extract<LiveItem['content'], { kind: 'template' | 'resource' }>
