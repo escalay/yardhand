@@ -727,6 +727,153 @@ describe('a pack at its own address', () => {
   })
 })
 
+describe('pins inside a pack', () => {
+  const META = [
+    'call_tool',
+    'describe_tool',
+    'get_playbook',
+    'get_result',
+    'list_upstreams',
+    'read_resource',
+    'search_tools',
+  ]
+  const DESK = ['greet_from_desk', 'fixture.greet', 'fixture.echo']
+  const pinsOf = async (key: string, path = '/api/me') => namesOf((await api(key, path)).json.pins)
+  const listedAt = async (key: string, path = '/mcp') => {
+    const client = await mcp(key, path)
+    const names = namesOf((await client.listTools()).tools)
+    await client.close()
+    return names
+  }
+  const pin = (id: string, body: Record<string, unknown>) => owner(`/api/clients/${id}`, { method: 'PATCH', body })
+  let desk = { id: '', key: '' }
+  let two = { id: '', key: '' }
+  beforeAll(async () => {
+    desk = await keyFor({ name: 'desk-pinner', pack: 'desk' })
+    two = await keyFor({ name: 'two-pinner', packs: ['desk', 'loud'], pack: 'desk' })
+  })
+
+  it('lists the whole pack and the meta-tools for a key without pins of its own', async () => {
+    expect(await pinsOf(desk.key)).toEqual(DESK)
+    expect((await api(desk.key, '/api/me')).json.pack.ownPins).toBe(false)
+    expect((await listedAt(desk.key)).sort()).toEqual([...META, ...DESK].sort())
+    const cards = (await api(desk.key, '/api/tools')).json._embedded.tools
+    expect(cards.map((card: { pinned: boolean }) => card.pinned)).toEqual([true, true, true])
+  })
+
+  it('narrows a key to its own pins, by the pack’s names; the rest is found by search', async () => {
+    const pinned = await pin(desk.id, { pins: ['greet_from_desk'] })
+    expect(pinned.status).toBe(200)
+    expect(pinned.json.pins).toEqual(['greet_from_desk'])
+    const me = (await api(desk.key, '/api/me')).json
+    expect(namesOf(me.pins)).toEqual(['greet_from_desk'])
+    expect(me.pack.ownPins).toBe(true)
+    expect(Object.keys(me.pins[0].inputSchema.properties)).toEqual(['to'])
+    expect((await listedAt(desk.key)).sort()).toEqual([...META, 'greet_from_desk'].sort())
+    const cards = (await api(desk.key, '/api/tools')).json._embedded.tools
+    expect(
+      Object.fromEntries(cards.map((card: { name: string; pinned: boolean }) => [card.name, card.pinned])),
+    ).toEqual({ greet_from_desk: true, 'fixture.greet': false, 'fixture.echo': false })
+    const client = await mcp(desk.key)
+    const direct = await client.callTool({ name: 'greet_from_desk', arguments: { to: 'Ed' } })
+    expect((direct.content as { text: string }[])[0]?.text).toBe('Hello Ed, from the desk')
+    const found = await client.callTool({ name: 'search_tools', arguments: { query: 'echo' } })
+    expect((found.content as { text: string }[])[0]?.text).toContain('fixture.echo')
+    const ran = await client.callTool({
+      name: 'call_tool',
+      arguments: { name: 'fixture.echo', arguments: { text: 'unpinned' } },
+    })
+    expect((ran.content as { text: string }[])[0]?.text).toBe('unpinned')
+    await client.close()
+  })
+
+  it('refuses a pin that is not a name in the key’s packs', async () => {
+    const refused = await pin(desk.id, { pins: ['greet_from_desk', 'fixture.shout'] })
+    expect(refused.status).toBe(400)
+    expect(refused.json.detail).toBe(
+      "Not a name in this key's packs: fixture.shout. GET /api/packs/{name} lists a pack's names.",
+    )
+    expect(await pinsOf(desk.key)).toEqual(['greet_from_desk'])
+    const made = await owner('/api/clients', {
+      method: 'POST',
+      body: { name: 'bad-pins', pack: 'desk', pins: ['fixture.nope'] },
+    })
+    expect(made.status).toBe(400)
+  })
+
+  it('makes a pack key with pins, and lists only the meta-tools for an empty pin list', async () => {
+    const made = await keyFor({ name: 'made-pinned', pack: 'desk', pins: ['fixture.echo', 'greet_from_desk'] })
+    expect(await pinsOf(made.key)).toEqual(['fixture.echo', 'greet_from_desk'])
+    expect((await pin(made.id, { pins: [] })).status).toBe(200)
+    expect(await pinsOf(made.key)).toEqual([])
+    expect((await listedAt(made.key)).sort()).toEqual(META)
+    await owner(`/api/clients/${made.id}`, { method: 'DELETE' })
+  })
+
+  it('keeps the global pins out of a pack: they neither narrow nor widen it', async () => {
+    expect((await owner('/api/pins', { method: 'PUT', body: { tools: ['fixture.shout'] } })).status).toBe(200)
+    expect(await pinsOf(two.key)).toEqual(DESK)
+    expect(await pinsOf(two.key, '/p/loud/api/me')).toEqual(['fixture.echo', 'fixture.shout'])
+    expect(await pinsOf(desk.key)).toEqual(['greet_from_desk'])
+    expect((await owner('/api/pins', { method: 'PUT', body: { tools: [] } })).status).toBe(200)
+  })
+
+  it('gives a key with several packs one pin list: each pack lists the names it holds', async () => {
+    expect((await pin(two.id, { pins: ['fixture.shout', 'greet_from_desk'] })).status).toBe(200)
+    expect(await pinsOf(two.key)).toEqual(['greet_from_desk'])
+    expect(await pinsOf(two.key, '/p/loud/api/me')).toEqual(['fixture.shout'])
+    expect((await listedAt(two.key, '/p/loud/mcp')).sort()).toEqual([...META, 'fixture.shout'].sort())
+    // Pins that all sit in its other pack leave this one with the meta-tools alone
+    expect((await pin(two.id, { pins: ['greet_from_desk'] })).status).toBe(200)
+    expect(await pinsOf(two.key, '/p/loud/api/me')).toEqual([])
+    expect((await listedAt(two.key, '/p/loud/mcp')).sort()).toEqual(META)
+    // Pins sent with new packs are checked against the packs the key is left with
+    const moved = await pin(two.id, { packs: ['loud'], pins: ['greet_from_desk'] })
+    expect(moved.status).toBe(400)
+    expect((await owner(`/api/clients/${two.id}`)).json.packs).toEqual(['desk', 'loud'])
+  })
+
+  it('does not list a read-only key’s pin of a tool that changes things', async () => {
+    const reader = await keyFor({ name: 'loud-pinned-reader', pack: 'loud', scope: 'read', pins: ['fixture.shout'] })
+    expect(await pinsOf(reader.key)).toEqual([])
+    expect((await pin(reader.id, { pins: ['fixture.shout', 'fixture.echo'] })).status).toBe(200)
+    expect(await pinsOf(reader.key)).toEqual(['fixture.echo'])
+  })
+
+  it('brings the whole pack back when a key’s pins are cleared', async () => {
+    const cleared = await pin(desk.id, { pins: null })
+    expect(cleared.json.pins).toBeNull()
+    expect(await pinsOf(desk.key)).toEqual(DESK)
+    expect((await listedAt(desk.key)).sort()).toEqual([...META, ...DESK].sort())
+    expect((await pin(two.id, { pins: null })).status).toBe(200)
+    expect(await pinsOf(two.key, '/p/loud/api/me')).toEqual(['fixture.echo', 'fixture.shout'])
+  })
+
+  it('keeps a meta-tool’s name for the meta-tool when a pack names a tool the same', async () => {
+    await owner('/api/packs', { method: 'POST', body: { name: 'clash', title: 'Clash', description: 'A name clash.' } })
+    const added = await owner('/api/packs/clash', {
+      method: 'PATCH',
+      body: { add: { tools: [{ name: 'fixture.echo', alias: 'search_tools' }, { name: 'fixture.shout' }] } },
+    })
+    expect(added.status).toBe(200)
+    const made = await keyFor({ name: 'clash-agent', pack: 'clash' })
+    expect(await pinsOf(made.key)).toEqual(['search_tools', 'fixture.shout'])
+    const client = await mcp(made.key)
+    const listed = (await client.listTools()).tools
+    expect(namesOf(listed).sort()).toEqual([...META, 'fixture.shout'].sort())
+    expect(listed.find((tool) => tool.name === 'search_tools')?.title).toBe('Find tools')
+    // The pack's tool of that name still runs through call_tool
+    const ran = await client.callTool({
+      name: 'call_tool',
+      arguments: { name: 'search_tools', arguments: { text: 'still here' } },
+    })
+    expect((ran.content as { text: string }[])[0]?.text).toBe('still here')
+    await client.close()
+    await owner(`/api/clients/${made.id}`, { method: 'DELETE' })
+    expect((await owner('/api/packs/clash', { method: 'DELETE' })).status).toBe(204)
+  })
+})
+
 describe('packs in the config', () => {
   it('leave with an export and come back on a fresh gateway, filled in once their upstream syncs', async () => {
     await owner('/api/packs/loud/tools/fixture.echo/wording', {

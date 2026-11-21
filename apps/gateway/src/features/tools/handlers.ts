@@ -13,6 +13,7 @@ import {
   holds,
   OWNER,
   type Principal,
+  pinnedBy,
   requireOwner,
   seenBy,
   shownAs,
@@ -78,7 +79,7 @@ export const toolsHandlers = ({
   }
   /** What a list shows besides the tool: pinned for this caller, and use for the owner. */
   const extrasFor = async (principal: Principal) => {
-    const pins = new Set(principal.pins ?? (await clients.globalPins()))
+    const pins = new Set(pinnedBy(principal, await clients.globalPins()))
     const uses = principal.owner
       ? new Map(
           (await calls.byTool(new Date(Date.now() - WEEK_MS).toISOString())).map((row) => [

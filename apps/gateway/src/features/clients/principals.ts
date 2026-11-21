@@ -34,7 +34,10 @@ export type Principal = {
   owner: boolean
   scope: 'read' | 'write'
   upstreams: 'all' | string[]
-  /** The client's own pins, or null to use the global default. */
+  /**
+   * The client's own pins, or null. A pin names what the client calls: inside a pack, the pack's name for the tool.
+   * Null means the global pins outside a pack and every tool of the pack inside one, where global pins never apply.
+   */
   pins: string[] | null
   macTools: boolean
   resultCap: number
@@ -202,7 +205,7 @@ export const createPrincipals = ({
       owner: false,
       scope: scopeCap === 'read' ? 'read' : row.scope,
       upstreams: pack ? await upstreamsOfPack(pack) : await clients.upstreamsOf(row),
-      pins: pack ? [...pack.tools.keys()] : row.ownPins ? await clients.pinsOf(row.id) : null,
+      pins: row.ownPins ? await clients.pinsOf(row.id) : null,
       macTools: pack ? false : row.macTools,
       resultCap: row.resultCap,
       // A key whose pack was removed reaches nothing rather than everything
@@ -293,6 +296,12 @@ export const createPrincipals = ({
 }
 
 export type Principals = ReturnType<typeof createPrincipals>
+
+/** The names listed directly in this principal's MCP tool list, before what is live, off or beyond its scope is cut. */
+export const pinnedBy = (principal: Principal, globalPins: string[]) =>
+  principal.pack
+    ? (principal.pins?.filter((name) => reaches(principal, name)) ?? [...principal.pack.tools.keys()])
+    : (principal.pins ?? globalPins)
 
 /**
  * Is this tool listed for this caller, within an upstream it reaches? Off tools only for the owner, tools that change

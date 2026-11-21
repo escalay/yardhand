@@ -16,7 +16,8 @@ const Pins = z
   .max(40)
   .nullable()
   .openapi({
-    description: 'Tool names shown directly in MCP, or null to use the global default.',
+    description:
+      'Names shown directly in MCP. Null uses the global pins; for a pack key, where global pins never apply, null lists every tool of the pack. A pack key’s pins are its packs’ own names for the tools (an alias, else the tool’s name): each of its pack connections lists the ones that pack holds, and a name in none of its packs is refused.',
     example: ['cookbook.research_recipes'],
   })
 
@@ -144,7 +145,10 @@ const SetupSchema = z
   })
 const GlobalPinsSchema = z
   .object({ tools: z.array(z.string().min(1).max(160)).max(40), _links: LinksSchema })
-  .openapi('GlobalPins', { description: 'Tools every client without its own pins sees directly in MCP.' })
+  .openapi('GlobalPins', {
+    description:
+      'Tools every client without its own pins sees directly in MCP. They never apply inside a pack: a pack connection lists its pack, or its key’s own pins.',
+  })
 const GlobalPinsInputSchema = z
   .object({ tools: z.array(z.string().min(1).max(160)).max(40) })
   .openapi('GlobalPinsInput', { description: 'The new global pins, in order.' })
@@ -173,11 +177,15 @@ const MeSchema = z
         description: z.string(),
         playbooks: z.array(z.string()),
         manuals: z.array(z.string()),
+        ownPins: z.boolean().openapi({
+          description:
+            'True when the key has pins of its own: `pins` is then only those this pack holds. False: `pins` is every tool of the pack.',
+        }),
       })
       .nullable()
       .openapi({
         description:
-          'The pack this request is locked to (its address names it, else the key’s default): its pins are the pack’s tools, in its wording.',
+          'The pack this request is locked to (its address names it, else the key’s default). `pins` is then every tool of the pack this key can run, in the pack’s wording, or only the key’s own pins when it has some.',
       }),
     packs: z
       .array(
@@ -278,7 +286,8 @@ export const routes = {
     operationId: 'getGlobalPins',
     tags: [TAG],
     summary: 'Global pins',
-    description: 'The tools every client without its own pins sees directly in MCP (owner only).',
+    description:
+      'The tools every client without its own pins sees directly in MCP (owner only). Pack keys are outside them: a pack connection lists its pack, or its key’s own pins.',
     responses: { 200: ok('The global pins.', GlobalPinsSchema), ...problemResponses(401, 403) },
   }),
   setPins: createRoute({

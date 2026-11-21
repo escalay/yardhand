@@ -425,7 +425,7 @@ export const gatewayMcpFactory = (app: OpenAPIHono, services: Services): AgentMc
               title: caller.pack.title,
               description: caller.pack.description,
               // Only manuals and playbooks are read off this one; the routes resolve tools themselves
-              tools: new Map(caller.pins.map((pin) => [pin.name, { tool: pin.name, wording: null, fixed: {} }])),
+              tools: new Map(),
               playbooks: new Set(caller.pack.playbooks),
               manuals: new Set(caller.pack.manuals),
             }
