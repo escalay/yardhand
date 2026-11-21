@@ -182,6 +182,30 @@ describe('Extend', () => {
     expect((await extend(sam.id, '30d')).status).toBe(410)
     expect((await api(sam.key, '/p/loud/api/me')).status).toBe(401)
   })
+
+  it('brings a key whose pack was removed back to nothing, whatever its own allowlist says', async () => {
+    const made = await owner('/api/packs', {
+      method: 'POST',
+      body: { name: 'shed', title: 'Shed', description: 'Soon removed.', playbook: 'fixture-say-it-back' },
+    })
+    expect(made.status).toBe(201)
+    const sam = await keyFor({ name: 'Sam', pack: 'shed', expiresIn: '8h' })
+    // Stored, and ignored while the pack decides what the key reaches
+    expect((await owner(`/api/clients/${sam.id}`, { method: 'PATCH', body: { upstreams: 'all' } })).status).toBe(200)
+    expect((await api(sam.key, '/api/me')).json.upstreams).toEqual(['fixture'])
+    await end(sam.id)
+    expect((await owner('/api/packs/shed', { method: 'DELETE' })).status).toBe(204)
+    expect((await extend(sam.id, '7d')).status).toBe(200)
+
+    const me = await api(sam.key, '/api/me')
+    expect([me.status, me.json.pack.name, me.json.upstreams]).toEqual([200, 'removed', []])
+    expect((await api(sam.key, '/api/upstreams')).json._embedded.upstreams).toEqual([])
+    expect((await api(sam.key, '/api/upstreams/fixture')).status).toBe(404)
+    const client = await mcp(sam.key)
+    expect(client.getInstructions()).not.toContain('fixture')
+    expect(await said(client, 'list_upstreams')).not.toContain('fixture')
+    await client.close()
+  })
 })
 
 describe('where a key runs', () => {

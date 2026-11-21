@@ -265,11 +265,11 @@ export const createPrincipals = ({
       name: row.name,
       owner: false,
       scope: scopeCap === 'read' ? 'read' : row.scope,
-      upstreams: pack ? await upstreamsOfPack(pack) : await clients.upstreamsOf(row),
+      // A key whose pack was removed reaches nothing rather than everything: never its own allowlist
+      upstreams: chosen.id ? (pack ? await upstreamsOfPack(pack) : []) : await clients.upstreamsOf(row),
       pins: row.ownPins ? await clients.pinsOf(row.id) : null,
       macTools: pack ? false : row.macTools,
       resultCap: row.resultCap,
-      // A key whose pack was removed reaches nothing rather than everything
       pack: chosen.id
         ? (pack ?? {
             id: chosen.id,
