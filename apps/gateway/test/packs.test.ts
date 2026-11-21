@@ -1025,6 +1025,43 @@ describe('a pack at its own address', () => {
     expect(one._links.tool).toBeUndefined()
     expect(one._links.self.href).toBe(`http://localhost/p/loud/api/calls/${greets[0]?.id}`)
   })
+
+  it('is in the gateway’s guide: every address named there is served, the older ways beside them', async () => {
+    // On one line: the guide is wrapped by hand
+    const guide = (await at(key, '/llms.txt')).text.replace(/\s+/g, ' ')
+    const named = [...new Set(guide.match(/\/p\/<pack>\/[a-z.]+/g))].sort()
+    expect(named).toEqual([
+      '/p/<pack>/api',
+      '/p/<pack>/docs',
+      '/p/<pack>/llms.txt',
+      '/p/<pack>/mcp',
+      '/p/<pack>/openapi.json',
+    ])
+    for (const path of named.filter((path) => !path.endsWith('/mcp')))
+      expect([path, (await at(key, path.replace('<pack>', 'loud'))).status]).toEqual([path, 200])
+    expect(guide).toContain('`/mcp/p/<pack>`')
+    expect(guide).toContain('`x-gateway-pack')
+    // What a pack connection lists, as `pinnedBy` decides it
+    expect(guide).toContain('every tool of the pack')
+    expect(guide).toContain('pins of its own')
+  })
+
+  it('answers an Idempotency-Key reused at the key’s other pack with the first answer, as the guide warns', async () => {
+    const send = (pack: string) =>
+      at(key, `/p/${pack}/api/calls`, {
+        method: 'POST',
+        headers: { 'idempotency-key': 'one-key-two-packs' },
+        body: { tool: 'fixture.shout', arguments: { text: 'once' } },
+      })
+    const first = await send('loud')
+    expect(first.json.result.content[0].text).toBe('ONCE')
+    // Front desk holds no fixture.shout: this is Loud's answer again, not a refusal
+    const again = await send('desk')
+    expect(again.headers.get('idempotent-replayed')).toBe('true')
+    expect(again.json.id).toBe(first.json.id)
+    const guide = (await at(key, '/llms.txt')).text.replace(/\s+/g, ' ')
+    expect(guide).toContain('a new `Idempotency-Key` for each new request')
+  })
 })
 
 describe('pins inside a pack', () => {

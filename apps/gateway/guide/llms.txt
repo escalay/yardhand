@@ -37,16 +37,38 @@ Reading any of these uses the upstream's credential and is logged like a call, b
 
 ## Pack keys
 
-A key can be locked to a **pack**: a kit for one kind of work, curated by the owner. `GET /api/me` says so
-(`pack`). A pack key sees only the pack: its tools are listed directly over MCP (in the pack's own wording), its
-description is the server instructions, and search, `describe_tool`, playbooks, manuals and calls stay inside it. A
-call to anything else is refused (403) and logged; the per-upstream passthrough (`/u/{id}/mcp`) is refused too. A
-pack key opens only the links its tools returned in the last day (through `/u/{upstream}/r/…` and `read_resource`),
-so `GET /api/links` is empty for it. Its connections (`GET /api/upstreams`, `list_upstreams`) count only what the pack
-holds: its tools under the pack's names, its playbooks and its manuals. A search that matches nothing in the pack says
-what the pack covers: `hint` on `GET /api/tools?q=…`, and over MCP `Nothing in <pack> matches "<query>". This pack
-covers: …`. Ask again by one of those, or say it can't be done with this pack.
-Keys can expire: a 403 says when.
+A key can be locked to a **pack**: a kit for one kind of work, curated by the owner. `GET /api/me` says so (`pack`,
+and `packs` when the key opens several). A pack is a small server of its own at one address, `/p/<pack>/`:
+
+- MCP at `/p/<pack>/mcp`, and REST under `/p/<pack>/api`: every `/api` route a key may use (health and sign-in stay
+  at the root), with links that stay under that address.
+- Its own guide at `/p/<pack>/llms.txt` and OpenAPI document at `/p/<pack>/openapi.json`, rendered at
+  `/p/<pack>/docs`. They describe the pack and nothing else: with a pack key, read them rather than this guide.
+- The older ways still work: MCP at `/mcp/p/<pack>`, and REST naming the pack with the `x-gateway-pack` header. Plain
+  `/mcp` and `/api` serve the key's default pack.
+
+A pack key sees only the pack. Over MCP the server is named after the pack and its description opens the server
+instructions. It has the gateway's shape: `search_tools`, `describe_tool`, `call_tool` and the others work over the
+pack only, and every tool of the pack is listed directly, in the pack's own wording. A key the owner gave
+pins of its own lists only those and finds the rest with `search_tools` (`PATCH /api/clients/{id}` with `pins`, by
+the pack's names; `pins: null` lists the whole pack again). The pins set for every client never apply inside a pack.
+
+Playbooks, manuals and calls stay inside the pack too. A call to anything else is refused (403) and logged; the
+per-upstream passthrough (`/u/{id}/mcp`) is refused too. A pack key opens only the links its tools returned in the
+last day (through `/u/{upstream}/r/…` and `read_resource`), so `GET /api/links` is empty for it. Its connections
+(`GET /api/upstreams`, `list_upstreams`) count only what the pack holds: its tools under the pack's names, its
+playbooks and its manuals. A search that matches nothing in the pack says what the pack covers: `hint` on
+`GET /api/tools?q=…`, and over MCP `Nothing in <pack> matches "<query>". This pack covers: …`. Ask again by one of
+those, or say it can't be done with this pack. Keys can expire: a 403 says when.
+
+A key that opens several packs has one connection per pack, and is refused (403) a pack it doesn't open with the
+addresses of those it does. An `Idempotency-Key` is remembered per key and route, not per pack: sent again with the
+same body at another of the key's packs, it answers the first result again. So use a new `Idempotency-Key` for each
+new request.
+
+The owner's key at a pack's address (or with the header) is answered as a write key of that pack: what its agents
+see. Routes that manage the gateway answer 403 there. From the root, `GET /api/tools?pack=<pack>` searches as the
+pack's keys do, and with `as=<client id>` as that one key.
 
 ## Rules worth knowing
 
@@ -62,7 +84,8 @@ Keys can expire: a 403 says when.
   says which switch is off. Ask the owner rather than looking for another way round.
 - Over MCP, a result bigger than your key's cap is cut: you get page 1 and a call id; `get_result` (or
   `GET /api/calls/{id}/result?page=2`) gives the rest for an hour. REST answers are never cut.
-- `POST` runs accept `Idempotency-Key`: a retried request with the same key answers the first result again.
+- `POST` runs accept `Idempotency-Key`: a retried request with the same key answers the first result again. A new
+  request needs a new key: the same one with another body is a 422.
 - Calls are rate-limited per key (`RateLimit` headers; 429 with `Retry-After` when over).
 - Errors are `application/problem+json` with a `detail` that says what to do next: arguments that don't match
   the tool's input schema are a 400 listing each bad field in `errors`, before the upstream is called. A tool
