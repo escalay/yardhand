@@ -68,7 +68,7 @@ export const createGateway = ({
 }: {
   /** A Yardhand client key, or an OAuth access token. */
   key: string
-  /** Your instance, e.g. https://yardhand.example.test. */
+  /** Your instance, e.g. https://yardhand.example.test, or one pack of it: https://yardhand.example.test/p/<pack>. */
   url: string
   fetch?: typeof fetch
 }) => {
@@ -76,7 +76,8 @@ export const createGateway = ({
     path: string,
     init: { method?: string; body?: unknown; query?: Record<string, string | number | undefined> } = {},
   ) => {
-    const target = new URL(path, url)
+    // Joined, not resolved: a pack's address has a path of its own to keep
+    const target = new URL(`${url.replace(/\/+$/, '')}${path}`)
     for (const [name, value] of Object.entries(init.query ?? {}))
       if (value !== undefined) target.searchParams.set(name, String(value))
     const response = await fetchImpl(target, {

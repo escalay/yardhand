@@ -65,6 +65,20 @@ describe('gateway client', () => {
     expect((failure as GatewayError).problem.errors?.[0]?.path).toBe('arguments.text')
   })
 
+  it('keeps a path in the url, so a pack’s address reaches the pack', async () => {
+    const requested = async (url: string) => {
+      const seen: Request[] = []
+      const gateway = createGateway({ key: 'k', url, fetch: fakeFetch({}, seen) })
+      await gateway.tools.list().catch(() => null)
+      await gateway.call('x.echo', {}).catch(() => null)
+      return seen.map((request) => new URL(request.url).pathname)
+    }
+    expect(await requested('https://gw.example.test/p/loud')).toEqual(['/p/loud/api/tools', '/p/loud/api/calls'])
+    expect(await requested('https://gw.example.test/p/loud/')).toEqual(['/p/loud/api/tools', '/p/loud/api/calls'])
+    expect(await requested('https://gw.example.test')).toEqual(['/api/tools', '/api/calls'])
+    expect(await requested('https://gw.example.test/')).toEqual(['/api/tools', '/api/calls'])
+  })
+
   it('searches with the query in the URL', async () => {
     const seen: Request[] = []
     const gateway = createGateway({
