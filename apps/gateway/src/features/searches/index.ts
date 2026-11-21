@@ -2,6 +2,7 @@
 import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import { requireOwner } from '../clients/principals.js'
 import type { Feature } from '../index.js'
+import { noPack } from '../packs/names.js'
 import { searchLog, unansweredSearches } from './demand.js'
 import { LOG_PATH, PATH, routes, TAG } from './routes.js'
 import { SEARCHES_MIGRATIONS } from './schema.js'
@@ -17,8 +18,7 @@ export const feature: Feature = {
       requireOwner(c)
       const { days, client, pack: packName, unanswered, limit } = c.req.valid('query')
       const pack = packName ? await packs.get(packName) : undefined
-      if (packName && !pack)
-        throw new ProblemError('not_found', { detail: `No pack ${packName}. GET /api/packs lists them.` })
+      if (packName && !pack) throw new ProblemError('not_found', { detail: await noPack(packs, packName) })
       const clientIds = pack
         ? (await clients.list()).filter((row) => row.packId === pack.id).map((row) => row.id)
         : client

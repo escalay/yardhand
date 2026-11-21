@@ -11,6 +11,7 @@ import type { Context } from 'hono'
 import { type Caller, ProblemError } from '../../kit/index.js'
 import type { CatalogRepo } from '../catalog/repo.js'
 import { fixedOf, type PackEntry, presented } from '../packs/entries.js'
+import { noPack } from '../packs/names.js'
 import type { PacksRepo } from '../packs/repo.js'
 import { isOff, type LiveTool, needsWrite } from '../tools/repo.js'
 import { dayOf } from './lifetimes.js'
@@ -290,7 +291,7 @@ export const createPrincipals = ({
   const inPack = async (name: string): Promise<Principal | string> => {
     const row = await packs.get(name)
     const scope = row && (await packScopeOf(row.id))
-    if (!scope) return `No pack ${name}. GET /api/packs lists them.`
+    if (!scope) return noPack(packs, name)
     return {
       ...OWNER,
       owner: false,

@@ -11,6 +11,7 @@ import { summaryOf } from '../tools/handlers.js'
 import { needsWrite } from '../tools/repo.js'
 import { type Fixed, fixedOf, fixedProblems, lostInputs } from './entries.js'
 import { flagOf, packFlags } from './flags.js'
+import { noPack } from './names.js'
 import type { PackContents } from './repo.js'
 import { FLAGS_PATH, PATH, type routes } from './routes.js'
 import type { PackRow, PackToolRow } from './schema.js'
@@ -47,7 +48,7 @@ export const packsHandlers = ({
 }: Services) => {
   const packOf = async (name: string) => {
     const pack = await packs.get(name)
-    if (!pack) throw new ProblemError('not_found', { detail: `No pack ${name}. GET ${PATH} lists them.` })
+    if (!pack) throw new ProblemError('not_found', { detail: await noPack(packs, name) })
     return pack
   }
 

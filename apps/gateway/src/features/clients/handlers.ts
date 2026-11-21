@@ -2,6 +2,7 @@
 import type { RouteHandler } from '@hono/zod-openapi'
 import { linksOf, mintApiKey, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
+import { noPack } from '../packs/names.js'
 import { findability } from '../searches/demand.js'
 import { needsWrite } from '../tools/repo.js'
 import { expiryOf } from './lifetimes.js'
@@ -53,7 +54,9 @@ export const clientsHandlers = ({
     const found = await Promise.all([...new Set(names)].map(async (name) => ({ name, pack: await packs.get(name) })))
     const missing = found.filter((item) => !item.pack).map((item) => item.name)
     if (missing.length)
-      throw new ProblemError('bad_request', { detail: `No pack ${missing.join(', ')}. GET /api/packs lists them.` })
+      throw new ProblemError('bad_request', {
+        detail: (await Promise.all(missing.map((name) => noPack(packs, name)))).join(' '),
+      })
     const fallback = preferred ?? names[0]
     const defaultPack = found.find((item) => item.name === fallback)?.pack
     if (!defaultPack)

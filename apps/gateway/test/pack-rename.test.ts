@@ -58,6 +58,7 @@ const formerOf = async (name: string) =>
   )
 const namesOf = (items: { name: string }[]) => items.map((item) => item.name)
 const unknown = (name: string) => `No pack ${name}. GET /api/packs lists them.`
+const renamed = (from: string, to: string) => `No pack ${from}: it was renamed to ${to}. GET /api/packs/${to}.`
 
 let sam: Made
 let both: Made
@@ -137,6 +138,41 @@ describe('renaming a pack', () => {
     const whole = await owner('/api/packs/desk', { method: 'PATCH', body: { name: 'bureau', title: 'Bureau' } })
     expect(whole.json).toMatchObject({ name: 'bureau', title: 'Bureau', formerNames: [{ name: 'desk' }] })
     expect((await rename('bureau', 'desk')).json).toMatchObject({ name: 'desk', formerNames: [{ name: 'bureau' }] })
+  })
+
+  it('tells the owner where it went, wherever a pack is named', async () => {
+    const moved = renamed('shed', 'garden')
+    for (const path of [
+      '/api/packs/shed',
+      '/api/packs/shed/setup',
+      '/api/calls?pack=shed',
+      '/api/searches?pack=shed',
+      '/api/overview/stats?pack=shed',
+      '/api/tools?pack=shed',
+      '/api/tools/fixture.echo?pack=shed',
+      '/api/playbooks/fixture-say-it-back/uses?pack=shed',
+    ]) {
+      const old = await owner(path)
+      expect([path, old.status, old.json.detail]).toEqual([path, 404, moved])
+      const never = await owner(path.replace('shed', 'nope'))
+      expect([path, never.status, never.json.detail]).toEqual([path, 404, unknown('nope')])
+    }
+    const changed = await owner('/api/packs/shed', { method: 'PATCH', body: { title: 'Shed' } })
+    expect([changed.status, changed.json.detail]).toEqual([404, moved])
+    const made = await owner('/api/clients', { method: 'POST', body: { name: 'late', pack: 'shed' } })
+    expect([made.status, made.json.detail]).toEqual([400, moved])
+    const never = await owner('/api/clients', { method: 'POST', body: { name: 'late', pack: 'nope' } })
+    expect([never.status, never.json.detail]).toEqual([400, unknown('nope')])
+    // One sentence per name that is not there
+    const repacked = await owner(`/api/clients/${both.id}`, {
+      method: 'PATCH',
+      body: { packs: ['shed', 'desk', 'nope'] },
+    })
+    expect([repacked.status, repacked.json.detail]).toEqual([400, `${moved} ${unknown('nope')}`])
+    // A key is told nothing of the kind: these are the owner's routes
+    const asked = await at(sam.key, '/api/packs/shed')
+    expect(asked.status).toBe(403)
+    expect(JSON.stringify(asked.json)).not.toContain('garden')
   })
 
   it('takes a name off the list when the pack goes back to it', async () => {

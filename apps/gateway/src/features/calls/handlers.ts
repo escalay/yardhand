@@ -7,6 +7,7 @@ import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import { decodeCursor, pageOf } from '../../kit/pagination/index.js'
 import type { Services } from '../../services.js'
 import { callerOf, type Principal, reaches, requireOwner } from '../clients/principals.js'
+import { noPack } from '../packs/names.js'
 import { progressSink } from './progress.js'
 import { PATH, type routes } from './routes.js'
 import type { CallRow } from './schema.js'
@@ -130,7 +131,7 @@ export const callsHandlers = ({ pipeline, principals, calls, events, clients, pa
   const filterOf = async (principal: Principal, query: Filters) => {
     const pack = principal.owner && query.pack ? await packs.get(query.pack) : undefined
     if (principal.owner && query.pack && !pack)
-      throw new ProblemError('not_found', { detail: `No pack ${query.pack}. GET /api/packs lists them.` })
+      throw new ProblemError('not_found', { detail: await noPack(packs, query.pack) })
     const clientIds = pack ? await clients.idsOfPack(pack.id) : undefined
     return {
       clientId: principal.owner ? query.client : principal.id,
