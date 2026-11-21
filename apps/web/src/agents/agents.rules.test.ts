@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { foundOf, pickPack, reachOf, withKey } from './agents.rules'
+import { foundOf, pickPack, reachOf, waitingHint, withKey } from './agents.rules'
 
 describe('agent rules', () => {
   it('puts the key in only when it is known', () => {
@@ -9,6 +9,15 @@ describe('agent rules', () => {
   it('says an agent’s reach in words', () => {
     expect(reachOf({ upstreams: 'all', scope: 'write' })).toBe('Every connection, reads and changes')
     expect(reachOf({ upstreams: ['cookbook'], scope: 'read' })).toBe('1 connection, reads only')
+  })
+  it('says what to do while a new key waits for its first call', () => {
+    expect(waitingHint('laptop')).toBe(
+      'Paste the setup, then ask the agent to find and run one of your tools, say “find a tool in gw and run it”. It shows up here the moment it happens.',
+    )
+    // A pack's address is not a server named gw, and the owner is not the one who pastes the setup
+    expect(waitingHint('Sam', { title: 'Loud' })).toBe(
+      'Send Sam the message. Their first call to Loud shows up here the moment it happens.',
+    )
   })
 })
 

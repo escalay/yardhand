@@ -1,4 +1,8 @@
-/** Waiting for a key's first call, live; the moment it lands, it says so and shows it. The activation moment. */
+/**
+ * Waiting for a key's first call, live; the moment it lands, it says so and shows it. The activation moment. For a
+ * person a pack was shared with (`pack`), the owner is told to send the message, and no pins are offered: global pins
+ * never apply inside a pack.
+ */
 import { Link } from '@tanstack/react-router'
 import { type CallEvent, useLiveCalls } from '@/shell/live'
 import { Mono } from '@/ui/Code'
@@ -6,8 +10,19 @@ import { duration } from '@/ui/format'
 import { Illustration } from '@/ui/Illustration'
 import { OUTCOME, Status } from '@/ui/Status'
 import { Button } from '@/ui/shadcn/button'
+import { waitingHint } from './agents.rules'
 
-export const FirstCall = ({ clientId, name, since }: { clientId: string; name: string; since: string | null }) => {
+export const FirstCall = ({
+  clientId,
+  name,
+  since,
+  pack,
+}: {
+  clientId: string
+  name: string
+  since: string | null
+  pack?: { title: string }
+}) => {
   const calls = useLiveCalls((call: CallEvent) => call.clientId === clientId)
   const first = calls.at(-1)
   if (since && !first)
@@ -23,10 +38,7 @@ export const FirstCall = ({ clientId, name, since }: { clientId: string; name: s
         <Illustration name="waiting" className="h-20 w-auto" />
         <div className="flex flex-col gap-1">
           <Status tone="live">Waiting for {name}'s first call</Status>
-          <p className="text-sm text-pretty text-muted-foreground">
-            Paste the setup, then ask the agent to find and run one of your tools, say “find a tool in gw and run it”.
-            It shows up here the moment it happens.
-          </p>
+          <p className="text-sm text-pretty text-muted-foreground">{waitingHint(name, pack)}</p>
         </div>
       </div>
     )
@@ -38,8 +50,8 @@ export const FirstCall = ({ clientId, name, since }: { clientId: string; name: s
         {name} is <em className="font-semibold italic">connected</em>
       </h2>
       <p className="text-sm text-muted-foreground">
-        Its first call: <Mono>{first.tool}</Mono> · <Status tone={outcome.tone}>{outcome.label}</Status> ·{' '}
-        {duration(first.durationMs)}
+        {pack ? 'Their' : 'Its'} first call: <Mono>{first.tool}</Mono> ·{' '}
+        <Status tone={outcome.tone}>{outcome.label}</Status> · {duration(first.durationMs)}
       </p>
       <div className="flex flex-wrap justify-center gap-2">
         <Button asChild variant="primary">
@@ -47,11 +59,13 @@ export const FirstCall = ({ clientId, name, since }: { clientId: string; name: s
             Open the call
           </Link>
         </Button>
-        <Button asChild variant="muted">
-          <Link to="/tools" search={{ pinned: true }}>
-            Pin the tools it should see first
-          </Link>
-        </Button>
+        {pack ? null : (
+          <Button asChild variant="muted">
+            <Link to="/tools" search={{ pinned: true }}>
+              Pin the tools it should see first
+            </Link>
+          </Button>
+        )}
       </div>
     </div>
   )
