@@ -5,6 +5,7 @@
  *
  * A key locked to a pack reaches only the pack: its upstreams become the pack's, and `reaches` / `runsTool` / `holds`
  * keep tools, playbooks and manuals to what is in it. A pack names its tools its own way (`entryOf`, `shownAs`).
+ * The owner asking for a pack (its address or the header) is answered as a write key of that pack would be.
  */
 import type { Context } from 'hono'
 import { type Caller, ProblemError } from '../../kit/index.js'
@@ -39,7 +40,7 @@ export type Principal = {
   resultCap: number
   /** The pack this request is locked to: the one its address names, else the key's default. */
   pack: PackScope | null
-  /** Every pack the key opens (each at `/mcp/p/<name>`), the default first. */
+  /** Every pack the key opens (each at `/p/<name>/`), the default first. */
   packs: { name: string; title: string }[]
 }
 
@@ -64,10 +65,15 @@ export const callerOf = (c: Context) => c.get('caller' as never) as (Caller & { 
 export const isOwner = (caller: Caller | undefined) =>
   caller?.kind === 'person' || (caller?.kind === 'key' && !caller.name.startsWith(CLIENT_KEY))
 
-/** Throws 403 unless the caller is the owner (an owner key or a person through Access). */
+/** Throws 403 unless the caller is the owner (an owner key or a person through Access) asking outside a pack. */
 export const requireOwner = (c: Context) => {
-  if (!isOwner(callerOf(c)))
+  const caller = callerOf(c)
+  if (!isOwner(caller))
     throw new ProblemError('forbidden', { detail: 'Only the owner manages the gateway: use an owner key or /app.' })
+  if (caller?.pack)
+    throw new ProblemError('forbidden', {
+      detail: `This request is for the pack ${caller.pack} only: manage the gateway at /api or in /app, without a pack.`,
+    })
 }
 
 export const allows = (principal: Principal, upstreamId: string) =>
@@ -227,13 +233,24 @@ export const createPrincipals = ({
       .catch(() => null)
     return { row: id ? await clients.get(id) : await clients.byOAuthName(caller.name), scopeCap }
   }
+  /** The owner inside a pack: what a write key of that pack would see and run; why not when there is no such pack. */
+  const inPack = async (name: string): Promise<Principal | string> => {
+    const row = await packs.get(name)
+    const scope = row && (await packScopeOf(row.id))
+    if (!scope) return `No pack ${name}. GET /api/packs lists them.`
+    return {
+      ...OWNER,
+      owner: false,
+      upstreams: await upstreamsOfPack(scope),
+      macTools: false,
+      pack: scope,
+      packs: [{ name: scope.name, title: scope.title }],
+    }
+  }
   /** The principal behind a request, or why it has none (revoked, expired, unknown, a pack it doesn't open). */
   const resolve = async (caller: ReturnType<typeof callerOf>): Promise<Principal | string> => {
     if (!caller) return 'No credentials: send an API key as a bearer token.'
-    if (isOwner(caller))
-      return caller.pack
-        ? 'Pack addresses are for pack keys: the owner sees every tool at /mcp, and a pack’s page in /app shows what its keys see.'
-        : OWNER
+    if (isOwner(caller)) return caller.pack ? inPack(caller.pack) : OWNER
     const { row, scopeCap } = await rowOf(caller)
     if (!row) return 'This key is not known to the gateway.'
     const refused = refusalOf(row)
@@ -253,11 +270,15 @@ export const createPrincipals = ({
       const found = await resolve(caller)
       return typeof found === 'string' ? null : found
     },
-    /** A client as the gateway sees it, for the owner's preview; why not when it can no longer call. */
-    ofClient: async (id: string): Promise<Principal | string> => {
+    inPack,
+    /**
+     * A client as the gateway sees it, for the owner's preview (in `pack`, one of its packs, else its default); why
+     * not when it can no longer call or doesn't open that pack.
+     */
+    ofClient: async (id: string, pack?: string): Promise<Principal | string> => {
       const row = await clients.get(id)
       if (!row) return `No client ${id}. GET /api/clients lists them.`
-      const chosen = await packFor(row, undefined)
+      const chosen = await packFor(row, pack)
       return (
         refusalOf(row) ?? ('refusal' in chosen ? (chosen.refusal ?? 'Not allowed.') : fromRow(row, undefined, chosen))
       )

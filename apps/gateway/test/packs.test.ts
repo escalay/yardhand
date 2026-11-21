@@ -573,10 +573,10 @@ describe('a key with several packs', () => {
     const refused = await owner(`/api/clients/${plain.id}`, { method: 'PATCH', body: { packs: ['desk'] } })
     expect(refused.status).toBe(409)
     expect((await api(OWNER, '/api/me', {})).status).toBe(200)
-    const ownerAsked = await app.request('/api/me', {
-      headers: { authorization: `Bearer ${OWNER}`, 'x-gateway-pack': 'desk' },
-    })
-    expect(ownerAsked.status).toBe(403)
+    // The owner asking for a pack is answered as a write key of that pack would be
+    const ownerAsked = await at(OWNER, '/api/me', { headers: { 'x-gateway-pack': 'desk' } })
+    expect(ownerAsked.status).toBe(200)
+    expect(ownerAsked.json).toMatchObject({ owner: false, scope: 'write', pack: { name: 'desk' } })
   })
 
   it('counts as a key of every pack it opens', async () => {
@@ -660,6 +660,64 @@ describe('a pack at its own address', () => {
     // The kit's pointer to the gateway's own documents is not sent from a pack's address
     expect((await at(key, '/p/loud/api')).headers.get('link')).toBeNull()
     expect((await at(key, '/api')).headers.get('link')).toContain('service-desc')
+  })
+
+  it('lets the owner in as a write key of the pack would be', async () => {
+    const me = await owner('/p/loud/api/me')
+    expect(me.status).toBe(200)
+    expect(me.json).toMatchObject({
+      id: 'owner',
+      owner: false,
+      scope: 'write',
+      upstreams: ['fixture'],
+      pack: { name: 'loud', title: 'Loud' },
+    })
+    expect(me.json.packs.map((pack: { name: string }) => pack.name)).toEqual(['loud'])
+    expect(namesOf((await owner('/p/loud/api/tools')).json._embedded.tools)).toEqual(['fixture.echo', 'fixture.shout'])
+    expect((await owner('/p/loud/api/tools/fixture.greet')).status).toBe(404)
+    const ran = await owner('/p/loud/api/calls', {
+      method: 'POST',
+      body: { tool: 'fixture.shout', arguments: { text: 'mine' } },
+    })
+    expect(ran.json.result.content[0].text).toBe('MINE')
+    const none = await owner('/p/nope/api/me')
+    expect(none.status).toBe(403)
+    expect(none.json.detail).toBe('No pack nope. GET /api/packs lists them.')
+    // At the root the owner is the owner, as before
+    expect((await owner('/api/me')).json).toMatchObject({ owner: true, pack: null })
+  })
+
+  it('refuses the owner every route that manages the gateway from inside a pack', async () => {
+    const made = await owner('/p/loud/api/clients', { method: 'POST', body: { name: 'no', upstreams: 'all' } })
+    expect(made.status).toBe(403)
+    expect(made.json.detail).toBe(
+      'This request is for the pack loud only: manage the gateway at /api or in /app, without a pack.',
+    )
+    // What a pack serves; every other route a pack's address reaches must refuse the owner there
+    const served = [
+      '/api',
+      '/api/me',
+      '/api/tools',
+      '/api/tools/openapi.json',
+      '/api/calls',
+      '/api/upstreams',
+      '/api/playbooks',
+      '/api/manuals',
+      '/api/links',
+      '/api/resources',
+    ]
+    const doc = (await owner('/openapi.json')).json as { paths: Record<string, { get?: unknown }> }
+    const reads = Object.entries(doc.paths)
+      .filter(([path, item]) => item.get && !path.includes('{') && path.startsWith('/api'))
+      .map(([path]) => path)
+      .filter((path) => !/^\/api\/(health|session)/.test(path))
+    expect(reads).toEqual(expect.arrayContaining(served))
+    const answers = await Promise.all(
+      reads.map(async (path) => [path, (await at(OWNER, `/p/loud${path}`)).status] as const),
+    )
+    expect(
+      answers.filter(([path, status]) => (served.includes(path) ? ![200, 400].includes(status) : status !== 403)),
+    ).toEqual([])
   })
 
   it('refuses a pack the key does not open', async () => {
