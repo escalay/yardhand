@@ -260,7 +260,7 @@ const APP_LABEL: Record<NonNullable<Person['app']>, string> = {
 }
 
 /** Where a person will paste their key: the apps the message has setup for, and not being sure. */
-export const SHARE_APPS = [
+export const SHARE_APPS: { value: string; app: NonNullable<Schemas['PackShare']['app']> | null; label: string }[] = [
   ...(['claude-code', 'cursor', 'codex', 'curl'] as const).map((app) => ({ value: app, app, label: APP_LABEL[app] })),
   { value: 'unsure', app: null, label: 'Not sure' },
 ]
