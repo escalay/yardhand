@@ -43,12 +43,15 @@ using a pack key day to day showed where it stops feeling like a server of its o
   connections. Never compute the bar over the pack alone: scored against the pack's own tools, right answers and
   off-topic questions score alike (medians about z 2.0 to 2.4), while against the whole catalog the same right answers
   score about 4.9 to 6.2. `names()` stays as it is for smart inclusion, which wants an answer every time. The bar is
-  the kit's own, which rises with the catalog (3.5 at the size replayed), with no `minZ` or `minScore` set: logged
-  searches (the search log behind "agents looked for") were replayed before release, since it changes every key's
-  search.
-- **A keyword hit must be near too.** A tool the words found counts only when it scores z 2.0 or more against the
-  whole catalog. Asking for every word instead cost right answers in the replay; this floor cost none. A tool with
-  no score yet (new since the last embedding run) is kept. The owner's own search boxes in the app are the exception:
+  the kit's own from 150 tools up (3.5 at the size replayed, and rising), with no `minScore` set, and z 3.0 below
+  that: in a small catalog a right answer stands less far out. Logged searches (the search log behind "agents looked
+  for") were replayed before release, since it changes every key's search.
+- **A keyword hit must be near too.** A tool the words found counts only from a floor that rises with the catalog:
+  z 1.0 under 150 tools, 1.5 under 1,000 and 2.0 from there. One floor for every size did not hold: replayed on
+  catalogs cut from the logged one, z 2.0 lost about a third of the right answers at 50 to 100 tools and almost
+  none over 1,000, and a low floor lets more keyword hits through by chance the larger the catalog. Asking for
+  every word instead cost right answers at every size. A tool with no score yet (new since the last embedding run)
+  is kept. The owner's own search boxes in the app are the exception:
   they filter on half-typed words and connection ids, which no meaning scores, so there every keyword hit counts.
 - **Small catalogs search as before.** Under 50 tools there is no bar to hold a tool to: search answers with the
   nearest tools and every keyword hit, kept to the caller's own tools. The same goes without search by meaning.
