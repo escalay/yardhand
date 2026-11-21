@@ -1,4 +1,4 @@
-/** Packs, their tools and their playbooks and manuals: the only queries on these tables. */
+/** Packs, their tools, variables, playbooks and manuals: the only queries on these tables. */
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, inArray, isNull, like, sql } from 'drizzle-orm'
 import type { Db } from '../../kit/index.js'
@@ -8,10 +8,13 @@ import {
   type PackReason,
   type PackRow,
   type PackToolRow,
+  type PackVariableRow,
   packItems,
   packs,
   packTools,
+  packVariables,
 } from './schema.js'
+import type { Scalar } from './values.js'
 
 export type PackDraft = { name: string; title: string; description: string }
 /** A tool to add: `name` is the tool (`<upstream>.<tool>`); `alias` is what the pack's keys call it instead. */
@@ -21,7 +24,9 @@ export type PackToolDraft = {
   via?: string | null
   alias?: string | null
   fixed?: Fixed | null
+  defaults?: Fixed | null
 }
+export type PackVariableDraft = { name: string; value: Scalar; description?: string | null }
 
 const fixedText = (fixed: Fixed | null | undefined) =>
   fixed && Object.keys(fixed).length ? JSON.stringify(fixed) : null
@@ -30,18 +35,22 @@ const fixedText = (fixed: Fixed | null | undefined) =>
 export type PackContents = {
   pack: PackRow
   tools: PackToolRow[]
+  variables: PackVariableRow[]
   playbooks: string[]
   manuals: string[]
 }
 
 export const packsRepo = (db: Db) => {
+  const variablesOf = (packId: string) =>
+    db.select().from(packVariables).where(eq(packVariables.packId, packId)).orderBy(asc(packVariables.position))
   const contentsOf = async (pack: PackRow): Promise<PackContents> => {
-    const [toolRows, itemRows] = await Promise.all([
+    const [toolRows, variables, itemRows] = await Promise.all([
       db.select().from(packTools).where(eq(packTools.packId, pack.id)).orderBy(asc(packTools.position)),
+      variablesOf(pack.id),
       db.select().from(packItems).where(eq(packItems.packId, pack.id)).orderBy(asc(packItems.position)),
     ])
     const namesOf = (kind: PackItemRow['kind']) => itemRows.filter((row) => row.kind === kind).map((row) => row.name)
-    return { pack, tools: toolRows, playbooks: namesOf('playbook'), manuals: namesOf('manual') }
+    return { pack, tools: toolRows, variables, playbooks: namesOf('playbook'), manuals: namesOf('manual') }
   }
   const touch = (packId: string) =>
     db.update(packs).set({ updatedAt: new Date().toISOString() }).where(eq(packs.id, packId))
@@ -72,13 +81,13 @@ export const packsRepo = (db: Db) => {
         .innerJoin(packs, eq(packs.id, packTools.packId))
         .where(sql`${packTools.description} is not null`)
         .orderBy(asc(packs.title), asc(packTools.position)),
-    /** Every pack tool with fixed inputs, for the flags when an upstream drops one. */
+    /** Every pack tool that fixes an input or gives one a default, for the flags when a value stops fitting. */
     fixing: () =>
       db
         .select({ pack: packs, tool: packTools })
         .from(packTools)
         .innerJoin(packs, eq(packs.id, packTools.packId))
-        .where(sql`${packTools.fixed} is not null`)
+        .where(sql`${packTools.fixed} is not null or ${packTools.defaults} is not null`)
         .orderBy(asc(packs.title), asc(packTools.position)),
     create: async (draft: PackDraft) => {
       const id = `pk_${randomUUID().replaceAll('-', '').slice(0, 16)}`
@@ -102,6 +111,7 @@ export const packsRepo = (db: Db) => {
     remove: async (packId: string) => {
       await db.delete(packTools).where(eq(packTools.packId, packId))
       await db.delete(packItems).where(eq(packItems.packId, packId))
+      await db.delete(packVariables).where(eq(packVariables.packId, packId))
       await db.delete(packs).where(eq(packs.id, packId))
     },
     /** Adds tools at the end; a name already in (the alias, else the tool's) keeps its place, wording and reason. */
@@ -126,6 +136,7 @@ export const packsRepo = (db: Db) => {
             reason: draft.reason,
             via: draft.via ?? null,
             fixed: fixedText(draft.fixed),
+            defaults: fixedText(draft.defaults),
           })),
         )
       await touch(packId)
@@ -137,13 +148,18 @@ export const packsRepo = (db: Db) => {
         await db.delete(packTools).where(and(eq(packTools.packId, packId), inArray(packTools.name, names)))
       await touch(packId)
     },
-    /** Renames one pack tool (null alias: back to the tool's own name) or changes what it fixes. */
-    setEntry: async (packId: string, name: string, change: { name?: string; fixed?: Fixed | null }) => {
+    /** Renames one pack tool (null alias: back to the tool's own name) or changes what it fixes or defaults. */
+    setEntry: async (
+      packId: string,
+      name: string,
+      change: { name?: string; fixed?: Fixed | null; defaults?: Fixed | null },
+    ) => {
       await db
         .update(packTools)
         .set({
           ...(change.name === undefined ? {} : { name: change.name }),
           ...(change.fixed === undefined ? {} : { fixed: fixedText(change.fixed) }),
+          ...(change.defaults === undefined ? {} : { defaults: fixedText(change.defaults) }),
         })
         .where(and(eq(packTools.packId, packId), eq(packTools.name, name)))
       await touch(packId)
@@ -155,6 +171,42 @@ export const packsRepo = (db: Db) => {
         .set({ description, basedOn: description === null ? null : basedOn })
         .where(and(eq(packTools.packId, packId), eq(packTools.name, name)))
       await touch(packId)
+    },
+    variablesOf,
+    /** Replaces the pack's variables with these, in this order. */
+    setVariables: async (packId: string, drafts: PackVariableDraft[]) => {
+      await db.delete(packVariables).where(eq(packVariables.packId, packId))
+      if (drafts.length)
+        await db.insert(packVariables).values(
+          drafts.map((draft, position) => ({
+            packId,
+            name: draft.name,
+            value: JSON.stringify(draft.value),
+            description: draft.description ?? null,
+            position,
+          })),
+        )
+      await touch(packId)
+    },
+    /** Adds variables at the end; a name the pack already has keeps its value. */
+    addVariables: async (packId: string, drafts: PackVariableDraft[]) => {
+      const rows = await variablesOf(packId)
+      const have = new Set(rows.map((row) => row.name))
+      const fresh = drafts.filter((draft) => !have.has(draft.name) && have.add(draft.name))
+      let position = Math.max(-1, ...rows.map((row) => row.position)) + 1
+      if (fresh.length) {
+        await db.insert(packVariables).values(
+          fresh.map((draft) => ({
+            packId,
+            name: draft.name,
+            value: JSON.stringify(draft.value),
+            description: draft.description ?? null,
+            position: position++,
+          })),
+        )
+        await touch(packId)
+      }
+      return fresh.length
     },
     addItems: async (packId: string, kind: PackItemRow['kind'], names: string[]) => {
       const have = new Set(

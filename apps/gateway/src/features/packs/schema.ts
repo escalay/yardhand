@@ -1,7 +1,7 @@
 /**
- * Packs: a curated kit for one kind of work. Its tools (from any upstreams, each with the pack's own wording, name
- * and fixed inputs when it has some), the playbooks and manuals that go with them. A key locked to a pack reaches
- * nothing else.
+ * Packs: a curated kit for one kind of work. Its tools (from any upstreams, each with the pack's own wording, name,
+ * and the inputs it fixes or gives a default), the variables those values write as `{{name}}`, and the playbooks and
+ * manuals that go with them. A key locked to a pack reaches nothing else.
  * `based_on` is the tool version a pack's wording was written against: when the live version's description moves
  * on, the wording is flagged until the owner keeps or rewrites it.
  */
@@ -39,6 +39,22 @@ export const packTools = sqliteTable(
     via: text('via'),
     /** Inputs the pack fills on every call (JSON), hidden from its keys; null when none. */
     fixed: text('fixed'),
+    /** Inputs the pack fills when the agent sends nothing (JSON), shown with that value as their default; null when none. */
+    defaults: text('defaults'),
+  },
+  (table) => [primaryKey({ columns: [table.packId, table.name] })],
+)
+
+export const packVariables = sqliteTable(
+  'pack_variables',
+  {
+    packId: text('pack_id').notNull(),
+    /** Written `{{name}}` in the pack's fixed and default values. */
+    name: text('name').notNull(),
+    /** A string, number or boolean (JSON). */
+    value: text('value'),
+    description: text('description'),
+    position: integer('position').notNull(),
   },
   (table) => [primaryKey({ columns: [table.packId, table.name] })],
 )
@@ -71,8 +87,12 @@ export const PACKS_MIGRATIONS = [
   drop table pack_tools;
   alter table pack_tools_next rename to pack_tools`,
   'alter table packs add column tried_at text',
+  'alter table pack_tools add column defaults text',
+  `create table if not exists pack_variables (pack_id text not null, name text not null, value text,
+    description text, position integer not null, primary key (pack_id, name))`,
 ] as const
 
 export type PackRow = typeof packs.$inferSelect
 export type PackToolRow = typeof packTools.$inferSelect
 export type PackItemRow = typeof packItems.$inferSelect
+export type PackVariableRow = typeof packVariables.$inferSelect
