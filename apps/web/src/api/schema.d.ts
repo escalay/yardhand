@@ -761,7 +761,7 @@ export interface paths {
         };
         /**
          * Pack tools to recheck
-         * @description Every pack wording whose tool its upstream has since rewritten (old and new text), and every fixed input the tool no longer takes.
+         * @description Every pack wording whose tool its upstream has since rewritten (old and new text), and every tool with a fixed or default value its live tool no longer takes: the input is gone, or the value no longer fits it.
          */
         get: operations["listPackFlags"];
         put?: never;
@@ -796,6 +796,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/packs/{name}/variables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a pack’s variables
+         * @description Replaces the pack’s variables. A fixed or default value writes one as `{{name}}`; a `{{word}}` that is no variable of the pack is sent as written. Refused (400) when a name is bad or repeated, when a new value no longer fits an input that uses it, or when a variable left out is still written somewhere.
+         */
+        put: operations["setPackVariables"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/packs/{name}": {
         parameters: {
             query?: never;
@@ -805,7 +825,7 @@ export interface paths {
         };
         /**
          * One pack
-         * @description A pack with its tools (wording, why each is in, flags), playbooks, manuals and keys.
+         * @description A pack with its tools (wording, why each is in, who fills each input, flags), variables, playbooks, manuals and keys, and what the checks find in it.
          */
         get: operations["getPack"];
         put?: never;
@@ -819,7 +839,7 @@ export interface paths {
         head?: never;
         /**
          * Change a pack
-         * @description Renames it, rewrites what it is for, adds or removes tools, playbooks and manuals.
+         * @description Renames it, rewrites what it is for, adds or removes tools, playbooks and manuals. A tool can go in with fixed inputs and defaults: they are checked against its live input schema, and a problem the pack already had elsewhere never blocks the change.
          */
         patch: operations["updatePack"];
         trace?: never;
@@ -878,8 +898,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename a pack tool or fix its inputs
-         * @description Gives one of the pack’s tools its own name (an alias) and sets the inputs the gateway fills on every call. Fixed values are checked against the live tool’s input schema; the pack’s keys never see them.
+         * Rename a pack tool or set its inputs
+         * @description Gives one of the pack’s tools its own name (an alias) and sets its inputs: `fixed` are filled on every call and never shown to the pack’s keys, `defaults` are shown with the pack’s value and filled when a call leaves them out, and every other input is the agent’s. A value may write a variable of the pack as `{{name}}`. Only the maps sent are checked, against the live tool’s input schema with the variables filled in.
          */
         patch: operations["updatePackTool"];
         trace?: never;
@@ -1261,13 +1281,13 @@ export interface paths {
         };
         /**
          * Export the settings
-         * @description Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs), playbooks and manuals, as one JSON document (owner only).
+         * @description Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs and defaults, as written), variables, playbooks and manuals, as one JSON document (owner only).
          */
         get: operations["exportConfig"];
         put?: never;
         /**
          * Import the settings
-         * @description Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the tools, playbooks and manuals it lacks. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.
+         * @description Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the variables, tools, playbooks and manuals it lacks. Variables go in first, so a tool’s fixed inputs and defaults are checked with them filled in; a variable or a tool that would leave a value its tool’s live schema refuses is skipped and named. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.
          */
         post: operations["importConfig"];
         delete?: never;
@@ -2554,7 +2574,7 @@ export interface components {
         /** @description Something in a pack to recheck because its upstream changed the tool. */
         PackFlag: {
             /**
-             * @description `wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack fixes.
+             * @description `wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack fixes or defaults, or no longer takes its value.
              * @enum {string}
              */
             kind: "wording" | "input";
@@ -2563,7 +2583,9 @@ export interface components {
             /** @description The name the pack calls it. */
             tool: string;
             wording: string;
+            /** @description `wording`: the upstream’s description when the wording was written. `input`: what the pack sets, e.g. `fixes from` or `defaults from`. */
             was: string;
+            /** @description `wording`: the upstream’s description now. `input`: what is wrong with it now. */
             now: string;
             _links: components["schemas"]["Links"];
         };
@@ -2588,7 +2610,7 @@ export interface components {
             upstreams: string[];
             /** @description Live keys locked to it. */
             keys: number;
-            /** @description Tools whose wording or fixed inputs to recheck. */
+            /** @description Tools to recheck: wording their upstream rewrote, or a fixed or default value that no longer fits. */
             flags: number;
             updatedAt: string;
             _links: components["schemas"]["Links"];
@@ -2596,6 +2618,9 @@ export interface components {
         /** @description A pack with everything in it, in order. */
         Pack: components["schemas"]["PackCard"] & {
             tools: components["schemas"]["PackTool"][];
+            variables: components["schemas"]["PackVariable"][];
+            /** @description What the checks find in the pack as it stands: errors to fix, and warnings. */
+            findings: components["schemas"]["PackFinding"][];
             playbooks: components["schemas"]["PackItem"][];
             manuals: components["schemas"]["PackItem"][];
             keyList: components["schemas"]["PackKey"][];
@@ -2622,7 +2647,18 @@ export interface components {
             fixed: {
                 [key: string]: unknown;
             };
-            /** @description Fixed inputs the live tool no longer takes: the upstream dropped or renamed them. Fix or drop them. */
+            /**
+             * @description Inputs the gateway fills when a call leaves them out, by input name. The pack’s keys read each with this value as its default and may send their own.
+             * @example {
+             *       "posted_since": "{{since_days}}"
+             *     }
+             */
+            defaults: {
+                [key: string]: unknown;
+            };
+            /** @description Every input of the live tool, in its order, with who fills it. Empty when the tool is not live. */
+            inputs: components["schemas"]["PackToolInput"][];
+            /** @description Inputs the pack fixes or defaults that the live tool no longer takes: the upstream dropped or renamed them. Set them again or drop them. */
             lostInputs: string[];
             upstream: string;
             title: string | null;
@@ -2644,6 +2680,25 @@ export interface components {
             live: boolean;
             flag: components["schemas"]["WordingFlag"];
         };
+        /** @description One input of a pack tool and who fills it. */
+        PackToolInput: {
+            name: string;
+            /**
+             * @description `fixed`: the pack fills it on every call and hides it. `default`: shown with the pack’s value, which a call may replace. `agent`: the agent fills it.
+             * @enum {string}
+             */
+            mode: "fixed" | "default" | "agent";
+            /** @description The pack’s value as written (`{{name}}` kept), or null. */
+            value?: unknown;
+            /** @description The value with the pack’s variables filled in, or null. */
+            resolved?: unknown;
+            /** @description The tool itself requires it. */
+            required: boolean;
+            /** @description Why the value no longer fits the live tool, or null. Calls fail until it is changed. */
+            problem: string | null;
+            /** @description Worth a look, or null: a `{{word}}` that is no variable of the pack is sent as written. */
+            note: string | null;
+        };
         /** @description The upstream rewrote a tool this pack words: keep or rewrite the wording. */
         WordingFlag: {
             /** @description The upstream’s description when the wording was written. */
@@ -2651,6 +2706,42 @@ export interface components {
             /** @description The upstream’s description now. */
             now: string;
         } | null;
+        /** @description A named value of a pack, written `{{name}}` where a tool’s input uses it. */
+        PackVariable: {
+            /**
+             * @description Written `{{name}}` in a fixed or default value.
+             * @example since_days
+             */
+            name: string;
+            /**
+             * @description A string, a number or true/false. A value that is `{{name}}` and nothing else takes it with its type.
+             * @example 7
+             */
+            value: string | number | boolean;
+            /** @description What it is for, for whoever edits the pack. */
+            description: string | null;
+            /** @description The pack’s tools whose values write it, by the pack’s names. */
+            usedBy: string[];
+        };
+        /** @description Something the checks found in a pack. */
+        PackFinding: {
+            /**
+             * @description `error`: calls fail, or a save that sends it is refused. `warning`: worth a look; nothing fails.
+             * @enum {string}
+             */
+            level: "error" | "warning";
+            /**
+             * @description `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `unused_variable`, `not_live`.
+             * @example bad_value
+             */
+            code: string;
+            /**
+             * @description Where: `tools.<name>.fixed.<input>`, `tools.<name>.defaults.<input>` or `variables.<name>`.
+             * @example tools.greet_from_desk.fixed.from
+             */
+            path: string;
+            message: string;
+        };
         /** @description A playbook or manual in a pack. */
         PackItem: {
             name: string;
@@ -2688,6 +2779,33 @@ export interface components {
              */
             playbook?: string;
         };
+        /**
+         * @description The pack’s variables from now on, in order: this list replaces the one it had.
+         * @example {
+         *       "variables": [
+         *         {
+         *           "name": "since_days",
+         *           "value": 7,
+         *           "description": "How far back a search looks."
+         *         }
+         *       ]
+         *     }
+         */
+        PackVariablesInput: {
+            variables: {
+                /**
+                 * @description A lowercase letter, then lowercase letters, digits or `_`, 40 at most.
+                 * @example since_days
+                 */
+                name: string;
+                /**
+                 * @description A string, a number or true/false. A value that is `{{name}}` and nothing else takes it with its type.
+                 * @example 7
+                 */
+                value: string | number | boolean;
+                description?: string | null;
+            }[];
+        };
         /** @description Where a pack is reached and paste-ready setup for every place a key of it can run. Never holds a key. */
         PackSetup: {
             pack: string;
@@ -2711,7 +2829,7 @@ export interface components {
         PackPatch: {
             title?: string;
             description?: string;
-            /** @description What to add, at the end; anything already in stays as it is. A tool goes in under its alias when it has one, so the same tool can go in again under another alias (with other fixed inputs). */
+            /** @description What to add, at the end; anything already in stays as it is. A tool goes in under its alias when it has one, so the same tool can go in again under another alias (with other fixed inputs or defaults). An alias can’t be the name of one of a connection’s own tools (`search_tools`, `call_tool` and the rest). */
             add?: {
                 tools?: {
                     /** @description The tool, `<upstream>.<tool>`. */
@@ -2736,6 +2854,15 @@ export interface components {
                     fixed?: {
                         [key: string]: unknown;
                     };
+                    /**
+                     * @description Inputs the gateway fills when a call leaves them out, by input name. The pack’s keys read each with this value as its default and may send their own.
+                     * @example {
+                     *       "posted_since": "{{since_days}}"
+                     *     }
+                     */
+                    defaults?: {
+                        [key: string]: unknown;
+                    };
                 }[];
                 playbooks?: string[];
                 manuals?: string[];
@@ -2752,7 +2879,7 @@ export interface components {
             /** @description The pack’s description of the tool, or null for the upstream’s. Saving it clears its flag. */
             description: string | null;
         };
-        /** @description How one pack tool is named and what it fixes. */
+        /** @description How one pack tool is named and which inputs the pack sets. */
         PackEntryInput: {
             /**
              * @description A new name for it in this pack; null for the tool’s own.
@@ -2766,6 +2893,15 @@ export interface components {
              *     }
              */
             fixed?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * @description What it gives a default from now on (replaces its defaults); null or {} gives none. An input is fixed or has a default, never both.
+             * @example {
+             *       "posted_since": "{{since_days}}"
+             *     }
+             */
+            defaults?: {
                 [key: string]: unknown;
             } | null;
         };
@@ -3462,6 +3598,17 @@ export interface components {
                     fixed: {
                         [key: string]: unknown;
                     } | null;
+                    /** @default null */
+                    defaults: {
+                        [key: string]: unknown;
+                    } | null;
+                }[];
+                /** @default [] */
+                variables: {
+                    name: string;
+                    value: string | number | boolean;
+                    /** @default null */
+                    description: string | null;
                 }[];
                 /** @default [] */
                 playbooks: string[];
@@ -6323,6 +6470,72 @@ export interface operations {
             };
             /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setPackVariables: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackVariablesInput"];
+            };
+        };
+        responses: {
+            /** @description The pack. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["Pack"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
