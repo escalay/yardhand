@@ -44,6 +44,8 @@ export default defineConfig({
       '/openapi.json': proxy,
       '/llms.txt': proxy,
       '/docs': proxy,
+      // A pack's own address: its MCP, REST, guide and docs
+      '^/p/': proxy,
       '/app/connect': proxy,
     },
   },
