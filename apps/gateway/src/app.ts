@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseTraceparent, traceContext } from './features/calls/traces.js'
-import { packChoice, packLinks, withPackAddresses } from './features/clients/pack-choice.js'
+import { packChoice, withPackAddresses } from './features/clients/pack-choice.js'
 import { callerOf } from './features/clients/principals.js'
 import { FEATURES } from './features/index.js'
 import { mountPackDocs } from './features/packs/docs.js'
@@ -123,8 +123,6 @@ export const createApp = async ({
   })
   // The pack a request asks for (its address `/p/<pack>/…` or `x-gateway-pack`), on the caller before any route reads it
   app.use('*', packChoice)
-  // An answer under a pack's address links only inside it
-  app.use('/api/*', packLinks)
   // A pack address the key doesn't open is refused at the door, saying which packs it does open
   app.use('/mcp', async (c, next) => {
     const caller = callerOf(c)
@@ -160,6 +158,7 @@ export const createApp = async ({
   mountProxy(app, services)
   // Last: whatever no route answered is a page of the app
   if (hasWeb) serveFrontDoor(app, web)
+  // Outermost: a pack's address is rewritten before anything reads it, and its answers link only inside it
   app.fetch = withPackAddresses(sessionAuth.wrap(app.fetch as never) as typeof app.fetch)
   return Object.assign(app, { services })
 }

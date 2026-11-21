@@ -916,6 +916,10 @@ describe('a pack at its own address', () => {
     expect(await said(client, 'search_tools', { query: 'shout' })).toContain('fixture.shout [changes things]')
     expect(await said(client, 'search_tools', { query: 'zzqx' })).toContain('Nothing in Loud matches "zzqx".')
     expect(await said(client, 'list_upstreams')).toContain('fixture: Fixture, 2 tools, 1 playbook')
+    // What the connection reads from the API links inside the pack's address, as the API there does
+    const read = async (from: Client) =>
+      ((await from.readResource({ uri: 'gateway://tools/fixture.shout' })).contents[0] as { text: string }).text
+    expect(await read(client)).toMatch(/"href": ?"http:\/\/[^"/]+\/p\/loud\/api\/tools\/fixture\.shout"/)
     await client.close()
     expect((await api(key, '/p/loud/api/upstreams/fixture')).json).toMatchObject({
       toolCount: 2,
@@ -925,6 +929,7 @@ describe('a pack at its own address', () => {
     const legacy = await mcp(key, '/mcp/p/loud')
     expect(legacy.getServerVersion()).toMatchObject({ name: 'loud', title: 'Loud' })
     expect(namesOf((await legacy.listTools()).tools).sort()).toEqual([...META, 'fixture.echo', 'fixture.shout'].sort())
+    expect(await read(legacy)).toMatch(/"href": ?"http:\/\/[^"/]+\/api\/tools\/fixture\.shout"/)
     await legacy.close()
     const plain = await mcp(key, '/mcp')
     expect(plain.getServerVersion()).toMatchObject({ name: 'desk', title: 'Front desk' })
@@ -1112,6 +1117,24 @@ describe('a pack at its own address', () => {
     const again = await send('desk')
     expect(again.headers.get('idempotent-replayed')).toBe('true')
     expect(again.json.id).toBe(first.json.id)
+    // The links of a replay are those of the address asking now, not of the one that asked first
+    expect(first.json._links.self.href).toBe(`http://localhost/p/loud/api/calls/${first.json.id}`)
+    expect(again.json._links.self.href).toBe(`http://localhost/p/desk/api/calls/${first.json.id}`)
+    const replay = (path: string, id: string) =>
+      at(OWNER, path, {
+        method: 'POST',
+        headers: { 'idempotency-key': id },
+        body: { tool: 'fixture.shout', arguments: { text: 'twice' } },
+      })
+    const rootFirst = await replay('/api/calls', 'root-then-pack')
+    expect(rootFirst.json._links.self.href).toBe(`http://localhost/api/calls/${rootFirst.json.id}`)
+    const packAfter = await replay('/p/loud/api/calls', 'root-then-pack')
+    expect(packAfter.headers.get('idempotent-replayed')).toBe('true')
+    expect(packAfter.json._links.self.href).toBe(`http://localhost/p/loud/api/calls/${rootFirst.json.id}`)
+    const packFirst = await replay('/p/loud/api/calls', 'pack-then-root')
+    const rootAfter = await replay('/api/calls', 'pack-then-root')
+    expect(rootAfter.headers.get('idempotent-replayed')).toBe('true')
+    expect(rootAfter.json._links.self.href).toBe(`http://localhost/api/calls/${packFirst.json.id}`)
     const guide = (await at(key, '/llms.txt')).text.replace(/\s+/g, ' ')
     expect(guide).toContain('a new `Idempotency-Key` for each new request')
   })

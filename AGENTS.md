@@ -134,8 +134,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
    and `pinnedBy` for which of them MCP lists directly. Search scores every tool and then keeps to `seenBy`, and a
    pack key's connection cards count only what the pack holds. A pack key never gets a passthrough. The owner asking
    for a pack is such a principal too (`owner: false`), held to the same rules. A new place that lists or runs tools
-   uses them. `packLinks` (`features/clients/pack-choice.ts`) keeps the `_links` of an answer inside a pack's address
-   when the request came by it.
+   uses them. `withPackAddresses` (`features/clients/pack-choice.ts`) keeps the `_links` of an answer inside a pack's
+   address when the request came by it, outside the app, so a replayed answer is linked for the address asking.
    The passthrough (`/u/{id}/mcp`) exists only for `trusted` upstreams (a `review` upstream's lists would reach agents
    unapproved) and runs only tools the gateway serves live.
 9. Upstream failures leave as 503 problems (code `upstream`, `Retry-After: 30`), never 502: a proxy in front may
