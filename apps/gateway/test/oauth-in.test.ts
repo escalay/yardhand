@@ -295,6 +295,8 @@ describe('the owner’s session at the approval pages', () => {
       { ...form, 'sec-fetch-site': 'cross-site' },
       { ...form, 'sec-fetch-site': 'same-site' },
       { ...form, origin: 'https://elsewhere.example.test' },
+      // A sandboxed frame or a redirect across sites says only `null`
+      { ...form, origin: 'null' },
       form,
     ]) {
       const posted = await browser.send(action, { method: 'POST', headers, body })
@@ -308,6 +310,22 @@ describe('the owner’s session at the approval pages', () => {
       body,
     })
     expect(new URL(allowed.headers.get('location') ?? '').searchParams.get('code')).toBeTruthy()
+  })
+
+  it('an Origin of null is from no site: the consent page still opens, and a write it carries is refused', async () => {
+    const app = await gateway()
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    const client = await register(app)
+    const consent = await browser.send(client.authorize, { headers: { origin: 'null' } })
+    expect(consent.status).toBe(200)
+    expect(await consent.text()).toContain('Allow <strong>Sample</strong>')
+    const signIn = await browser.send('/api/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'null' },
+      body: JSON.stringify({ key: OWNER }),
+    })
+    expect(signIn.status).toBe(403)
   })
 
   it('the session is not the owner at /oauth/claim', async () => {

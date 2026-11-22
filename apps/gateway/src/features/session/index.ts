@@ -116,13 +116,17 @@ const routes = {
   }),
 }
 
-/** Same rule as the kit's Access cookie: a write carried by a cookie must come from this site. */
-const sameSite = (c: Context) => {
-  const site = c.req.header('sec-fetch-site')
+/**
+ * Same rule as the kit's Access cookie: a write carried by a cookie must come from this site. An Origin that is no
+ * URL (`null`, from a sandboxed frame or a redirect across sites) is from no site.
+ */
+const fromThisSite = (request: Request) => {
+  const site = request.headers.get('sec-fetch-site')
   if (site) return site === 'same-origin'
-  const origin = c.req.header('origin')
-  return Boolean(origin) && new URL(origin as string).host === new URL(c.req.url).host
+  const origin = request.headers.get('origin')
+  return Boolean(origin && URL.canParse(origin)) && new URL(origin as string).host === new URL(request.url).host
 }
+const sameSite = (c: Context) => fromThisSite(c.req.raw)
 
 const secureOf = (c: Context) =>
   new URL(c.req.url).protocol === 'https:' || c.req.header('x-forwarded-proto') === 'https'
@@ -202,12 +206,7 @@ export const createSessionAuth = ({ keys, sessions }: { keys: Map<string, string
   const carrying = async (request: Request) => {
     const token = /(?:^|;\s*)gw_session=([^;]+)/.exec(request.headers.get('cookie') ?? '')?.[1]
     if (!token || request.headers.has('authorization') || !(await sessions.valid(token))) return request
-    const site = request.headers.get('sec-fetch-site')
-    const origin = request.headers.get('origin')
-    const fromHere = site
-      ? site === 'same-origin'
-      : Boolean(origin) && new URL(origin as string).host === new URL(request.url).host
-    if (!SAFE.has(request.method) && !fromHere) return request
+    if (!SAFE.has(request.method) && !fromThisSite(request)) return request
     const headers = new Headers(request.headers)
     headers.set('authorization', `Bearer ${standIn}`)
     headers.set('x-gateway-session', '1')
