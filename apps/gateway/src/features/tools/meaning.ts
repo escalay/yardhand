@@ -160,16 +160,16 @@ export const createMeaningSearch = ({
     cancelRetry()
     if (stopped) return
     const delay = retryDelays[Math.min(failures, retryDelays.length - 1)] ?? 60_000
-    failures += 1
     const timer = setTimeout(() => {
       retry = null
-      if (!stopped) void refresh()
+      if (!stopped) void run(true)
     }, delay)
     timer.unref?.()
     retry = { timer, at: Date.now() + delay }
   }
-  // One refresh at a time, nothing once stopped; a failed one keeps serving what the ledger holds and one try waits
-  const refresh = () => {
+  // One refresh at a time, nothing once stopped; a failed one keeps serving what the ledger holds and one try waits,
+  // longer only after a try of its own failed
+  const run = (ownTry: boolean) => {
     running = running
       .then(async () => {
         if (stopped) return
@@ -184,11 +184,13 @@ export const createMeaningSearch = ({
         (error: unknown) => {
           failed = (error instanceof Error ? error.message : String(error)).slice(0, 300)
           log(`meaning: refresh failed (${failed})`)
+          if (ownTry) failures += 1
           retryLater()
         },
       )
     return running
   }
+  const refresh = () => run(false)
   return {
     refresh,
     status: () => ({ ...counted, failed, retryAt: retry ? new Date(retry.at).toISOString() : null }),

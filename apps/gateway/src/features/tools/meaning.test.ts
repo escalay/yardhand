@@ -199,7 +199,7 @@ describe('a refresh that fails or stops', () => {
     const search = failingFirst(
       Array.from({ length: 20 }, () => busy),
       60,
-      [WAIT],
+      [WAIT, WAIT * 10],
     )
     // A sync, an approval and the start refresh, one after another
     void search.refresh()
@@ -207,8 +207,25 @@ describe('a refresh that fails or stops', () => {
     await search.refresh()
     expect(search.calls()).toBe(3)
     await vi.waitFor(() => expect(search.calls()).toBeGreaterThanOrEqual(4), { timeout: WAIT * 3 })
-    await pause(WAIT / 2)
+    await pause(WAIT * 2)
     expect(search.calls()).toBe(4)
+    search.stop?.()
+  })
+
+  it('waits the first delay after refreshes that failed in a row: only its own tries climb the ladder', async () => {
+    const search = failingFirst(
+      Array.from({ length: 20 }, () => busy),
+      60,
+      [WAIT, WAIT * 10],
+    )
+    void search.refresh()
+    void search.refresh()
+    const before = Date.now()
+    await search.refresh()
+    expect(Date.parse(search.status?.().retryAt ?? '')).toBeLessThanOrEqual(Date.now() + WAIT)
+    await vi.waitFor(() => expect(search.calls()).toBe(4), { timeout: WAIT * 5 })
+    await vi.waitFor(() => expect(search.status?.().retryAt).not.toBeNull())
+    expect(Date.parse(search.status?.().retryAt ?? '')).toBeGreaterThanOrEqual(before + WAIT * 10)
     search.stop?.()
   })
 
