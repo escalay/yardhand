@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/escalay/yardhand/compare/v0.6.1...v0.6.2) (2026-11-22)
+
+
+### Fixes
+
+* **session:** let the owner approve a sign-in with their own session ([#42](https://github.com/escalay/yardhand/issues/42)) ([baa227c](https://github.com/escalay/yardhand/commit/baa227cdc8e210e2a5dc2d40e0497b828d01fa95))
+
 ## [0.6.1](https://github.com/escalay/yardhand/compare/v0.6.0...v0.6.1) (2026-11-22)
 
 
