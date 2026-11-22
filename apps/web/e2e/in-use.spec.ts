@@ -869,4 +869,37 @@ test.describe('on a phone', () => {
       .click()
     await expect(page.getByRole('heading', { name: /The servers behind the door/ })).toBeVisible()
   })
+
+  test.use({ viewport: { width: 390, height: 844 } })
+  test('a pack’s parts are all reached: its variables and a tool’s inputs, its people and Share', async ({ page }) => {
+    await signIn(page, demo())
+    await page.goto('/app/packs/loud')
+    const parts = page.getByRole('navigation', { name: 'Parts' })
+    await expect(parts.getByRole('button')).toHaveText([
+      'Overview',
+      /^Tools/,
+      /^Playbooks & manuals/,
+      /^People/,
+      'Activity',
+    ])
+    const variables = page.locator('section', { has: page.getByRole('heading', { name: /^Variables/ }) })
+    await expect(variables.getByText('{{page_size}}')).toBeVisible()
+    await page.getByRole('button', { name: 'Name and inputs of items.get_item' }).click()
+    // The editor scrolls within the window: every input's modes can be brought into view
+    const limit = page.getByRole('radiogroup', { name: 'Who fills limit' })
+    // Down the editor, never off to the side
+    const box = await limit.boundingBox()
+    expect(box && box.x >= 0 && box.x + box.width <= 390, `limit's modes at ${JSON.stringify(box)}`).toBe(true)
+    await limit.scrollIntoViewIfNeeded()
+    await expect(limit).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel' }).click()
+
+    await parts.getByRole('button', { name: /^People/ }).click()
+    await expect(parts.getByRole('button', { name: /^People/ })).toHaveAttribute('aria-current', 'page')
+    await page.getByRole('button', { name: 'Share', exact: true }).first().click()
+    await expect(page.getByRole('dialog', { name: 'Share Loud' }).getByLabel('Who')).toBeInViewport()
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+    expect(overflow).toBeLessThanOrEqual(0)
+  })
 })
