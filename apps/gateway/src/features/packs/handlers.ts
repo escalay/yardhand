@@ -13,9 +13,9 @@ import { OWNER, requireOwner } from '../clients/principals.js'
 import { KEY_PLACEHOLDER, surfacesOf } from '../clients/setup.js'
 import { summaryOf } from '../tools/handlers.js'
 import { type LiveTool, needsWrite } from '../tools/repo.js'
-import { checkPack, judge, throwOnRefused, writersOf } from './checks.js'
-import { defaultsOf, fixedOf, inputProblems, lostInputs, modeOf } from './entries.js'
-import { flagOf, packFlags } from './flags.js'
+import { checkPack, judge, perPersonOf, throwOnRefused, writersOf } from './checks.js'
+import { defaultsOf, fixedOf, inputProblems, lostInputs, modeOf, personOf } from './entries.js'
+import { flagOf, type PersonValues, packFlags, peopleValuesOf, personalProblems } from './flags.js'
 import { noPack } from './names.js'
 import { docFlagsOf, ownOf, shownFindings } from './own.handlers.js'
 import { listedOf } from './people.js'
@@ -24,7 +24,7 @@ import { FLAGS_PATH, PATH, type routes } from './routes.js'
 import type { PackRow, PackToolRow } from './schema.js'
 import { packStateOf, withEntry, withTools, withVariables } from './state.js'
 import { likelyUses, type Use, usesIn } from './uses.js'
-import { resolveValue, type Variables, variablesFrom } from './values.js'
+import { resolveValue, type Variables, variablesFrom, wholeNameOf } from './values.js'
 
 type Routes = typeof routes
 
@@ -70,12 +70,23 @@ export const packsHandlers = ({
       })
   }
 
+  /** What the board reads a pack's values against: its variables, those with no value, and people's own values. */
+  type Known = { variables: Variables; unset: string[]; people: PersonValues[] }
+  const knownOf = async (pack: PackRow, rows?: PackContents['variables']): Promise<Known> => {
+    const held = rows ?? (await packs.variablesOf(pack.id))
+    return {
+      variables: variablesFrom(held),
+      unset: held.filter((row) => row.value === null).map((row) => row.name),
+      people: await peopleValuesOf({ packs, clients }, pack.id),
+    }
+  }
+
   /**
    * A pack's tools as the board shows them: the name its keys call each, the tool behind it, live text, the pack's
    * wording, who fills each input (as stored, and with the pack's variables filled in), and a flag when the upstream
-   * moved on.
+   * moved on. A person's own value the tool no longer takes is said on its input, once the pack's own values fit.
    */
-  const toolsOf = async (rows: PackToolRow[], variables: Variables) => {
+  const toolsOf = async (rows: PackToolRow[], { variables, unset, people }: Known) => {
     const live = new Map((await tools.liveMany(rows.map((row) => row.toolName))).map((tool) => [tool.name, tool]))
     return Promise.all(
       rows.map(async (row) => {
@@ -83,7 +94,12 @@ export const packsHandlers = ({
         const flag = flagOf(tool, row.description && row.basedOn ? await tools.version(row.basedOn) : undefined)
         const fixed = fixedOf(row)
         const defaults = defaultsOf(row)
-        const problems = tool ? inputProblems(tool, { fixed, defaults }, variables) : []
+        const person = personOf(row)
+        const own = tool ? inputProblems(tool, { fixed, defaults, person }, variables, unset) : []
+        const problems =
+          tool && !own.some((problem) => problem.level === 'error')
+            ? [...own, ...personalProblems(tool, person, people)]
+            : own
         const saidOf = (input: string, level: 'error' | 'warning') =>
           problems.find((problem) => problem.input === input && problem.level === level)?.message ?? null
         const required = Array.isArray(tool?.inputSchema.required) ? (tool.inputSchema.required as string[]) : []
@@ -93,21 +109,30 @@ export const packsHandlers = ({
           alias: row.name === row.toolName ? null : row.name,
           fixed,
           defaults,
+          person,
           inputs: Object.keys((tool?.inputSchema.properties ?? {}) as object).map((input) => {
-            const mode = modeOf({ fixed, defaults }, input)
-            const value = mode === 'fixed' ? fixed[input] : mode === 'default' ? defaults[input] : null
+            const mode = modeOf({ fixed, defaults, person }, input)
+            const value = mode === 'agent' ? null : { fixed, default: defaults, person }[mode][input]
+            const reads = mode === 'person' ? wholeNameOf(value) : undefined
             return {
               name: input,
               mode,
               value,
-              resolved: mode === 'agent' ? null : resolveValue(value, variables).value,
+              resolved:
+                mode === 'agent'
+                  ? null
+                  : mode === 'person'
+                    ? reads && Object.hasOwn(variables, reads)
+                      ? variables[reads]
+                      : null
+                    : resolveValue(value, variables).value,
               required: required.includes(input),
               problem: saidOf(input, 'error'),
               note: saidOf(input, 'warning'),
               unchecked: problems.some((problem) => problem.input === input && problem.code === 'not_checked'),
             }
           }),
-          lostInputs: tool ? lostInputs(tool.inputSchema, { ...fixed, ...defaults }) : [],
+          lostInputs: tool ? lostInputs(tool.inputSchema, { ...fixed, ...defaults, ...person }) : [],
           upstream: tool?.upstreamId ?? upstreamOfTool(row.toolName),
           title: tool?.title ?? null,
           description: row.description ?? tool?.description ?? '',
@@ -152,7 +177,7 @@ export const packsHandlers = ({
   const cardOf = async (origin: string, pack: PackRow, contents?: PackContents) => {
     const held = contents ?? (await packs.contentsOf(pack))
     const [toolRows, live, items, docFlags] = await Promise.all([
-      toolsOf(held.tools, variablesFrom(held.variables)),
+      toolsOf(held.tools, await knownOf(pack, held.variables)),
       liveKeysOf(pack),
       catalog.liveNames([...held.playbooks, ...held.manuals]),
       docFlagsOf(tools, pack, held),
@@ -221,6 +246,7 @@ export const packsHandlers = ({
       tools: toolRows,
       variables: state.variables.map((variable) => ({
         ...variable,
+        perPerson: perPersonOf(state, variable.name),
         usedBy: [...new Set(writersOf(state, variable.name).map((writer) => writer.tool))],
       })),
       findings: shownFindings(findings),
@@ -280,7 +306,7 @@ export const packsHandlers = ({
   const flags: RouteHandler<Routes['flags']> = async (c) => {
     requireOwner(c)
     const origin = originOf(c)
-    const found = (await packFlags({ packs, tools })).map((flagged) => {
+    const found = (await packFlags({ packs, tools, clients })).map((flagged) => {
       const { kind, pack, flag } = flagged
       const toolName = 'tool' in flagged ? flagged.tool.toolName : flagged.flag.tool
       return {
@@ -430,6 +456,7 @@ export const packsHandlers = ({
         live: liveTools.get(tool.name) ?? null,
         fixed: tool.fixed ?? {},
         defaults: tool.defaults ?? {},
+        person: tool.person ?? {},
       })),
       remove?.tools ?? [],
     )
@@ -437,7 +464,7 @@ export const packsHandlers = ({
       judge(
         before,
         after,
-        fresh.flatMap((tool) => [`tools.${tool.as}.fixed`, `tools.${tool.as}.defaults`]),
+        fresh.flatMap((tool) => [`tools.${tool.as}.fixed`, `tools.${tool.as}.defaults`, `tools.${tool.as}.person`]),
       ).refused,
     )
     // Any key that is not revoked keeps the old name: an ended one can be extended and must find its address
@@ -460,6 +487,7 @@ export const packsHandlers = ({
           alias: tool.alias ?? null,
           fixed: tool.fixed ?? null,
           defaults: tool.defaults ?? null,
+          person: tool.person ?? null,
         })),
       )
     if (add?.playbooks?.length) await packs.addItems(pack.id, 'playbook', add.playbooks)
@@ -507,7 +535,7 @@ export const packsHandlers = ({
     return row
   }
   const shownEntry = async (pack: PackRow, name: string) => {
-    const [shown] = await toolsOf([await entryIn(pack, name)], variablesFrom(await packs.variablesOf(pack.id)))
+    const [shown] = await toolsOf([await entryIn(pack, name)], await knownOf(pack))
     if (!shown) throw new ProblemError('not_found', { detail: `${pack.title} has no tool called ${name}.` })
     return shown
   }
@@ -533,7 +561,7 @@ export const packsHandlers = ({
     const { name, tool: entryName } = c.req.valid('param')
     const pack = await packOf(name)
     const row = await entryIn(pack, entryName)
-    const { alias, fixed, defaults } = c.req.valid('json')
+    const { alias, fixed, defaults, person } = c.req.valid('json')
     const before = await packStateOf(repos, pack)
     const next = alias === undefined ? row.name : (alias ?? row.toolName)
     if (next !== row.name) {
@@ -543,7 +571,7 @@ export const packsHandlers = ({
         })
       checkName(pack, next, row.toolName)
     }
-    const sets = Object.keys(fixed ?? {}).length + Object.keys(defaults ?? {}).length
+    const sets = [fixed, defaults, person].reduce((count, values) => count + Object.keys(values ?? {}).length, 0)
     if (sets && !before.tools.find((tool) => tool.key === row.name)?.live)
       throw new ProblemError('conflict', {
         detail: `${row.toolName} is not live, so its inputs can't be checked: sync its upstream first.`,
@@ -552,18 +580,21 @@ export const packsHandlers = ({
       name: next,
       ...(fixed === undefined ? {} : { fixed: fixed ?? {} }),
       ...(defaults === undefined ? {} : { defaults: defaults ?? {} }),
+      ...(person === undefined ? {} : { person: person ?? {} }),
     })
     // Only the maps this request sends are its own: a rename of a flagged tool still goes through
     throwOnRefused(
       judge(before, after, [
         ...(fixed === undefined ? [] : [`tools.${row.name}.fixed`]),
         ...(defaults === undefined ? [] : [`tools.${row.name}.defaults`]),
+        ...(person === undefined ? [] : [`tools.${row.name}.person`]),
       ]).refused,
     )
     await packs.setEntry(pack.id, row.name, {
       ...(alias === undefined ? {} : { name: next }),
       ...(fixed === undefined ? {} : { fixed }),
       ...(defaults === undefined ? {} : { defaults }),
+      ...(person === undefined ? {} : { person }),
     })
     listsChanged({ tools: true })
     return c.json(await shownEntry(pack, next), 200)

@@ -18,11 +18,12 @@ import {
   packDocVersions,
   packItems,
   packNames,
+  packPersonValues,
   packs,
   packTools,
   packVariables,
 } from './schema.js'
-import type { Scalar } from './values.js'
+import type { Scalar, Variables } from './values.js'
 
 export type PackDraft = { name: string; title: string; description: string }
 /** A tool to add: `name` is the tool (`<upstream>.<tool>`); `alias` is what the pack's keys call it instead. */
@@ -33,11 +34,15 @@ export type PackToolDraft = {
   alias?: string | null
   fixed?: Fixed | null
   defaults?: Fixed | null
+  person?: Fixed | null
 }
-export type PackVariableDraft = { name: string; value: Scalar; description?: string | null }
+/** A variable to write; a null value is none of the pack's, for one only Per person inputs read. */
+export type PackVariableDraft = { name: string; value: Scalar | null; description?: string | null }
 
 const fixedText = (fixed: Fixed | null | undefined) =>
   fixed && Object.keys(fixed).length ? JSON.stringify(fixed) : null
+/** A variable's value as stored: JSON, or SQL null for none. */
+const valueText = (value: Scalar | null) => (value === null ? null : JSON.stringify(value))
 
 /**
  * The tools a document names, by the pack's names, each with the tool version that was live when it was saved
@@ -211,13 +216,15 @@ export const packsRepo = (db: Db) => {
         .innerJoin(packs, eq(packs.id, packTools.packId))
         .where(sql`${packTools.description} is not null`)
         .orderBy(asc(packs.title), asc(packTools.position)),
-    /** Every pack tool that fixes an input or gives one a default, for the flags when a value stops fitting. */
+    /** Every pack tool that fixes an input, gives one a default or fills one per person, for the flags. */
     fixing: () =>
       db
         .select({ pack: packs, tool: packTools })
         .from(packTools)
         .innerJoin(packs, eq(packs.id, packTools.packId))
-        .where(sql`${packTools.fixed} is not null or ${packTools.defaults} is not null`)
+        .where(
+          sql`${packTools.fixed} is not null or ${packTools.defaults} is not null or ${packTools.person} is not null`,
+        )
         .orderBy(asc(packs.title), asc(packTools.position)),
     create: async (draft: PackDraft) => {
       const id = `pk_${randomUUID().replaceAll('-', '').slice(0, 16)}`
@@ -245,6 +252,7 @@ export const packsRepo = (db: Db) => {
       await db.delete(packNames).where(eq(packNames.packId, packId))
       await db.delete(packDocs).where(eq(packDocs.packId, packId))
       await db.delete(packDocVersions).where(eq(packDocVersions.packId, packId))
+      await db.delete(packPersonValues).where(eq(packPersonValues.packId, packId))
       await db.delete(packs).where(eq(packs.id, packId))
     },
     /** Adds tools at the end; a name already in (the alias, else the tool's) keeps its place, wording and reason. */
@@ -270,6 +278,7 @@ export const packsRepo = (db: Db) => {
             via: draft.via ?? null,
             fixed: fixedText(draft.fixed),
             defaults: fixedText(draft.defaults),
+            person: fixedText(draft.person),
           })),
         )
       await touch(packId)
@@ -281,11 +290,11 @@ export const packsRepo = (db: Db) => {
         await db.delete(packTools).where(and(eq(packTools.packId, packId), inArray(packTools.name, names)))
       await touch(packId)
     },
-    /** Renames one pack tool (null alias: back to the tool's own name) or changes what it fixes or defaults. */
+    /** Renames one pack tool (null alias: back to the tool's own name) or changes the inputs it sets. */
     setEntry: async (
       packId: string,
       name: string,
-      change: { name?: string; fixed?: Fixed | null; defaults?: Fixed | null },
+      change: { name?: string; fixed?: Fixed | null; defaults?: Fixed | null; person?: Fixed | null },
     ) => {
       await db
         .update(packTools)
@@ -293,6 +302,7 @@ export const packsRepo = (db: Db) => {
           ...(change.name === undefined ? {} : { name: change.name }),
           ...(change.fixed === undefined ? {} : { fixed: fixedText(change.fixed) }),
           ...(change.defaults === undefined ? {} : { defaults: fixedText(change.defaults) }),
+          ...(change.person === undefined ? {} : { person: fixedText(change.person) }),
         })
         .where(and(eq(packTools.packId, packId), eq(packTools.name, name)))
       await touch(packId)
@@ -319,7 +329,7 @@ export const packsRepo = (db: Db) => {
             drafts.map((draft, position) => ({
               packId,
               name: draft.name,
-              value: JSON.stringify(draft.value),
+              value: valueText(draft.value),
               description: draft.description ?? null,
               position,
             })),
@@ -347,7 +357,7 @@ export const packsRepo = (db: Db) => {
           fresh.map((draft) => ({
             packId,
             name: draft.name,
-            value: JSON.stringify(draft.value),
+            value: valueText(draft.value),
             description: draft.description ?? null,
             position: position++,
           })),
@@ -356,6 +366,57 @@ export const packsRepo = (db: Db) => {
       }
       return fresh.length
     },
+    /** One person's own values in a pack, by variable; each a Per person input reads before the pack's. */
+    personValuesOf: async (packId: string, clientId: string): Promise<Variables> =>
+      Object.fromEntries(
+        (
+          await db
+            .select()
+            .from(packPersonValues)
+            .where(and(eq(packPersonValues.packId, packId), eq(packPersonValues.clientId, clientId)))
+        ).map((row) => [row.name, JSON.parse(row.value) as Scalar]),
+      ),
+    /** Everyone's own values in a pack, by client: for the owner, never for a key. */
+    personValuesIn: async (packId: string): Promise<Map<string, Variables>> => {
+      const rows = await db.select().from(packPersonValues).where(eq(packPersonValues.packId, packId))
+      const byClient = new Map<string, Variables>()
+      for (const row of rows)
+        byClient.set(row.clientId, { ...byClient.get(row.clientId), [row.name]: JSON.parse(row.value) as Scalar })
+      return byClient
+    },
+    /** Replaces one person's values in a pack with these: a variable left out has none of theirs. */
+    setPersonValues: async (packId: string, clientId: string, values: Variables) => {
+      const now = new Date().toISOString()
+      const rows = Object.entries(values).map(([name, value]) => ({
+        packId,
+        clientId,
+        name,
+        value: JSON.stringify(value),
+        updatedAt: now,
+      }))
+      const ofPerson = and(eq(packPersonValues.packId, packId), eq(packPersonValues.clientId, clientId))
+      if (rows.length)
+        await db
+          .insert(packPersonValues)
+          .values(rows)
+          .onConflictDoUpdate({
+            target: [packPersonValues.packId, packPersonValues.clientId, packPersonValues.name],
+            set: { value: sql`excluded.value`, updatedAt: sql`excluded.updated_at` },
+          })
+      const kept = Object.keys(values)
+      await db
+        .delete(packPersonValues)
+        .where(kept.length ? and(ofPerson, notInArray(packPersonValues.name, kept)) : ofPerson)
+    },
+    /** Drops a client's values in every pack but `keep` (revoked: in all of them). */
+    forgetPerson: (clientId: string, keep: string[] = []) =>
+      db
+        .delete(packPersonValues)
+        .where(
+          keep.length
+            ? and(eq(packPersonValues.clientId, clientId), notInArray(packPersonValues.packId, keep))
+            : eq(packPersonValues.clientId, clientId),
+        ),
     addItems: async (packId: string, kind: PackItemRow['kind'], names: string[]) => {
       const have = new Set(
         (

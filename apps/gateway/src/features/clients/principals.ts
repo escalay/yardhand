@@ -6,18 +6,19 @@
  * A key locked to a pack reaches only the pack: its upstreams become the pack's, and `reaches` / `runsTool` / `holds`
  * / `holdsOwn` keep tools, playbooks and manuals, and the playbooks and skill written for the pack, to what is in it.
  * A pack names its tools its own way and sets some of their inputs (`entryOf`, `shownAs`). `packScopeFrom` is the
- * one builder of that lock, with the pack's variables filled into the values it fixes and defaults.
+ * one builder of that lock, with the pack's variables filled into the values it fixes and defaults, and the key's own
+ * values into its Per person inputs: a lock built for no one (the owner inside a pack) has only the pack's.
  * The owner asking for a pack (its address or the header) is answered as a write key of that pack would be.
  */
 import type { Context } from 'hono'
 import { type Caller, mintApiKey, ProblemError } from '../../kit/index.js'
 import type { CatalogRepo } from '../catalog/repo.js'
-import { type Fixed, type PackEntry, presented, resolveEntry } from '../packs/entries.js'
+import { type PackEntry, presented, resolveEntry } from '../packs/entries.js'
 import { noPack } from '../packs/names.js'
 import type { PackContents, PackDoc, PacksRepo } from '../packs/repo.js'
 import type { PackRow } from '../packs/schema.js'
 import { packSkillUriOf } from '../packs/skill.js'
-import { variablesFrom } from '../packs/values.js'
+import { type Variables, variablesFrom } from '../packs/values.js'
 import { isOff, type LiveTool, needsWrite } from '../tools/repo.js'
 import { dayOf } from './lifetimes.js'
 import type { ClientDraft, ClientsRepo } from './repo.js'
@@ -39,13 +40,17 @@ export type PackScope = {
   skill: string | null
 }
 
-/** The lock for a pack with these contents: the only place a `PackScope` is built. */
+/**
+ * The lock for a pack with these contents: the only place a `PackScope` is built. `personal` is the key's own values,
+ * which only its Per person inputs read; left out, they read the pack's.
+ */
 export const packScopeFrom = (
   pack: Pick<PackRow, 'id' | 'name' | 'title' | 'description'>,
   contents: Pick<PackContents, 'tools' | 'variables' | 'playbooks' | 'manuals'> & {
     /** What is written for it: the lock keeps the names, never the texts. */
     docs: Pick<PackDoc, 'kind' | 'name'>[]
   },
+  personal: Variables = {},
 ): PackScope => {
   const variables = variablesFrom(contents.variables)
   return {
@@ -53,7 +58,7 @@ export const packScopeFrom = (
     name: pack.name,
     title: pack.title,
     description: pack.description,
-    tools: new Map(contents.tools.map((row) => [row.name, resolveEntry(row, variables)])),
+    tools: new Map(contents.tools.map((row) => [row.name, resolveEntry(row, variables, personal)])),
     playbooks: new Set(contents.playbooks),
     manuals: new Set(contents.manuals),
     ownPlaybooks: new Set(contents.docs.filter((doc) => doc.kind === 'playbook').map((doc) => doc.name)),
@@ -128,13 +133,15 @@ export const runsTool = (principal: Principal, toolName: string) =>
   !principal.pack || [...principal.pack.tools.values()].some((entry) => entry.tool === toolName)
 
 /**
- * The tool behind a name this principal calls, with the inputs its pack fixes and those it gives a default; null
- * when its pack has no such name.
+ * The tool behind a name this principal calls, with the inputs its pack fixes, those it gives a default and those
+ * it fills per person; null when its pack has no such name.
  */
-export const entryOf = (principal: Principal, name: string): { tool: string; fixed: Fixed; defaults: Fixed } | null => {
-  if (!principal.pack) return { tool: name, fixed: {}, defaults: {} }
+export const entryOf = (principal: Principal, name: string): Omit<PackEntry, 'wording'> | null => {
+  if (!principal.pack) return { tool: name, fixed: {}, defaults: {}, person: {}, unset: [] }
   const entry = principal.pack.tools.get(name)
-  return entry ? { tool: entry.tool, fixed: entry.fixed, defaults: entry.defaults } : null
+  return entry
+    ? { tool: entry.tool, fixed: entry.fixed, defaults: entry.defaults, person: entry.person, unset: entry.unset }
+    : null
 }
 
 /** May it read this playbook or manual? A pack holds its own; without one, its allowlist decides. */
@@ -232,10 +239,12 @@ export const createPrincipals = ({
   catalog: CatalogRepo
   keys: Map<string, string>
 }) => {
-  const packScopeOf = async (packId: string): Promise<PackScope | null> => {
+  /** The lock for a pack, with the Per person inputs filled from this client's own values when one is given. */
+  const packScopeOf = async (packId: string, clientId?: string): Promise<PackScope | null> => {
     const pack = await packs.byId(packId)
     if (!pack) return null
-    return packScopeFrom(pack, await packs.contentsOf(pack))
+    const personal = clientId ? await packs.personValuesOf(packId, clientId) : {}
+    return packScopeFrom(pack, await packs.contentsOf(pack), personal)
   }
   /** A pack's upstreams: those of its tools, playbooks and manuals. */
   const upstreamsOfPack = async (scope: PackScope) => {
@@ -282,7 +291,7 @@ export const createPrincipals = ({
     scopeCap: 'read' | 'write' | undefined,
     chosen: { id: string | null; opened: Opened[] },
   ): Promise<Principal> => {
-    const pack = chosen.id ? await packScopeOf(chosen.id) : null
+    const pack = chosen.id ? await packScopeOf(chosen.id, row.id) : null
     const byDefault = [...chosen.opened].sort((a, b) => Number(b.id === row.packId) - Number(a.id === row.packId))
     return {
       id: row.id,

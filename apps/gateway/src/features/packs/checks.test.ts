@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ProblemError } from '../../kit/index.js'
-import { checkPack, type Finding, judge, throwOnRefused, usesOf } from './checks.js'
+import { checkPack, type Finding, judge, perPersonOf, personValueProblems, throwOnRefused, usesOf } from './checks.js'
 import { SKILL_SECTIONS } from './skill.js'
 import { type PackState, withDoc, withEntry, withTools, withVariables } from './state.js'
 
@@ -19,6 +19,7 @@ const entry = (name: string, values: Partial<PackState['tools'][number]> = {}): 
   live: greet,
   fixed: {},
   defaults: {},
+  person: {},
   ...values,
 })
 const desk = (over: Partial<PackState> = {}): PackState => ({
@@ -180,6 +181,113 @@ describe('judge', () => {
     ])
     const free = withEntry(before, 'greet_from_desk', { fixed: { from: 'the desk' } })
     expect(judge(free, withVariables(free, []), ['variables']).refused).toEqual([])
+  })
+})
+
+describe('checkPack on a Per person input', () => {
+  const open = (over: Partial<PackState> = {}) =>
+    desk({
+      tools: [entry('greet_by_city', { person: { from: '{{city}}' } })],
+      variables: [{ name: 'city', value: null, description: null }],
+      ...over,
+    })
+
+  it('finds nothing in an input that reads one declared variable, with or without a value of the pack’s', () => {
+    expect(checkPack(open())).toEqual([])
+    expect(checkPack(open({ variables: [{ name: 'city', value: 'the desk', description: null }] }))).toEqual([])
+    expect(perPersonOf(open(), 'city')).toBe(true)
+    expect(perPersonOf(open({ tools: [] }), 'city')).toBe(false)
+  })
+
+  it('errors on an input that is not one declared variable, and on one in two modes', () => {
+    const found = checkPack(
+      open({
+        tools: [
+          entry('greet_twice', { fixed: { from: 'the desk' }, person: { from: '{{city}}' } }),
+          entry('greet_town', { person: { from: '{{town}}', to: 'Sam in {{city}}' } }),
+        ],
+      }),
+    )
+    expect(codes(found)).toEqual([
+      ['error', 'two_modes', 'tools.greet_twice.person.from'],
+      ['error', 'person_variable', 'tools.greet_town.person.from'],
+      ['error', 'person_variable', 'tools.greet_town.person.to'],
+    ])
+  })
+
+  it('checks the pack’s own value of it as the input’s fallback', () => {
+    expect(codes(checkPack(open({ variables: [{ name: 'city', value: 'Porto', description: null }] })))).toEqual([
+      ['error', 'bad_value', 'tools.greet_by_city.person.from'],
+    ])
+  })
+
+  it('errors on a fixed value or a text that writes a variable with no value of the pack’s', () => {
+    const found = checkPack(
+      open({
+        tools: [
+          entry('greet_by_city', { person: { from: '{{city}}' } }),
+          entry('greet', { fixed: { to: '{{city}}' } }),
+        ],
+        playbooks: [{ name: 'say-hello', markdown: 'Greet {{city}} with `greet`.', wrote: [] }],
+      }),
+    )
+    expect(codes(found)).toEqual([
+      ['error', 'no_value', 'tools.greet.fixed.to'],
+      ['error', 'no_value', 'playbooks.say-hello'],
+    ])
+    expect(found[1]?.message).toBe(
+      '{{city}} has no value of Front desk, so only an input filled per person can read it: give it a value under Variables.',
+    )
+  })
+
+  it('refuses removing a variable a Per person input reads', () => {
+    const before = open()
+    expect(codes(judge(before, withVariables(before, []), ['variables']).refused)).toEqual([
+      ['error', 'variable_in_use', 'variables.city'],
+    ])
+  })
+})
+
+describe('personValueProblems', () => {
+  const state = desk({
+    tools: [
+      entry('greet_by_city', { person: { from: '{{city}}' } }),
+      entry('greet_to_city', { person: { to: '{{city}}' } }),
+      entry('greet_from_desk', { fixed: { from: '{{desk}}' } }),
+    ],
+    variables: [
+      { name: 'city', value: null, description: null },
+      { name: 'desk', value: 'the desk', description: null },
+    ],
+  })
+
+  it('finds nothing in a value every input that reads it takes, and in a value taken away', () => {
+    expect(personValueProblems(state, { city: 'the boss' })).toEqual([])
+    expect(personValueProblems(state, { city: null })).toEqual([])
+  })
+
+  it('names the variable for a value an input that reads it refuses', () => {
+    expect(personValueProblems(state, { city: 7 })).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        code: 'bad_value',
+        path: 'values.city',
+        message: 'city doesn’t fit greet_by_city: from must be string',
+      }),
+      expect.objectContaining({ path: 'values.city', message: 'city doesn’t fit greet_to_city: to must be string' }),
+    ])
+  })
+
+  it('takes a value only for a variable a Per person input reads', () => {
+    expect(personValueProblems(state, { desk: 'the boss', town: 'Porto' })).toEqual([
+      expect.objectContaining({
+        code: 'not_per_person',
+        path: 'values.desk',
+        message:
+          'desk is not filled per person in Front desk: only a variable a Per person input reads takes a person’s value.',
+      }),
+      expect.objectContaining({ code: 'not_per_person', path: 'values.town' }),
+    ])
   })
 })
 

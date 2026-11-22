@@ -1379,6 +1379,7 @@ describe('packs in the config', () => {
             alias: null,
             fixed: null,
             defaults: null,
+            person: null,
           },
           {
             name: 'fixture.shout',
@@ -1388,6 +1389,7 @@ describe('packs in the config', () => {
             alias: null,
             fixed: null,
             defaults: null,
+            person: null,
           },
         ],
         playbooks: ['fixture-say-it-back'],
@@ -1488,6 +1490,7 @@ describe('packs in the config', () => {
           alias: 'greet_default',
           fixed: null,
           defaults: { from: '{{who}}' },
+          person: null,
         },
         {
           name: 'fixture.greet',
@@ -1497,6 +1500,7 @@ describe('packs in the config', () => {
           alias: 'greet_fixed',
           fixed: { from: 'Hello from {{who}}' },
           defaults: null,
+          person: null,
         },
       ],
       playbooks: [],
@@ -1536,7 +1540,13 @@ describe('packs in the config', () => {
     ])
     const back = await send('/api/packs/porch', 'GET')
     expect(back.variables).toEqual([
-      { name: 'who', value: 'the desk', description: 'Who greets.', usedBy: ['greet_default', 'greet_fixed'] },
+      {
+        name: 'who',
+        value: 'the desk',
+        description: 'Who greets.',
+        perPerson: false,
+        usedBy: ['greet_default', 'greet_fixed'],
+      },
     ])
     expect(
       back.tools.map((tool: { name: string; fixed: object; defaults: object }) => [

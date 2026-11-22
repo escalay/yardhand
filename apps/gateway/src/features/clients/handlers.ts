@@ -254,7 +254,11 @@ export const clientsHandlers = ({
     await (row.packId
       ? checkPackPins(change.pins, repacked?.ids ?? (await clients.packsOf(row)))
       : checkTools(change.pins))
-    if (repacked) await clients.setPacks(id, repacked.ids, repacked.defaultId)
+    if (repacked) {
+      await clients.setPacks(id, repacked.ids, repacked.defaultId)
+      // Its own values go with a pack it no longer opens
+      await packs.forgetPerson(id, repacked.ids)
+    }
     // Extend counts from now; a change that says nothing of it leaves the end where it was
     await clients.update(id, expiresIn ? { ...change, expiresAt: expiryOf(expiresIn) } : change)
     // Its allowlist, scope or pins change what it sees
@@ -265,6 +269,7 @@ export const clientsHandlers = ({
     requireOwner(c)
     const row = await rowOf(c.req.valid('param').id)
     await clients.revoke(row.id)
+    await packs.forgetPerson(row.id)
     principals.dropKey(row.keyHash)
     return c.body(null, 204)
   }

@@ -1,7 +1,8 @@
 /**
  * A pack's inputs. Each input of a pack tool is Fixed (hidden, filled on every call), a Default (shown with the
- * pack's value, which the agent may replace) or left to the agent, and a value may write one of the pack's variables
- * as `{{name}}`. A value that stops fitting its tool is flagged, and a flag never blocks a change that leaves it alone.
+ * pack's value, which the agent may replace), Per person (hidden, filled with each person's own value) or left to the
+ * agent, and a value may write one of the pack's variables as `{{name}}`. A value that stops fitting its tool is
+ * flagged, and a flag never blocks a change that leaves it alone.
  */
 import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
@@ -61,7 +62,7 @@ const greeted = async (key: string, tool: string, args: Record<string, unknown>)
   return ran.status === 200 ? (ran.json.result.content[0].text as string) : ran
 }
 /** The fixture changes `greet`, and the owner approves the change: its upstream is reviewed. */
-const greetTakes = async (from: true | false | 'enum' | 'ref') => {
+const greetTakes = async (from: true | false | 'enum' | 'ref' | 'optional') => {
   upstream.state.greetFrom = from
   await owner('/api/upstreams/fixture/sync', { method: 'POST' })
   const pending = (await owner('/api/reviews')).json._embedded.reviews.find(
@@ -347,8 +348,8 @@ describe('a pack’s variables', () => {
     ])
     expect(set.status).toBe(200)
     expect(set.json.variables).toEqual([
-      { name: 'desk', value: 'the desk', description: 'Who greets.', usedBy: [] },
-      { name: 'days', value: 7, description: null, usedBy: [] },
+      { name: 'desk', value: 'the desk', description: 'Who greets.', perPerson: false, usedBy: [] },
+      { name: 'days', value: 7, description: null, perPerson: false, usedBy: [] },
     ])
     expect(set.json.findings).toEqual([
       {
@@ -685,5 +686,221 @@ describe('a flag never blocks a change that leaves it alone', () => {
     expect(two.status).toBe(200)
     expect((await owner('/api/packs/twins')).json.flags).toBe(0)
     expect((await owner('/api/packs/twins', { method: 'DELETE' })).status).toBe(204)
+  })
+})
+
+describe('Per person: an input each person fills with their own value', () => {
+  let sam: { id: string; key: string }
+  let ada: { id: string; key: string }
+  let samClient: Client
+  const share = (body: Record<string, unknown>) => owner('/api/packs/loft/people', { method: 'POST', body })
+  const valuesOf = (client: string, init?: Init) => owner(`/api/packs/loft/people/${client}/values`, init)
+  beforeAll(async () => {
+    await packWith('loft', 'Loft', [{ name: 'fixture.greet', alias: 'greet_desk', fixed: { from: 'the desk' } }])
+    const declared = await owner('/api/packs/loft/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'city', value: null, description: 'Where each person greets from.' }] },
+    })
+    expect([declared.status, declared.json.detail]).toEqual([200, undefined])
+    const set = await owner('/api/packs/loft', {
+      method: 'PATCH',
+      body: { add: { tools: [{ name: 'fixture.greet', alias: 'greet_city', person: { from: '{{city}}' } }] } },
+    })
+    expect([set.status, set.json.detail]).toEqual([200, undefined])
+    const shared = await share({ name: 'Sam', values: { city: 'Porto' } })
+    expect([shared.status, shared.json.detail]).toEqual([201, undefined])
+    sam = shared.json
+    ada = (await share({ name: 'Ada' })).json
+    samClient = await mcp(sam.key, '/p/loft/mcp')
+  })
+  afterAll(async () => {
+    await samClient.close()
+    await greetTakes(true)
+  })
+
+  it('tells the owner the mode, the variable it reads and that each person sets it', async () => {
+    const pack = (await owner('/api/packs/loft')).json
+    expect(toolOf(pack, 'greet_city')).toMatchObject({ fixed: {}, defaults: {}, person: { from: '{{city}}' } })
+    expect(inputOf(toolOf(pack, 'greet_city'), 'from')).toMatchObject({
+      mode: 'person',
+      value: '{{city}}',
+      resolved: null,
+      problem: null,
+    })
+    expect(pack.variables).toEqual([
+      {
+        name: 'city',
+        value: null,
+        description: 'Where each person greets from.',
+        perPerson: true,
+        usedBy: ['greet_city'],
+      },
+    ])
+    expect(pack.findings).toEqual([])
+  })
+
+  it('fills each person’s own value, which neither sees in the schema nor may send', async () => {
+    expect((await valuesOf(ada.id, { method: 'PUT', body: { values: { city: 'Lisbon' } } })).status).toBe(200)
+    for (const schema of [
+      (await api(sam.key, '/p/loft/api/tools/greet_city')).json.inputSchema,
+      (await api(ada.key, '/p/loft/api/tools/greet_city')).json.inputSchema,
+      (await samClient.listTools()).tools.find((tool) => tool.name === 'greet_city')?.inputSchema,
+    ]) {
+      expect(Object.keys(schema?.properties as object)).toEqual(['to'])
+      expect(schema?.required).toEqual(['to'])
+    }
+    expect(await greeted(sam.key, 'greet_city', { to: 'Ada' })).toBe('Hello Ada, from Porto')
+    expect(await greeted(ada.key, 'greet_city', { to: 'Sam' })).toBe('Hello Sam, from Lisbon')
+    expect(await said(samClient, 'greet_city', { to: 'Ada' })).toBe('Hello Ada, from Porto')
+    expect(await said(samClient, 'call_tool', { name: 'greet_city', arguments: { to: 'Ada' } })).toBe(
+      'Hello Ada, from Porto',
+    )
+    const forged = await api(sam.key, '/api/calls', {
+      method: 'POST',
+      body: { tool: 'greet_city', arguments: { to: 'Ada', from: 'Lisbon' } },
+    })
+    expect([forged.status, forged.json.detail]).toEqual([400, 'greet_city: Loft fills from itself, so leave it out.'])
+    // The log keeps what the caller sent: Sam's value is in no call as anyone reads it
+    const calls = (await owner('/api/calls?tool=fixture.greet&limit=100')).json._embedded.calls as {
+      id: string
+      clientId: string
+      status: string
+    }[]
+    const samsCall = calls.find((call) => call.clientId === sam.id && call.status === 'ok')
+    expect((await owner(`/api/calls/${samsCall?.id}/payload`)).json.arguments).toEqual({ to: 'Ada' })
+  })
+
+  it('takes the person’s value, else the pack’s, else sends nothing and leaves the tool its own default', async () => {
+    expect((await valuesOf(ada.id, { method: 'PUT', body: { values: {} } })).status).toBe(200)
+    const none = await api(ada.key, '/api/calls', {
+      method: 'POST',
+      body: { tool: 'greet_city', arguments: { to: 'Sam' } },
+    })
+    expect(none.status).toBe(409)
+    expect(none.json.detail).toBe(
+      'greet_city needs city, which has no value for you in Loft: ask the owner to set yours.',
+    )
+    expect(none.json.detail).not.toContain('from')
+    // Still hidden: the input is the pack's to fill, with or without a value
+    expect(Object.keys((await api(ada.key, '/p/loft/api/tools/greet_city')).json.inputSchema.properties)).toEqual([
+      'to',
+    ])
+
+    await owner('/api/packs/loft/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'city', value: 'the lobby', description: null }] },
+    })
+    expect(await greeted(ada.key, 'greet_city', { to: 'Sam' })).toBe('Hello Sam, from the lobby')
+    expect(await greeted(sam.key, 'greet_city', { to: 'Ada' })).toBe('Hello Ada, from Porto')
+    // A fixed value that writes the same variable is the pack's: a person's value never reaches it
+    await owner('/api/packs/loft/tools/greet_desk', { method: 'PATCH', body: { fixed: { from: '{{city}}' } } })
+    expect(await greeted(sam.key, 'greet_desk', { to: 'Ada' })).toBe('Hello Ada, from the lobby')
+    await owner('/api/packs/loft/tools/greet_desk', { method: 'PATCH', body: { fixed: { from: 'the desk' } } })
+
+    await owner('/api/packs/loft/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'city', value: null, description: null }] },
+    })
+    await greetTakes('optional')
+    expect(await greeted(ada.key, 'greet_city', { to: 'Sam' })).toBe('Hello Sam, from the house')
+    expect(await greeted(sam.key, 'greet_city', { to: 'Ada' })).toBe('Hello Ada, from Porto')
+    await greetTakes(true)
+  })
+
+  it('lets the owner read and set a person’s values, checked against every input that reads them', async () => {
+    const read = await valuesOf(sam.id)
+    expect(read.status).toBe(200)
+    expect(read.json).toMatchObject({
+      client: sam.id,
+      name: 'Sam',
+      values: [{ name: 'city', description: null, value: 'Porto', packValue: null, usedBy: ['greet_city'] }],
+    })
+    const wrong = await valuesOf(sam.id, { method: 'PUT', body: { values: { city: 7 } } })
+    expect(wrong.status).toBe(400)
+    expect(wrong.json.detail).toBe('Not saved: city doesn’t fit greet_city: from must be string.')
+    expect(wrong.json.errors).toEqual([
+      { in: 'body', path: 'values.city', message: 'city doesn’t fit greet_city: from must be string' },
+    ])
+    const other = await valuesOf(sam.id, { method: 'PUT', body: { values: { town: 'Porto' } } })
+    expect([other.status, other.json.errors[0].path]).toEqual([400, 'values.town'])
+    expect((await valuesOf(sam.id)).json.values[0].value).toBe('Porto')
+
+    const people = (await owner('/api/packs/loft/people')).json._embedded.people as { name: string; values: unknown }[]
+    expect(people.map((person) => [person.name, person.values])).toEqual([
+      ['Sam', { city: 'Porto' }],
+      ['Ada', {}],
+    ])
+    expect((await valuesOf('cl_nobody')).status).toBe(404)
+    expect((await api(sam.key, `/api/packs/loft/people/${sam.id}/values`)).status).toBe(403)
+  })
+
+  it('refuses a share whose values don’t fit, and makes no key', async () => {
+    const before = (await owner('/api/packs/loft/people')).json.count
+    const refused = await share({ name: 'Ola', values: { city: 7 } })
+    expect([refused.status, refused.json.detail]).toEqual([
+      400,
+      'Not saved: city doesn’t fit greet_city: from must be string.',
+    ])
+    expect((await owner('/api/packs/loft/people')).json.count).toBe(before)
+  })
+
+  it('flags a person’s value the tool stops taking, and refuses their call naming the variable', async () => {
+    await greetTakes('enum')
+    const pack = (await owner('/api/packs/loft')).json
+    expect(inputOf(toolOf(pack, 'greet_city'), 'from').problem).toBe(
+      'Sam’s city no longer fits: from must be equal to one of the allowed values',
+    )
+    expect(pack.flags).toBe(1)
+    expect(
+      (await owner('/api/packs/flags')).json._embedded.flags.filter((flag: { pack: string }) => flag.pack === 'loft'),
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'input',
+        tool: 'greet_city',
+        was: 'fills from per person',
+        now: 'Sam’s city no longer fits: from must be equal to one of the allowed values',
+      }),
+    ])
+    const refused = await api(sam.key, '/api/calls', {
+      method: 'POST',
+      body: { tool: 'greet_city', arguments: { to: 'Ada' } },
+    })
+    expect(refused.status).toBe(409)
+    expect(refused.json.detail).toBe(
+      'greet_city can’t run: the value of city Loft uses for you no longer fits it. Ask the owner to change it.',
+    )
+    expect(refused.json.detail).not.toContain('from')
+    expect((await valuesOf(sam.id, { method: 'PUT', body: { values: { city: 'the boss' } } })).status).toBe(200)
+    expect(await greeted(sam.key, 'greet_city', { to: 'Ada' })).toBe('Hello Ada, from the boss')
+    expect((await owner('/api/packs/loft')).json.flags).toBe(0)
+    await greetTakes(true)
+  })
+
+  it('carries the mode in the export, and no person’s values', async () => {
+    const config = (await owner('/api/config')).json
+    const loft = config.packs.find((pack: { name: string }) => pack.name === 'loft')
+    expect(loft.tools.find((tool: { alias: string }) => tool.alias === 'greet_city')).toMatchObject({
+      person: { from: '{{city}}' },
+    })
+    expect(loft.variables).toEqual([{ name: 'city', value: null, description: null }])
+    // Sam's value is the boss now, which no other value of Loft is
+    expect(JSON.stringify(loft)).not.toContain('the boss')
+    expect(JSON.stringify(config)).not.toContain('Porto')
+
+    // And back in, as a pack of its own: the variable with no value comes first, so the input that reads it is taken
+    const back = await owner('/api/config', {
+      method: 'POST',
+      body: { upstreams: [], packs: [{ ...loft, name: 'loft-copy' }] },
+    })
+    expect([back.status, back.json.packs.created, back.json.skipped]).toEqual([200, ['loft-copy'], []])
+    const copy = (await owner('/api/packs/loft-copy')).json
+    expect(toolOf(copy, 'greet_city').person).toEqual({ from: '{{city}}' })
+    expect(copy.variables[0]).toMatchObject({ name: 'city', value: null, perPerson: true })
+    expect((await owner('/api/packs/loft-copy', { method: 'DELETE' })).status).toBe(204)
+  })
+
+  it('forgets a person’s values when their key is revoked', async () => {
+    expect((await owner(`/api/clients/${ada.id}`, { method: 'DELETE' })).status).toBe(204)
+    expect((await valuesOf(ada.id)).status).toBe(404)
   })
 })

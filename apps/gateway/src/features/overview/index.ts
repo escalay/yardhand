@@ -133,7 +133,7 @@ export const feature: Feature = {
           nudges: nudgesOf({
             now,
             pendingReviews: pending.length,
-            packFlags: (await packFlags({ packs, tools })).length,
+            packFlags: (await packFlags({ packs, tools, clients })).length,
             endingAccess: await endingAccess({ clients, packs }, now),
             grouping: {
               ready: Boolean(await services.grouping.ready()),

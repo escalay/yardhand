@@ -5,6 +5,7 @@
 import type { Adapters, Asked, Credential, Progress, Resume, ToolResult } from '../../adapters/index.js'
 import { ProblemError } from '../../kit/index.js'
 import { allows, entryOf, type Principal } from '../clients/principals.js'
+import { valueProblem } from '../packs/entries.js'
 import { effectOf } from '../tools/groups.js'
 import { isOff, needsWrite, type ToolsRepo } from '../tools/repo.js'
 import type { UpstreamsRepo } from '../upstreams/repo.js'
@@ -107,7 +108,8 @@ export const createPipeline =
         tool.upstreamId,
       )
     base = { ...base, tool: tool.name }
-    const overridden = Object.keys(entry.fixed).filter((key) => Object.hasOwn(args, key))
+    // A Per person input with no value for this caller is the pack's too: hidden, and never the caller's to send
+    const overridden = [...Object.keys(entry.fixed), ...entry.unset].filter((key) => Object.hasOwn(args, key))
     if (overridden.length)
       return refuse(
         new ProblemError('bad_request', {
@@ -143,6 +145,27 @@ export const createPipeline =
       return refuse(
         new ProblemError('forbidden', {
           detail: `${toolName} changes things, and this client is read-only. The owner can grant write scope.`,
+        }),
+        tool.upstreamId,
+      )
+    // Said by the variable, never the input: the caller can't see an input filled per person
+    const title = principal.pack?.title ?? 'the pack'
+    const required = Array.isArray(tool.inputSchema.required) ? (tool.inputSchema.required as string[]) : []
+    const missing = entry.unset.find((input) => required.includes(input))
+    if (missing)
+      return refuse(
+        new ProblemError('conflict', {
+          detail: `${toolName} needs ${entry.person[missing]}, which has no value for you in ${title}: ask the owner to set yours.`,
+        }),
+        tool.upstreamId,
+      )
+    const unfit = Object.keys(entry.person).find(
+      (input) => Object.hasOwn(entry.fixed, input) && valueProblem(tool, input, entry.fixed[input]),
+    )
+    if (unfit)
+      return refuse(
+        new ProblemError('conflict', {
+          detail: `${toolName} can’t run: the value of ${entry.person[unfit]} ${title} uses for you no longer fits it. Ask the owner to change it.`,
         }),
         tool.upstreamId,
       )

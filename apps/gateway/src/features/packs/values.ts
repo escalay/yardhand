@@ -32,6 +32,9 @@ export const notNamesIn = (text: string) =>
       .map((match) => match[0]),
   )
 
+/** The variable a value names when it is `{{name}}` and nothing else, else undefined. */
+export const wholeNameOf = (value: unknown) => (typeof value === 'string' ? WHOLE.exec(value)?.[1] : undefined)
+
 /** The names written as `{{name}}` anywhere in a value, each once. */
 export const namesIn = (value: unknown): string[] =>
   typeof value === 'string'
