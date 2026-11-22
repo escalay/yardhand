@@ -499,15 +499,28 @@ test('an input each person fills: the mode in the editor, one person’s value u
   await expect(page.getByText('Per person text = {{city}}')).toBeVisible()
   await expect(variables.getByText('Each person gives their own; nothing for someone who hasn’t.')).toBeVisible()
 
-  // Two people; the owner sets one's value on their row under People
-  const lena = (await (await owner.post('/api/packs/loud/people', { data: { name: 'Lena' } })).json()) as Made
+  // One person shared with their value in the Share sheet, one with none; the owner changes hers under People
+  await page.getByRole('button', { name: 'Share', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Share Loud' })
+  await sheet.getByLabel('Who').fill('Lena')
+  await expect(sheet.getByText('Lena’s values')).toBeVisible()
+  await expect(sheet.getByText('Left empty, they get nothing, and a call that needs it is refused.')).toBeVisible()
+  await sheet.getByLabel('city').fill('Lisbon')
+  await sheet.getByRole('button', { name: 'Share', exact: true }).click()
+  const message = sheet.locator('pre')
+  await expect(message).toContainText("Hi Lena, I'm sharing Loud with you.")
+  const lena = {
+    key: /Bearer (gw_[\w-]+)/.exec((await message.textContent()) ?? '')?.[1] ?? '',
+  }
+  expect(lena.key).toMatch(/^gw_/)
+  await sheet.getByRole('button', { name: 'Done' }).click()
   const ola = (await (await owner.post('/api/packs/loud/people', { data: { name: 'Ola' } })).json()) as Made
   await page
     .getByRole('navigation', { name: 'Parts' })
     .getByRole('button', { name: /^People/ })
     .click()
   const row = page.getByRole('row', { name: /Lena/ })
-  await expect(row).toContainText('The pack’s values')
+  await expect(row).toContainText('city: Lisbon')
   await row.getByRole('button', { name: "Lena's values" }).click()
   const dialog = page.getByRole('dialog', { name: 'Lena’s values' })
   await dialog.getByLabel('city').fill('Porto')
@@ -515,6 +528,8 @@ test('an input each person fills: the mode in the editor, one person’s value u
   await expect(dialog).toHaveCount(0)
   await expect(row).toContainText('city: Porto')
   await expect(page.getByRole('row', { name: /Ola/ })).toContainText('The pack’s values')
+  const people = await (await owner.get('/api/packs/loud/people')).json()
+  const lenaId = people._embedded.people.find((person: { name: string }) => person.name === 'Lena').id as string
 
   // Lena's key is sent her value, hidden from what it reads; Ola's has none, and is told by the variable
   const asKey = (key: string) => request.newContext({ baseURL, extraHTTPHeaders: { authorization: `Bearer ${key}` } })
@@ -534,7 +549,7 @@ test('an input each person fills: the mode in the editor, one person’s value u
   await theirs.dispose()
 
   // Back as it was
-  for (const made of [lena, ola]) expect((await owner.delete(`/api/clients/${made.id}`)).status()).toBe(204)
+  for (const id of [lenaId, ola.id]) expect((await owner.delete(`/api/clients/${id}`)).status()).toBe(204)
   expect((await owner.patch('/api/packs/loud', { data: { remove: { tools: ['echo_city'] } } })).status()).toBe(200)
   const pack = await (await owner.get('/api/packs/loud')).json()
   const kept = pack.variables

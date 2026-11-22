@@ -411,14 +411,23 @@ export const personalFields = (pack: { variables: Pick<Variable, 'name' | 'value
       }),
     )
 
-/** What a person's fields say, by variable: each read as its kind, an empty one left out (they get the pack's). */
+/**
+ * What a person's fields say, by variable: each read as the kind of the pack's value (text when it has none), an
+ * empty one left out (they get the pack's). Typed in a text box, yes or no is `true` or `false`.
+ */
 export const personValuesOf = (fields: PersonalField[], texts: Record<string, string>) => {
   const values: Record<string, string | number | boolean> = {}
   const errors: Record<string, string> = {}
   for (const field of fields) {
     const text = (texts[field.name] ?? '').trim()
     if (text === '') continue
-    const read = variableValueOf(field.kind, text)
+    const flag = /^(true|false)$/i.exec(text)?.[1]?.toLowerCase()
+    const read =
+      field.kind !== 'boolean'
+        ? variableValueOf(field.kind, text)
+        : flag
+          ? { value: flag === 'true', error: null }
+          : { value: null, error: 'true or false.' }
     if (read.error === null) values[field.name] = read.value
     else errors[field.name] = read.error
   }

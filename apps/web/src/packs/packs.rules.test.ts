@@ -742,6 +742,16 @@ describe('an input each person fills', () => {
     })
   })
 
+  it('reads yes or no as true or false, and nothing else', () => {
+    const [flag] = personalFields({
+      variables: [{ name: 'loud', value: false, description: null, perPerson: true }],
+    })
+    if (!flag) throw new Error('one field')
+    expect(personValuesOf([flag], { loud: 'True' })).toEqual({ values: { loud: true }, errors: {} })
+    expect(personValuesOf([flag], { loud: 'false' })).toEqual({ values: { loud: false }, errors: {} })
+    expect(personValuesOf([flag], { loud: 'yes' })).toEqual({ values: {}, errors: { loud: 'true or false.' } })
+  })
+
   it('says a person’s values in one line', () => {
     expect(valuesLine({ city: 'Porto', days: 3 })).toBe('city: Porto · days: 3')
     expect(valuesLine({})).toBe('')
