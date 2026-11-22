@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { serve } from '@hono/node-server'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
@@ -15,8 +16,9 @@ import { startUpstream } from './fixtures/upstream.js'
 
 const OWNER = 'owner-key-for-pack-inputs'
 const upstream = await startUpstream({ token: 'fixture-token', greeting: true })
+const db = await testDb()
 const app = await createApp({
-  db: await testDb(),
+  db,
   env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: randomBytes(32).toString('base64') },
 })
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 })
@@ -878,6 +880,35 @@ describe('Per person: an input each person fills with their own value', () => {
     expect((await valuesOf(sam.id, { method: 'PUT', body: { values: { city: 'the boss' } } })).status).toBe(200)
     expect(await greeted(sam.key, 'greet_city', { to: 'Ada' })).toBe('Hello Ada, from the boss')
     expect((await owner('/api/packs/loft')).json.flags).toBe(0)
+    await greetTakes(true)
+  })
+
+  it('flags no value of someone People no longer lists, and flags it again once they are extended', async () => {
+    const DAY = 24 * 60 * 60 * 1000
+    expect((await valuesOf(sam.id, { method: 'PUT', body: { values: { city: 'Porto' } } })).status).toBe(200)
+    // Sam's access ended 31 days ago: not one of Loft's people any more
+    await db.run(
+      sql`update clients set created_at = ${new Date(Date.now() - 61 * DAY).toISOString()}, expires_at = ${new Date(Date.now() - 31 * DAY).toISOString()} where id = ${sam.id}`,
+    )
+    await greetTakes('enum')
+    const loftFlags = async () =>
+      (await owner('/api/packs/flags')).json._embedded.flags.filter((flag: { pack: string }) => flag.pack === 'loft')
+    const gone = (await owner('/api/packs/loft')).json
+    expect(inputOf(toolOf(gone, 'greet_city'), 'from').problem).toBeNull()
+    expect(gone.flags).toBe(0)
+    expect(await loftFlags()).toEqual([])
+
+    const extended = await owner(`/api/clients/${sam.id}`, { method: 'PATCH', body: { expiresIn: '30d' } })
+    expect(extended.status).toBe(200)
+    const back = (await owner('/api/packs/loft')).json
+    expect(inputOf(toolOf(back, 'greet_city'), 'from').problem).toBe(
+      'Sam’s city no longer fits: from must be equal to one of the allowed values',
+    )
+    expect(back.flags).toBe(1)
+    expect(await loftFlags()).toEqual([
+      expect.objectContaining({ kind: 'input', tool: 'greet_city', now: expect.stringContaining('Sam’s city') }),
+    ])
+    expect((await valuesOf(sam.id, { method: 'PUT', body: { values: { city: 'the boss' } } })).status).toBe(200)
     await greetTakes(true)
   })
 

@@ -11,6 +11,7 @@
 import type { ClientsRepo } from '../clients/repo.js'
 import type { ToolsRepo } from '../tools/repo.js'
 import { defaultsOf, type Fixed, fixedOf, type InputProblem, inputProblems, personOf, valueProblem } from './entries.js'
+import { listedOf } from './people.js'
 import type { BasedOn, PackDoc, PacksRepo } from './repo.js'
 import type { PackDocKind, PackRow, PackToolRow } from './schema.js'
 import { type Variables, variablesFrom, wholeNameOf } from './values.js'
@@ -55,14 +56,15 @@ export const inputFlagOf = (toolName: string, problems: InputProblem[]): Flag | 
 /** Someone a pack is shared with, by name, with their own values. */
 export type PersonValues = { name: string; values: Variables }
 
-/** The people of a pack who have values of their own, by name: for the owner, never for a key. */
+/** The people People lists (`listedOf`) who have values of their own, by name: for the owner, never for a key. */
 export const peopleValuesOf = async (
   { packs, clients }: { packs: Pick<PacksRepo, 'personValuesIn'>; clients: Pick<ClientsRepo, 'ofPack'> },
   packId: string,
+  now = new Date(),
 ): Promise<PersonValues[]> => {
   const values = await packs.personValuesIn(packId)
   if (!values.size) return []
-  return (await clients.ofPack(packId)).flatMap((row) => {
+  return listedOf(await clients.ofPack(packId), now).flatMap((row) => {
     const own = values.get(row.id)
     return own ? [{ name: row.name, values: own }] : []
   })
