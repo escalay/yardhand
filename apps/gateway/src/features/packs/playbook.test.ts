@@ -142,6 +142,11 @@ describe('renderPlaybook', () => {
     expect(renderPlaybook(parsed('---\narguments:\n  - name: tone\n---\nBe {{tone}}.'), {}, {})).toBe('Be .')
   })
 
+  it('reads only the arguments given, never a name every object has', () => {
+    const markdown = '---\narguments:\n  - name: constructor\n---\nRun it with {{constructor}}.'
+    expect(renderPlaybook(parsed(markdown), {}, {})).toBe('Run it with .')
+  })
+
   it('never reads a placeholder out of a value it filled in', () => {
     expect(renderPlaybook(parsed(SAY_HELLO), { guest: '{{desk}}' }, { desk: 'the desk' })).toContain(
       'Greet {{desk}} from the desk.',

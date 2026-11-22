@@ -317,6 +317,26 @@ describe('a pack’s own playbooks over REST', () => {
     expect((await filled(ada.key, '/api/playbooks/say-hello')).status).toBe(400)
   })
 
+  it('read only the arguments given, even one named like what every object has', async () => {
+    await packWith('shelf', 'Shelf', [{ name: 'fixture.echo' }])
+    const markdown = (required: boolean) =>
+      `---\narguments:\n  - name: constructor\n    required: ${required}\n---\n\n1. Run \`fixture.echo\` with {{constructor}}.\n`
+    await write('shelf', 'ctor-test', markdown(true))
+    const key = await keyFor({ name: 'Shelf key', pack: 'shelf' })
+    const refused = await filled(key.key, '/api/playbooks/ctor-test')
+    expect([refused.status, refused.detail]).toEqual([400, 'ctor-test needs constructor: constructor.'])
+    expect((await filled(key.key, '/api/playbooks/ctor-test', { constructor: 'a box' })).text).toBe(
+      '1. Run `fixture.echo` with a box.\n',
+    )
+    const saved = await owner('/api/packs/shelf/playbooks/ctor-test', {
+      method: 'PUT',
+      body: { markdown: markdown(false) },
+    })
+    expect([saved.status, saved.json?.detail]).toEqual([200, undefined])
+    const left = await filled(key.key, '/api/playbooks/ctor-test')
+    expect([left.status, left.text]).toEqual([200, '1. Run `fixture.echo` with .\n'])
+  })
+
   it('read a variable as it is now', async () => {
     await variables('desk', { door: 'the side door' })
     expect((await filled(ada.key, '/api/playbooks/say-hello', { guest: 'Sam' })).text).toContain('at the side door.')

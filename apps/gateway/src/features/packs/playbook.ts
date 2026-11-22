@@ -135,5 +135,10 @@ export const toolRefsIn = (text: string) => [
 export const renderPlaybook = (playbook: OwnPlaybook, given: Record<string, string>, variables: Variables) =>
   resolveText(playbook.body, {
     ...variables,
-    ...Object.fromEntries(playbook.arguments.map((argument) => [argument.name, given[argument.name] ?? ''])),
+    ...Object.fromEntries(
+      playbook.arguments.map((argument) => [
+        argument.name,
+        (Object.hasOwn(given, argument.name) && given[argument.name]) || '',
+      ]),
+    ),
   }).text

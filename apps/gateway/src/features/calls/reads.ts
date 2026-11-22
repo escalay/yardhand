@@ -196,7 +196,8 @@ export const createReads = ({
     })
   /** The 400 for a use that leaves a required argument out, or nothing. */
   const missingIn = (name: string, wanted: PlaybookArgument[], args: Record<string, string>) => {
-    const missing = wanted.filter((arg) => arg.required && !args[arg.name]?.trim()).map((arg) => arg.name)
+    const given = (argument: string) => (Object.hasOwn(args, argument) ? args[argument]?.trim() : undefined)
+    const missing = wanted.filter((arg) => arg.required && !given(arg.name)).map((arg) => arg.name)
     return missing.length
       ? new ProblemError('bad_request', {
           detail: `${name} needs ${missing.join(', ')}: ${wanted.map((arg) => `${arg.name}${arg.description ? ` (${arg.description})` : ''}`).join('; ')}.`,
