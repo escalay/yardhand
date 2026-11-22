@@ -2,9 +2,10 @@
  * One pack: its tools (why each is in, the pack's wording, flags when an upstream moved on), the playbooks and skill
  * written for it with the playbooks and manuals it holds from its connections, and the people it is shared with,
  * with one more from the Share sheet. The Overview checks it as it is built: the steps of setting it up, its address
- * with setup per app, a search of it as its keys get it, and what its agents read first.
+ * with setup per app, a search of it as its keys get it, and what its agents read first. Build with AI (an empty
+ * pack) or Refresh with AI drafts a proposal, shown in place of the parts until it is accepted or discarded.
  */
-import { IconAlertTriangle, IconPencil, IconSearch, IconUserPlus } from '@tabler/icons-react'
+import { IconAlertTriangle, IconPencil, IconSearch, IconSparkles, IconUserPlus } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -16,6 +17,7 @@ import { Empty } from '@/ui/Empty'
 import { EntityHeader, EntityTabs } from '@/ui/Entity'
 import { Field } from '@/ui/Field'
 import { Page, Section } from '@/ui/Page'
+import { Dot } from '@/ui/Status'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,11 +35,14 @@ import { Input } from '@/ui/shadcn/input'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { Textarea } from '@/ui/shadcn/textarea'
 import { AddressCard } from './AddressCard'
+import { BuildDialog } from './BuildDialog'
+import { buildNote } from './build.rules'
 import { Checklist } from './Checklist'
 import { PackDocs } from './PackDocs'
 import { UpstreamChips } from './PacksPage'
 import { PackTools } from './PackTools'
 import { People } from './People'
+import { Proposal } from './Proposal'
 import {
   accessOf,
   endLine,
@@ -247,17 +252,25 @@ export const PackPage = ({
   tab = 'tools',
   add,
   share,
+  build,
 }: {
   name: string
   tab?: PackTab
   add?: boolean
   share?: boolean
+  /** A build whose proposal is shown in place of the parts. */
+  build?: string
 }) => {
   const queries = useQueryClient()
   const navigate = useNavigate()
-  const pack = useQuery(packQuery(name))
+  // While a build runs the pack is asked again, so the note above the parts turns to its proposal when it is ready
+  const pack = useQuery({
+    ...packQuery(name),
+    refetchInterval: (query) => (query.state.data?.build?.status === 'running' ? 2000 : false),
+  })
   const { scope, setScope } = useScope()
   const [editing, setEditing] = useState(false)
+  const [building, setBuilding] = useState<'build' | 'refresh' | null>(null)
   const patch = useMutation({
     mutationFn: (body: Schemas['PackPatch']) =>
       unwrap(api.PATCH('/api/packs/{name}', { params: { path: { name } }, body })),
@@ -338,6 +351,9 @@ export const PackPage = ({
       replace: true,
     })
   // The sheet opens over the part the owner is on, and closing it leaves them there
+  const proposal = (id: string | null) =>
+    void navigate({ to: '/packs/$name', params: { name }, search: id ? { build: id } : {}, replace: !id })
+  const note = buildNote(data.build)
   const sharing = (open: boolean) =>
     void navigate({
       to: '/packs/$name',
@@ -361,6 +377,11 @@ export const PackPage = ({
                 <IconSearch /> Try it
               </Link>
             </Button>
+            {data.tools.length ? (
+              <Button variant="muted" onClick={() => setBuilding('refresh')}>
+                <IconSparkles /> Refresh with AI
+              </Button>
+            ) : null}
             <Button variant="muted" onClick={() => setEditing(true)}>
               <IconPencil /> Edit
             </Button>
@@ -388,92 +409,123 @@ export const PackPage = ({
       >
         {data.description || 'No description yet: its agents read it first, so say what the pack is for.'}
       </EntityHeader>
-      <EntityTabs
-        active={tab}
-        onPick={pick}
-        tabs={[
-          { id: 'overview', label: 'Overview' },
-          { id: 'tools', label: 'Tools', count: data.tools.length, dot: recheck.tools > 0 },
-          {
-            id: 'playbooks',
-            label: 'Playbooks & skill',
-            count: data.ownPlaybooks.length + data.playbooks.length + data.manuals.length,
-            dot: recheck.playbooks > 0 || recheck.skill,
-          },
-          // Everyone People lists: who has it, and whose access ended and can be extended
-          { id: 'people', label: 'People', count: data.keys + data.ended, dot: Boolean(data.ending) },
-          { id: 'activity', label: 'Activity' },
-        ]}
-      />
-      {patch.error && !editing ? <p className="text-sm text-error">{patch.error.message}</p> : null}
-
-      {tab === 'overview' ? (
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <div className="flex min-w-0 flex-col gap-8">
-            <Checklist pack={data} onEdit={() => setEditing(true)} />
-            <AddressCard pack={data} />
-            <TryIt pack={data} />
-            <Section title="What its agents read first">
-              <Briefing pack={data} />
-            </Section>
-          </div>
-          <aside className="flex min-w-0 flex-col gap-8">
-            <Section title={`People · ${data.keys}`}>
-              <Shared pack={data} onShare={() => sharing(true)} />
-            </Section>
-            <Section title="Remove">
-              <div className="flex flex-col gap-3 border border-border bg-card p-4 text-sm text-muted-foreground">
-                {data.keys
-                  ? `End access for its ${data.keys === 1 ? 'person' : `${data.keys} people`} first: a key locked to a removed pack would reach nothing.`
-                  : 'The tools stay where they are; only the pack and its wording go.'}
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="sm" variant="danger" className="self-start" disabled={Boolean(data.keys)}>
-                      Remove {data.title}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Remove {data.title}?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Its {data.tools.length} tools stay in Yardhand; the pack, its wording and its playbook list go
-                        {data.ownPlaybooks.length || data.skill ? ', with the playbooks and skill written for it' : ''}.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Keep it</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => remove.mutate()}>Remove</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-                {remove.error ? <p className="text-error">{remove.error.message}</p> : null}
-              </div>
-            </Section>
-          </aside>
-        </div>
-      ) : tab === 'tools' ? (
-        <PackTools
+      {build ? (
+        <Proposal
           pack={data}
-          titleOf={titleOf}
-          onPatch={save}
-          adding={Boolean(add)}
-          onAdding={(open) =>
-            void navigate({
-              to: '/packs/$name',
-              params: { name },
-              search: open ? { add: true } : {},
-              replace: true,
-              // The button is at the foot of the list: the page stays where it is behind the dialog
-              resetScroll: false,
-            })
-          }
+          id={build}
+          onClose={() => proposal(null)}
+          onBuildAgain={() => setBuilding(data.tools.length ? 'refresh' : 'build')}
         />
-      ) : tab === 'playbooks' ? (
-        <PackDocs pack={data} onPatch={save} />
-      ) : tab === 'people' ? (
-        <People pack={data} onShare={() => sharing(true)} />
       ) : (
-        <EntityActivity filter={{ pack: data.name }} clientIds={data.keyList.map((key) => key.id)} />
+        <>
+          {note && data.build ? (
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border border-primary/30 bg-mist/40 px-4 py-3 text-sm">
+              <span className="flex items-center gap-2">
+                <Dot tone={data.build.status === 'running' ? 'live' : 'ok'} /> {note}
+              </span>
+              <Link
+                to="/packs/$name"
+                params={{ name }}
+                search={{ build: data.build.id }}
+                className="rounded-xs font-medium underline underline-offset-4 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                {data.build.status === 'running' ? 'Follow it' : 'Read the proposal'}
+              </Link>
+            </div>
+          ) : null}
+          <EntityTabs
+            active={tab}
+            onPick={pick}
+            tabs={[
+              { id: 'overview', label: 'Overview' },
+              { id: 'tools', label: 'Tools', count: data.tools.length, dot: recheck.tools > 0 },
+              {
+                id: 'playbooks',
+                label: 'Playbooks & skill',
+                count: data.ownPlaybooks.length + data.playbooks.length + data.manuals.length,
+                dot: recheck.playbooks > 0 || recheck.skill,
+              },
+              // Everyone People lists: who has it, and whose access ended and can be extended
+              { id: 'people', label: 'People', count: data.keys + data.ended, dot: Boolean(data.ending) },
+              { id: 'activity', label: 'Activity' },
+            ]}
+          />
+          {patch.error && !editing ? <p className="text-sm text-error">{patch.error.message}</p> : null}
+
+          {tab === 'overview' ? (
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
+              <div className="flex min-w-0 flex-col gap-8">
+                <Checklist pack={data} onEdit={() => setEditing(true)} />
+                <AddressCard pack={data} />
+                <TryIt pack={data} />
+                <Section title="What its agents read first">
+                  <Briefing pack={data} />
+                </Section>
+              </div>
+              <aside className="flex min-w-0 flex-col gap-8">
+                <Section title={`People · ${data.keys}`}>
+                  <Shared pack={data} onShare={() => sharing(true)} />
+                </Section>
+                <Section title="Remove">
+                  <div className="flex flex-col gap-3 border border-border bg-card p-4 text-sm text-muted-foreground">
+                    {data.keys
+                      ? `End access for its ${data.keys === 1 ? 'person' : `${data.keys} people`} first: a key locked to a removed pack would reach nothing.`
+                      : 'The tools stay where they are; only the pack and its wording go.'}
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="sm" variant="danger" className="self-start" disabled={Boolean(data.keys)}>
+                          Remove {data.title}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Remove {data.title}?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Its {data.tools.length} tools stay in Yardhand; the pack, its wording and its playbook list
+                            go
+                            {data.ownPlaybooks.length || data.skill
+                              ? ', with the playbooks and skill written for it'
+                              : ''}
+                            .
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Keep it</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => remove.mutate()}>Remove</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                    {remove.error ? <p className="text-error">{remove.error.message}</p> : null}
+                  </div>
+                </Section>
+              </aside>
+            </div>
+          ) : tab === 'tools' ? (
+            <PackTools
+              pack={data}
+              titleOf={titleOf}
+              onPatch={save}
+              onBuild={() => setBuilding('build')}
+              adding={Boolean(add)}
+              onAdding={(open) =>
+                void navigate({
+                  to: '/packs/$name',
+                  params: { name },
+                  search: open ? { add: true } : {},
+                  replace: true,
+                  // The button is at the foot of the list: the page stays where it is behind the dialog
+                  resetScroll: false,
+                })
+              }
+            />
+          ) : tab === 'playbooks' ? (
+            <PackDocs pack={data} onPatch={save} />
+          ) : tab === 'people' ? (
+            <People pack={data} onShare={() => sharing(true)} />
+          ) : (
+            <EntityActivity filter={{ pack: data.name }} clientIds={data.keyList.map((key) => key.id)} />
+          )}
+        </>
       )}
 
       <EditPack
@@ -487,6 +539,17 @@ export const PackPage = ({
         onSave={save}
       />
       <ShareSheet pack={data} open={Boolean(share)} onOpenChange={sharing} />
+      <BuildDialog
+        pack={data}
+        mode={building ?? (data.tools.length ? 'refresh' : 'build')}
+        open={building !== null}
+        onOpenChange={(open) => setBuilding(open ? (data.tools.length ? 'refresh' : 'build') : null)}
+        onEdit={() => setEditing(true)}
+        onStarted={(id) => {
+          setBuilding(null)
+          proposal(id)
+        }}
+      />
     </Page>
   )
 }

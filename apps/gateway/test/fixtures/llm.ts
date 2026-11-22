@@ -1,6 +1,7 @@
 /**
  * A stand-in OpenAI-compatible server: `/models`, and `/chat/completions` that answers the gateway's three asks by
  * what the system message says: name groups, name groups for leftovers, choose labels, or the test's `{"ok": true}`. `asks` records them.
+ * `state.usage` is what each answer says it used and cost; `state.refuse` answers every chat with that status instead.
  */
 import type { AddressInfo } from 'node:net'
 import { serve } from '@hono/node-server'
@@ -8,11 +9,17 @@ import { serve } from '@hono/node-server'
 export const LLM_KEY = 'llm-test-key'
 
 export const startLlm = async () => {
-  const asks: { model: string; system: string; user: string }[] = []
+  const asks: { model: string; system: string; user: string; body: Record<string, unknown> }[] = []
   /** What the writer proposes for a connection: set by a test. */
   type Group = { key: string; title: string; purpose: string; tools: string[] }
   /** `more` is what the writer proposes for leftovers (its second round); `failMore` makes that round fail. */
-  const state = { groups: [] as Group[], more: [] as Group[], failMore: false }
+  const state = {
+    groups: [] as Group[],
+    more: [] as Group[],
+    failMore: false,
+    usage: null as { prompt_tokens: number; completion_tokens: number; cost?: number } | null,
+    refuse: null as number | null,
+  }
   const server = serve({
     hostname: '127.0.0.1',
     port: 0,
@@ -25,9 +32,13 @@ export const startLlm = async () => {
       const body = (await request.json()) as { model: string; messages: { role: string; content: string }[] }
       const system = body.messages.find((message) => message.role === 'system')?.content ?? ''
       const user = body.messages.find((message) => message.role === 'user')?.content ?? ''
-      asks.push({ model: body.model, system, user })
+      asks.push({ model: body.model, system, user, body })
+      if (state.refuse) return Response.json({ error: { message: 'credit used up' } }, { status: state.refuse })
       const reply = (content: unknown) =>
-        Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify(content) } }] })
+        Response.json({
+          choices: [{ message: { role: 'assistant', content: JSON.stringify(content) } }],
+          ...(state.usage ? { usage: state.usage } : {}),
+        })
       if (system.startsWith('You choose')) {
         const { questions } = JSON.parse(user) as {
           questions: Record<string, { question: string; labels: Record<string, string> }>

@@ -589,9 +589,13 @@ const PACK_TABS: PackTab[] = ['overview', 'tools', 'playbooks', 'people', 'activ
 
 /**
  * `?tab=` for every part but Tools, the default; `?add=true` there opens the dialog that adds tools, and `?share=true`
- * on any part the Share sheet. People was Keys: a link kept from then still opens it.
+ * on any part the Share sheet. People was Keys: a link kept from then still opens it. `?build=<id>` shows that
+ * build's proposal in place of the parts.
  */
-export const parsePackTab = (raw: Record<string, unknown>): { tab?: PackTab; add?: true; share?: true } => {
+export const parsePackTab = (
+  raw: Record<string, unknown>,
+): { tab?: PackTab; add?: true; share?: true; build?: string } => {
+  if (typeof raw.build === 'string' && /^[\w-]{3,40}$/.test(raw.build)) return { build: raw.build }
   const asked = raw.tab === 'keys' ? 'people' : (raw.tab as PackTab)
   const part = PACK_TABS.includes(asked) && asked !== 'tools' ? { tab: asked } : {}
   if (raw.share === true) return { ...part, share: true }

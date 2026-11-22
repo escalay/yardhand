@@ -8,9 +8,10 @@
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { Model } from './features/ai/model.js'
 import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { packChoice, withPackAddresses } from './features/clients/pack-choice.js'
-import { callerOf } from './features/clients/principals.js'
+import { callerOf, isOwner } from './features/clients/principals.js'
 import { FEATURES } from './features/index.js'
 import { mountPackDocs } from './features/packs/docs.js'
 import { createSessionAuth, sessionFeature, type Unclaimed } from './features/session/index.js'
@@ -73,11 +74,14 @@ export const createApp = async ({
   db,
   env,
   meaning,
+  model,
   unclaimed,
 }: {
   db: Db
   env: Env
   meaning?: MeaningSearch
+  /** The model Build with AI asks; tests and the demo pass a scripted one. */
+  model?: Model
   /** An instance nobody owns yet waits here for its setup code (see `features/instance`). */
   unclaimed?: Unclaimed
 }) => {
@@ -89,7 +93,7 @@ export const createApp = async ({
   const features = [...FEATURES, session]
   for (const feature of features) await migrate(db, feature.name, feature.migrations)
   const sessionAuth = createSessionAuth({ keys, sessions })
-  const services = await createServices({ db, env, keys, ...(meaning ? { meaning } : {}) })
+  const services = await createServices({ db, env, keys, ...(meaning ? { meaning } : {}), ...(model ? { model } : {}) })
   const web = { dir: env.WEB_DIR ?? DEFAULT_WEB_DIR }
   const hasWeb = existsSync(join(web.dir, 'index.html'))
   // The OAuth callback stays behind sign-in: only the pages themselves are open
@@ -141,6 +145,18 @@ export const createApp = async ({
   // Per caller: runs reach paid and rate-limited upstreams, so a runaway agent stops here first
   const runs = rateLimit({ policy: 'tool-calls', limit: 300, windowSeconds: 60, store: await dbGuardStore(db) })
   app.on('POST', ['/api/calls', '/api/tools/:name/calls', '/u/:upstream/mcp'], runs)
+  // Six builds an hour per pack and caller, refused ones too: each may spend $1 and run real read calls
+  const builds = await dbGuardStore(db)
+  app.on('POST', '/api/packs/:name/builds', async (c, next) => {
+    // Only the owner outside a pack is counted: anyone else gets the handler's 403 alike for every name, so the limit
+    // never tells a key which packs exist
+    const caller = callerOf(c)
+    if (!isOwner(caller) || caller?.pack) return next()
+    // By the pack's id, so a rename doesn't give it six more; a name no pack has is the handler's 404, never a policy
+    const pack = await services.packs.get(c.req.param('name') ?? '')
+    if (!pack) return next()
+    return rateLimit({ policy: `builds for ${pack.id}`, limit: 6, windowSeconds: 3600, store: builds })(c, next)
+  })
   // Ten tries a minute per address: owner keys are long, but a guess should still be slow
   app.on(
     'POST',

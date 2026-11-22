@@ -1,6 +1,7 @@
 /**
- * Markdown from upstreams (manuals, playbooks) in Yardhand's look. Rendered as React elements, never as HTML, so a
- * manual can't run anything in the owner's browser; links open in a new tab.
+ * Markdown from upstreams (manuals, playbooks) and models (a build's proposal) in Yardhand's look. Rendered as React
+ * elements, never as HTML, so a manual can't run anything in the owner's browser; links open in a new tab, and an
+ * image is a link to it, so opening a text fetches nothing it names.
  */
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -23,6 +24,16 @@ const COMPONENTS: Components = {
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
       {children}
+    </a>
+  ),
+  img: ({ src, alt }) => (
+    <a
+      href={typeof src === 'string' ? src : undefined}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-primary underline underline-offset-2"
+    >
+      {alt ? `Image: ${alt}` : 'Image'}
     </a>
   ),
   code: ({ className, children }) =>

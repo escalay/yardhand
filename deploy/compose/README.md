@@ -73,6 +73,7 @@ After changing `.env`: `docker compose up -d`.
 |---|---|---|
 | Search by meaning | `OPENROUTER_API_KEY` | tools are found by their words only |
 | Smart grouping | `GATEWAY_AI_GROUPING_*`, or Settings › AI in the app | groups come from naming rules |
+| Build with AI | `GATEWAY_AI_BUILDS_*`, or Settings › AI; with no provider, address or key set it uses smart grouping's, and its model left empty is grouping's writer | packs are written by hand |
 | Alerts | `DISCORD_WEBHOOK_URL` | changes wait in the app's Reviews and endings on Home, unannounced |
 | Call traces | `GATEWAY_LANGFUSE_URL`, `GATEWAY_LANGFUSE_PUBLIC_KEY`, `GATEWAY_LANGFUSE_SECRET_KEY` | the call log in the app |
 | Composio connections | `COMPOSIO_API_KEY` | a personal Composio connection can't list its tools |

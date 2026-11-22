@@ -23,7 +23,8 @@ import { type DiffLine, diffLines, looksSteering, stableJson } from './diff.rule
 
 export const reviewsQuery = { queryKey: ['reviews'], queryFn: () => unwrap(api.GET('/api/reviews')) }
 
-const Lines = ({ lines }: { lines: DiffLine[] }) => (
+/** A line diff as the reviews show one: what went struck through, what came marked. */
+export const Lines = ({ lines }: { lines: DiffLine[] }) => (
   <pre className="max-h-96 overflow-auto border border-border bg-card font-mono text-[12.5px] leading-relaxed">
     {lines.map((line, index) => (
       <div

@@ -1187,3 +1187,149 @@ test.describe('on a phone', () => {
     expect(overflow).toBeLessThanOrEqual(0)
   })
 })
+
+test('Build and Refresh with AI: the estimate first, a proposal with its rehearsal and cost, discarded, then accepted', async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page, demo())
+  // A pack of its own: other tests count what Loud holds
+  const owner = await request.newContext({
+    baseURL,
+    extraHTTPHeaders: { authorization: `Bearer ${demo().ownerKey}` },
+  })
+  expect(
+    (
+      await owner.post('/api/packs', {
+        data: { name: 'quiet', title: 'Quiet', description: 'Say things back quietly, and count along.' },
+      })
+    ).status(),
+  ).toBe(201)
+  expect(
+    (
+      await owner.patch('/api/packs/quiet', {
+        data: { add: { tools: [{ name: 'echo.echo' }, { name: 'echo.shout' }] } },
+      })
+    ).status(),
+  ).toBe(200)
+
+  const refresh = async () => {
+    await page.getByRole('button', { name: 'Refresh with AI' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Refresh Quiet with AI' })
+    await expect(dialog.getByText('Say things back quietly, and count along.')).toBeVisible()
+    const start = dialog.getByRole('button', { name: 'Refresh', exact: true })
+    await expect(start).toBeDisabled()
+    await dialog.getByLabel('Task 1').fill('count to three, then say it back')
+    // The estimate before anything runs: the figure, the real calls it may make, and where their answers go
+    await expect(dialog.getByRole('status')).toContainText(
+      /^About \$0\.\d\d of \$1\.00\. It tries each task first: up to 6 real read calls on your accounts \(those may cost on their own\), and what they return is sent to demo\/pack-writer\./,
+    )
+    await expect(dialog.getByRole('status')).toContainText('Refresh also sends the pack as it is')
+    await start.click()
+    await expect(page).toHaveURL(/\/app\/packs\/quiet\?build=pb_\w+$/)
+    await expect(page.getByRole('heading', { name: 'Proposal for Quiet' })).toBeVisible()
+  }
+
+  await page.goto('/app/packs/quiet')
+  // What it is for is edited over the dialog, which stays as it was beneath
+  await page.getByRole('button', { name: 'Refresh with AI' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Refresh Quiet with AI' })
+  await dialog.getByLabel('Task 1').fill('anything')
+  await dialog.getByRole('button', { name: 'Edit' }).click()
+  const edit = page.getByRole('dialog', { name: 'Quiet', exact: true })
+  await expect(edit.getByLabel('What it is for')).toHaveValue('Say things back quietly, and count along.')
+  expect(await edit.evaluate((node) => node.contains(document.activeElement))).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(edit).toHaveCount(0)
+  await expect(dialog.getByLabel('Task 1')).toHaveValue('anything')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await refresh()
+  // Each line with its box, the rehearsal with the call it made and the step it skipped, and the cost
+  await expect(page.getByRole('checkbox', { name: 'Tool echo.count_slowly' })).toBeChecked()
+  await expect(page.getByRole('checkbox', { name: 'Playbook count-to-three-then' })).toBeChecked()
+  const rehearsal = page.locator('section', { has: page.getByRole('heading', { name: /^Rehearsal/ }) })
+  await expect(
+    rehearsal.getByText(
+      'count to three, then say it back: echo.echo answered; echo.shout would finish it, shout skipped',
+    ),
+  ).toBeVisible()
+  await expect(rehearsal.getByRole('link', { name: 'echo.echo ran' })).toHaveAttribute(
+    'href',
+    /\/app\/activity\?.*call=call_/,
+  )
+  await expect(rehearsal.getByText('shout skipped: it changes things, so it was not tried')).toBeVisible()
+  const cost = page.locator('section', { has: page.getByRole('heading', { name: 'Cost' }) })
+  await expect(cost.getByText(/^(\$0\.\d\d|Under \$0\.01) of \$1\.00$/)).toBeVisible()
+  // On a phone the proposal stays within the window
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)
+  await page.setViewportSize({ width: 1280, height: 720 })
+
+  // Discard leaves the pack as it was
+  await page.getByRole('button', { name: 'Discard' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Discard' }).click()
+  await expect(page).toHaveURL(/\/app\/packs\/quiet$/)
+  await expect(page.getByText('A proposal is ready')).toHaveCount(0)
+  await page.getByRole('button', { name: /^Playbooks & skill/ }).click()
+  await expect(page.getByText(/No playbook is written for Quiet yet\./)).toBeVisible()
+
+  // Built again, only the playbook is accepted: a line the skill needs is held until the skill is unticked
+  await refresh()
+  await page.getByRole('checkbox', { name: 'Tool echo.count_slowly' }).click()
+  await expect(page.getByText('The skill needs this: untick it first.')).toBeVisible()
+  await expect(page.getByRole('checkbox', { name: 'Tool echo.count_slowly' })).toBeChecked()
+  for (const line of ['The skill', 'Tool echo.count_slowly', 'Variable tone'])
+    await page.getByRole('checkbox', { name: line }).click()
+  await page.getByRole('button', { name: 'Accept selected (1)' }).click()
+  await expect(page.getByText('Accepted 1 line into Quiet.')).toBeVisible()
+  await expect(page).toHaveURL(/\/app\/packs\/quiet$/)
+  const parts = page.getByRole('navigation', { name: 'Parts' })
+  await expect(parts.getByRole('button', { name: /^Tools/ })).toContainText('2')
+  await parts.getByRole('button', { name: /^Playbooks & skill/ }).click()
+  const own = page.locator('section', { has: page.getByRole('heading', { name: /^Written for this pack · 1/ }) })
+  await expect(own.getByText('Count to three, then say it back')).toBeVisible()
+
+  // Its model has a card of its own in Settings › AI, on smart grouping's connection while it sets none of its own
+  await page.goto('/app/settings#build-with-ai')
+  const card = page.locator('#build-with-ai')
+  await expect(card.getByText('Build with AI', { exact: true })).toBeVisible()
+  await expect(card.getByText('Drafts packs')).toBeVisible()
+
+  // An empty pack is built from nothing: the playbook names the tool it brings, so it needs it
+  expect(
+    (
+      await owner.post('/api/packs', {
+        data: { name: 'hush', title: 'Hush', description: 'Count along, quietly.' },
+      })
+    ).status(),
+  ).toBe(201)
+  await page.goto('/app/packs/hush')
+  await expect(page.getByRole('button', { name: 'Refresh with AI' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Build with AI' }).click()
+  const build = page.getByRole('dialog', { name: 'Build Hush with AI' })
+  await build.getByLabel('Task 1').fill('count to three slowly')
+  await expect(build.getByRole('status')).toContainText(/^About \$0\.\d\d of \$1\.00\./)
+  // On a phone the dialog stays within the window, Start in reach
+  await page.setViewportSize({ width: 390, height: 844 })
+  const box = await build.boundingBox()
+  expect(box && box.x >= 0 && box.x + box.width <= 390, `the dialog at ${JSON.stringify(box)}`).toBe(true)
+  await build.getByRole('button', { name: 'Build', exact: true }).scrollIntoViewIfNeeded()
+  await expect(build.getByRole('button', { name: 'Build', exact: true })).toBeInViewport()
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await build.getByRole('button', { name: 'Build', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Proposal for Hush' })).toBeVisible()
+  await expect(
+    page.getByRole('listitem', { name: 'Playbook count-to-three-slowly' }).getByText('Needs Tool echo.count_slowly'),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Accept all' }).click()
+  await expect(page.getByText('Accepted 4 lines into Hush.')).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Parts' }).getByRole('button', { name: /^Tools/ })).toContainText(
+    '1',
+  )
+  await expect(page.getByRole('link', { name: 'echo.count_slowly' })).toBeVisible()
+
+  expect((await owner.delete('/api/packs/hush')).status()).toBe(204)
+  expect((await owner.delete('/api/packs/quiet')).status()).toBe(204)
+  await owner.dispose()
+})

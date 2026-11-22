@@ -5,7 +5,7 @@
  */
 import { IconHistory } from '@tabler/icons-react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { ApiError, api, type Schemas, unwrap } from '@/api/client'
 import { Mono } from '@/ui/Code'
@@ -17,6 +17,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from '@/ui/shadcn/input'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { Textarea } from '@/ui/shadcn/textarea'
+import { useSettled } from '@/ui/useSettled'
 import {
   byLevel,
   findingsLine,
@@ -38,15 +39,6 @@ export type DocTarget = { kind: 'playbook'; name: string | null } | { kind: 'ski
 
 /** How long the text rests before it is checked. */
 const CHECK_AFTER = 400
-
-const useSettled = (value: string, ms: number) => {
-  const [settled, setSettled] = useState(value)
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), ms)
-    return () => clearTimeout(timer)
-  }, [value, ms])
-  return settled
-}
 
 /** A skill's text as the gateway keeps it: its own front matter and first heading are the gateway's to write. */
 const skillBodyOf = (text: string) => withoutFrontmatter(text).replace(/^\s*#[ \t]+[^\n]*\n?/, '')

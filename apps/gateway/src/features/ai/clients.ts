@@ -4,21 +4,27 @@
  * call asked to choose. The model list feeds the Settings picker: OpenRouter's public catalogue, else `/models`.
  */
 import { choice, type Question, TypeSafeClient } from '@typesafe-ai/sdk'
-import { embedRequest } from '../../kit/vectors/index.js'
-import type { GroupingConfig, SearchConfig } from './config.js'
+import { embedRequest, SpendCapError } from '../../kit/vectors/index.js'
+import type { BuildsConfig, GroupingConfig, SearchConfig } from './config.js'
 
 const TIMEOUT_MS = 60_000
+const CHARS_PER_TOKEN = 4
 
 /** Problems with a model call, said for the owner. */
 export class AiError extends Error {}
 
-/** A chat completion that must answer JSON; returns it parsed. */
-export const chatJson = async <T>(
-  config: Pick<GroupingConfig, 'baseUrl' | 'key'>,
+/**
+ * What one chat call used (what was sent and the most it may answer, when the provider reports no tokens), and what
+ * the provider says it cost (null when it says nothing).
+ */
+export type Usage = { inputTokens: number; outputTokens: number; costUsd: number | null }
+
+/** One chat completion that must answer JSON. `spendCap`: a 402 or 403 is the kit's `SpendCapError`. */
+const complete = async (
+  config: Pick<GroupingConfig, 'baseUrl' | 'key'> & { provider?: GroupingConfig['provider'] },
   model: string,
-  system: string,
-  user: string,
-): Promise<T> => {
+  ask: { system: string; user: string; maxTokens?: number; timeoutMs: number; spendCap: boolean },
+) => {
   const response = await fetch(`${config.baseUrl.value.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -30,28 +36,68 @@ export const chatJson = async <T>(
       model,
       response_format: { type: 'json_object' },
       temperature: 0,
+      ...(ask.maxTokens ? { max_tokens: ask.maxTokens } : {}),
+      // OpenRouter says what a call cost only when asked
+      ...(config.provider?.value === 'openrouter' ? { usage: { include: true } } : {}),
       messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
+        { role: 'system', content: ask.system },
+        { role: 'user', content: ask.user },
       ],
     }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(ask.timeoutMs),
   }).catch((error: unknown) => {
     throw new AiError(`${model} could not be reached: ${error instanceof Error ? error.message : String(error)}`)
   })
   const body = (await response.json().catch(() => null)) as {
     choices?: { message?: { content?: string } }[]
+    usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }
     error?: { message?: string }
   } | null
-  if (!response.ok)
-    throw new AiError(`${model} answered ${response.status}: ${body?.error?.message ?? 'no reason given'}`)
+  const reason = `${model} answered ${response.status}: ${body?.error?.message ?? 'no reason given'}`
+  if (ask.spendCap && (response.status === 402 || response.status === 403)) throw new SpendCapError(reason)
+  if (!response.ok) throw new AiError(reason)
   const text = body?.choices?.[0]?.message?.content ?? ''
+  // A provider that reports no tokens is counted at what was sent and the most it may answer, so a build's budget holds
+  const reported = typeof body?.usage?.prompt_tokens === 'number' || typeof body?.usage?.completion_tokens === 'number'
+  const usage: Usage = {
+    inputTokens: reported
+      ? Number(body?.usage?.prompt_tokens ?? 0)
+      : Math.ceil((ask.system.length + ask.user.length) / CHARS_PER_TOKEN),
+    outputTokens: reported
+      ? Number(body?.usage?.completion_tokens ?? 0)
+      : (ask.maxTokens ?? Math.ceil(text.length / CHARS_PER_TOKEN)),
+    costUsd: typeof body?.usage?.cost === 'number' ? body.usage.cost : null,
+  }
   try {
-    return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '')) as T
+    return { json: JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '')) as unknown, usage }
   } catch {
-    throw new AiError(`${model} didn't answer JSON: ${text.slice(0, 160)}`)
+    throw Object.assign(new AiError(`${model} didn't answer JSON: ${text.slice(0, 160)}`), { usage })
   }
 }
+
+/** A chat completion that must answer JSON; returns it parsed. */
+export const chatJson = async <T>(
+  config: Pick<GroupingConfig, 'baseUrl' | 'key'>,
+  model: string,
+  system: string,
+  user: string,
+): Promise<T> => (await complete(config, model, { system, user, timeoutMs: TIMEOUT_MS, spendCap: false })).json as T
+
+/**
+ * A chat completion for a build: JSON with what it used and cost. A 402 or 403 (a key's limit, an account's credit)
+ * is the kit's `SpendCapError`, which stops a build; any other refusal is an `AiError`.
+ */
+export const chat = (
+  config: Pick<GroupingConfig, 'provider' | 'baseUrl' | 'key'>,
+  model: string,
+  {
+    system,
+    user,
+    maxTokens,
+    timeoutMs = 180_000,
+  }: { system: string; user: string; maxTokens: number; timeoutMs?: number },
+): Promise<{ json: unknown; usage: Usage }> =>
+  complete(config, model, { system, user, maxTokens, timeoutMs, spendCap: true })
 
 /** A choice per question: the label picked for each, keyed like the questions. */
 export type Choices = Record<string, { choice: string; confidence: number }>
@@ -128,20 +174,24 @@ export const testSearch = (config: SearchConfig) =>
     return `Embedded a sentence into ${vectors[0]?.length ?? 0} numbers.`
   })
 
-export const testGrouping = async (config: GroupingConfig) => {
-  const writer = await timed(async () => {
+/** Asks a writer model for a fixed JSON object. */
+const testWriter = (config: Pick<GroupingConfig, 'baseUrl' | 'key'>, model: string) =>
+  timed(async () => {
     const answer = await chatJson<{ ok?: unknown }>(
       config,
-      config.writerModel.value,
+      model,
       'You check a connection. Reply with exactly this JSON object and nothing else: {"ok": true}',
       'Check.',
     )
     if (answer.ok !== true && answer.ok !== 'true')
-      throw new AiError(
-        `${config.writerModel.value} answered ${JSON.stringify(answer).slice(0, 80)}, not {"ok": true}.`,
-      )
-    return `${config.writerModel.value} answered JSON.`
+      throw new AiError(`${model} answered ${JSON.stringify(answer).slice(0, 80)}, not {"ok": true}.`)
+    return `${model} answered JSON.`
   })
+
+export const testBuilds = (config: BuildsConfig) => testWriter(config, config.writerModel.value)
+
+export const testGrouping = async (config: GroupingConfig) => {
+  const writer = await testWriter(config, config.writerModel.value)
   const decider = await timed(async () => {
     const picked = await decide(
       config,

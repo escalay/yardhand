@@ -2,7 +2,17 @@
 
 import { join } from 'node:path'
 import { authHeaders, type Credential, createAdapters } from './adapters/index.js'
-import { type Env as AiEnv, type AiJob, type AiSettings, resolveGrouping, resolveSearch } from './features/ai/config.js'
+import {
+  type Env as AiEnv,
+  type AiJob,
+  type AiSettings,
+  resolveBuilds,
+  resolveGrouping,
+  resolveSearch,
+} from './features/ai/config.js'
+import { buildsModel, type Model } from './features/ai/model.js'
+import { createBuilder, type Proposal } from './features/builds/builder.js'
+import { buildsRepo } from './features/builds/repo.js'
 import { createHanded } from './features/calls/handed.js'
 import { createPipeline } from './features/calls/pipeline.js'
 import { createReads } from './features/calls/reads.js'
@@ -55,6 +65,11 @@ export type Env = {
   GATEWAY_AI_GROUPING_WRITER_MODEL?: string
   GATEWAY_AI_GROUPING_DECIDER_MODEL?: string
   GATEWAY_AI_GROUPING_DECIDER_PROTOCOL?: string
+  /** Build with AI's starting values; with no provider, address or key, smart grouping's (features/ai/config.ts). */
+  GATEWAY_AI_BUILDS_PROVIDER?: string
+  GATEWAY_AI_BUILDS_BASE_URL?: string
+  GATEWAY_AI_BUILDS_KEY?: string
+  GATEWAY_AI_BUILDS_MODEL?: string
   /** Usage telemetry (features/telemetry): `off`, the collector's address, and the shared off switch. */
   GATEWAY_TELEMETRY?: string
   GATEWAY_TELEMETRY_URL?: string
@@ -94,12 +109,15 @@ export const createServices = async ({
   env,
   keys,
   meaning: given,
+  model: givenModel,
 }: {
   db: Db
   env: Env
   keys: Map<string, string>
   /** Search by meaning; tests pass a fake one. Without it and without a key, search is by keywords only. */
   meaning?: MeaningSearch
+  /** The model Build with AI asks; tests and the demo pass a scripted one. */
+  model?: Model
 }) => {
   const masterKey = parseMasterKey(env.GATEWAY_MASTER_KEY)
   const vault = vaultRepo(db, masterKey)
@@ -187,6 +205,13 @@ export const createServices = async ({
     saved: (job: AiJob) => vault.get<AiSettings>(`ai:${job}`),
     search: async () => resolveSearch(await vault.get<AiSettings>('ai:search'), env as AiEnv),
     grouping: async () => resolveGrouping(await vault.get<AiSettings>('ai:grouping'), env as AiEnv),
+    builds: async () => {
+      const [saved, grouping] = await Promise.all([
+        vault.get<AiSettings>('ai:builds'),
+        vault.get<AiSettings>('ai:grouping'),
+      ])
+      return resolveBuilds(saved, env as AiEnv, resolveGrouping(grouping, env as AiEnv))
+    },
   }
   /** Search by meaning with the key the search job has now; rebuilt when it changes in Settings. */
   const meaningWith = (apiKey: string) =>
@@ -286,6 +311,10 @@ export const createServices = async ({
       },
     })
   }
+  const model = givenModel ?? buildsModel(ai)
+  const pipeline = createPipeline({ tools, upstreams, adapters, calls, credentialOf, key: masterKey, handed })
+  const builds = buildsRepo<Proposal>(db, masterKey)
+  const builder = createBuilder({ builds, packs, tools, catalog, upstreams, meaning, model, pipeline })
   return {
     db,
     env,
@@ -318,12 +347,17 @@ export const createServices = async ({
     upstreamHeaders,
     meaning,
     ai: { ...ai, searchKeyChanged },
+    /** The model Build with AI asks: the one given, else the build job's. */
+    model,
+    /** Build and Refresh with AI: the builds kept, and the runs in this process. */
+    builds,
+    builder,
     sync,
     grouping,
     watcher,
     listsChanged,
     handed,
-    pipeline: createPipeline({ tools, upstreams, adapters, calls, credentialOf, key: masterKey, handed }),
+    pipeline,
     reads: createReads({ catalog, tools, upstreams, adapters, calls, credentialOf, handed, packDocs }),
   }
 }

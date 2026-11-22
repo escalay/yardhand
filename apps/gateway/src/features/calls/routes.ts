@@ -2,6 +2,7 @@
 import { createRoute, z } from '@hono/zod-openapi'
 import { HAL_JSON, LinksSchema, problemResponses } from '../../kit/index.js'
 import { cursorQuery, limitQuery, pageSchema } from '../../kit/pagination/index.js'
+import { VIAS } from './schema.js'
 
 export const PATH = '/api/calls'
 export const TAG = 'Calls'
@@ -89,9 +90,10 @@ const CallRecordSchema = z
       description: '`tool`: a tool ran. `manual`, `playbook`, `link`: one was read, with the upstream’s credential.',
     }),
     upstream: z.string().nullable(),
-    via: z
-      .enum(['rest', 'mcp', 'passthrough', 'app'])
-      .openapi({ description: 'The door it came in by; `app` is the owner trying a tool in /app.' }),
+    via: z.enum(VIAS).openapi({
+      description:
+        'The door it came in by; `app` is the owner trying a tool in /app, `rehearsal` a build trying an example task.',
+    }),
     status: z.enum(['ok', 'tool_error', 'refused', 'failed', 'asked']).openapi({
       description:
         '`tool_error`: the tool ran and said no. `refused`: the gateway said no. `failed`: the upstream did not answer. `asked`: the upstream asked the caller something mid-call.',
@@ -142,7 +144,10 @@ const CALL_FILTERS = {
     .regex(STATUSES)
     .optional()
     .openapi({ description: 'Only these outcomes, comma-separated.', example: 'tool_error,failed' }),
-  via: z.enum(['rest', 'mcp', 'passthrough', 'app']).optional().openapi({ description: 'Only this door.' }),
+  via: z
+    .enum(VIAS)
+    .optional()
+    .openapi({ description: 'Only this door (`rehearsal`: a build trying an example task).' }),
   kind: z
     .string()
     .regex(/^(tool|manual|playbook|link)(,(tool|manual|playbook|link))*$/)

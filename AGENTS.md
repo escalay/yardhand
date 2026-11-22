@@ -38,6 +38,7 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 | `apps/gateway/` | the server (kit app; its own `AGENTS.md` covers the kit shape) |
 | `apps/gateway/src/features/<name>/` | anything with tables or routes: upstreams, tools, catalog, calls, clients, search, vault, connections, config |
 | `apps/gateway/src/features/packs/` | packs. What a pack sets on its tools' inputs is read in three files: `values.ts` (variables, `{{name}}` filled in), `state.ts` (a pack as its checks read it, and the state a change would leave), `checks.ts` (`checkPack`, the one check function, and `judge`, the one rule for a change: refused only for what it breaks itself). Every way of writing a pack goes through them: the handlers and the config import. What is written for a pack is Markdown: `playbook.ts` and `skill.ts` read the two kinds of text, `frontmatter.ts` the YAML block at a playbook's top, and `own.routes.ts` with `own.handlers.ts` are the authoring routes; the same checks read them, and `flags.ts` says when a tool moved under one. `own.ts` (`packDocs`) is the one way they are read for a caller: what its pack lock names, and nothing else |
+| `apps/gateway/src/features/builds/` | Build and Refresh with AI (`pack_builds`): `builder.ts` runs one build per pack at a time in the process (kit → a playbook a task → skill → checks and one repair → a rehearsal a task), `drafts.ts` the asks and how each answer is read, `rehearsal.ts` what runs (`rehearses`) and as whom (`rehearsalPrincipal`), `spend.ts` the $1 cap and the estimate, `proposal.ts` the lines, what each needs, and how chosen ones are applied (`applyLines`, judged by the pack's own `judge`) and written |
 | `apps/gateway/src/features/instance/` | a new instance's own keys in `instance.json` beside the data (master key, OAuth signing key, the owner's hash), resolved at start before anything opens; never made over a database sealed with other keys. The setup code and the claim live in `features/session`. `upgrade.ts` there copies the data before a newer version migrates it, refuses data a newer version wrote, and undoes an update that never came up: when this version starts and finds the copy a newer one made without ever recording itself, that copy becomes the data (what was left is kept as `backups/failed-<version>.sqlite`) |
 | `apps/gateway/src/features/backups/` | download a kept copy of the database; restore from a kept copy or an uploaded file (checked, today's data kept aside, staged, applied at the next start by `applyPending` in `server.ts`) |
 | `apps/gateway/src/features/telemetry/` | the daily usage report (`docs/telemetry.md`): `report.ts` builds it, `index.ts` sends it and shows it to the owner (`GET /api/system/telemetry`); switched off only in the environment |
@@ -79,12 +80,15 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Effect switch**: a connection's reads, changes or deletes switched off at once (`effectOf` in `tools/groups.ts`:
   hints, then the name and route; a tool the owner set is outside the switches). A tool's `offBy` says why it is off:
   `you`, `group` or `effect`.
-- **AI job** (`features/ai`): search by meaning (embeddings; only its key is settable, the model is the kit's) and
+- **AI job** (`features/ai`): search by meaning (embeddings; only its key is settable, the model is the kit's),
   smart grouping (a writer names groups over any OpenAI-compatible API; a decider files tools via TypeSafe's System
-  One, e.g. `typesafe/jev-1.14`, or a chat model). `.env` seeds (`GATEWAY_AI_GROUPING_*`, `OPENROUTER_API_KEY`),
-  Settings › AI wins (sealed in the vault as `ai:<job>`); keys never leave.
+  One, e.g. `typesafe/jev-1.14`, or a chat model) and Build with AI (`builds`: one chat model that drafts packs; its
+  provider, address and key are one connection, its own once it sets any of them, else grouping's whole, and its
+  model left unset is grouping's writer, each shown as `from: grouping`). `.env` seeds (`GATEWAY_AI_GROUPING_*`,
+  `GATEWAY_AI_BUILDS_*`, `OPENROUTER_API_KEY`), Settings › AI wins (sealed in the vault as `ai:<job>`); keys never leave.
 - **Call**: one execution through the pipeline; its record, held result pages and encrypted payload. A call's `kind`
-  is `tool`, or a read: `manual`, `playbook`, `link`.
+  is `tool`, or a read: `manual`, `playbook`, `link`. Its `via` is the door it came by: `rest`, `mcp`, `passthrough`,
+  `app`, or `rehearsal` (a build trying a task: listed, never counted as use; no caller can claim it).
 - **Catalog**: what an upstream offers besides tools, versioned and reviewed like tools (`features/catalog`).
 - **Manual**: an upstream's skill (Skills extension), every file; served with the gateway's note on top, as a skill,
   as `gateway://u/<upstream>/manual`, and at `GET /api/manuals/{name}`.
@@ -186,6 +190,18 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   live, or is no longer in the pack under that name: renaming, removing or losing a tool never fails on a text.
   Saving the text again clears it, and is refused while the text still names a tool the pack no longer has. A flag
   never blocks a change that leaves it alone.
+- **Build**: Build or Refresh with AI of one pack (`POST /api/packs/{name}/builds`, 202, polled): a model drafts its
+  tools, wording, variables, input modes, playbooks and skill from its purpose and one to five example tasks, then
+  rehearses each, and keeps one sealed **proposal**: lines (`tool:`, `wording:`, `input:`, `variable:`,
+  `playbook:`, `skill`), each with before, after and the lines it `needs`. Accepted once, line by line, onto the pack
+  as it was when the build started, through `judge`. `$1` at most on the model (`BUILD_CAP_USD`), checked before
+  every ask; an estimate over it is a 429 `spend_cap`. One running per pack, six an hour per pack and caller.
+- **Rehearsal**: a build trying one example task with the drafted pack: the model picks a tool a step (6 at most);
+  one that `rehearses` (its hints say it reads, the owner's setting agrees, not off, its route a read) runs through
+  the pipeline as a read-only owner locked to the draft by `packScopeFrom`, with the pack's own values and no
+  person's (`rehearsalPrincipal`); any other gets a stand-in and never reaches the pipeline. Results go to the model
+  only. No person's name or value reaches a build: Refresh reads the pack's flags with no one's values, and a build
+  never proposes a Per person input nor changes one.
 - **Asked**: a call whose upstream asked something mid-call (MCP input requests); the answers come as the next call
   with the sealed `requestState`.
 
@@ -246,3 +262,7 @@ Copy is plain and specific; every error says where, why and what to do (the prob
     release; the newest version it is told is only ever a version number, and the release-notes link is built here.
     Tests, the demo and the smoke test never ask for a newer version, and the deploy hook's address and token are
     never logged or returned.
+16. A rehearsal never runs a tool that changes things: `rehearses` decides before the pipeline is called, and the
+    rehearsal's principal is read-only so the pipeline refuses one too. A build saves nothing to a pack until the
+    owner accepts lines, spends at most `BUILD_CAP_USD` on the model, and keeps its proposal sealed. Tests and the
+    demo build with a scripted model (`test/fixtures/model.ts`), never a provider.

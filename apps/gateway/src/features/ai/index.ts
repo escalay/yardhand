@@ -1,4 +1,4 @@
-/** AI: the gateway's AI jobs (search by meaning, smart grouping), set from .env and from Settings. */
+/** AI: the gateway's AI jobs (search by meaning, smart grouping, Build with AI), set from .env and from Settings. */
 import type { Feature } from '../index.js'
 import { aiHandlers } from './handlers.js'
 import { routes, TAG } from './routes.js'

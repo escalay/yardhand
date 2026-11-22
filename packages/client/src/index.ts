@@ -48,7 +48,7 @@ export type CallRecord = {
   client: string
   tool: string
   upstream: string | null
-  via: 'rest' | 'mcp' | 'passthrough'
+  via: 'rest' | 'mcp' | 'passthrough' | 'app' | 'rehearsal'
   status: 'ok' | 'tool_error' | 'refused' | 'failed'
   error: string | null
   durationMs: number

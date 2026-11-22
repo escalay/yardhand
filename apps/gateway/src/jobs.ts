@@ -167,7 +167,7 @@ export const backup = async ({ db }: Pick<Services, 'db'>, stateDir: string, now
 }
 
 /** Drops what is past keeping, then backs up; says what it wrote, and throws when a part failed. */
-export const daily = async (services: Pick<Services, 'db' | 'calls' | 'searches'>, stateDir: string) => {
+export const daily = async (services: Pick<Services, 'db' | 'calls' | 'searches' | 'builds'>, stateDir: string) => {
   const before = new Date(Date.now() - KEEP_DAYS * DAY).toISOString()
   const failed: string[] = []
   const part = (name: string) => (error: unknown) => {
@@ -177,6 +177,8 @@ export const daily = async (services: Pick<Services, 'db' | 'calls' | 'searches'
   }
   await services.calls.prune(before).catch(part('dropping old calls'))
   await services.searches.prune(before).catch(part('dropping old searches'))
+  // A build's proposal is kept as long as its rehearsal calls' payloads: 30 days
+  await services.builds.prune(new Date(Date.now() - 30 * DAY).toISOString()).catch(part('dropping old builds'))
   const file = await backup(services, stateDir).catch(part('the backup'))
   if (failed.length) throw new Error(`Failed: ${failed.join(', ')}. The server log has why.`)
   const megabytes = file ? (statSync(file).size / 1_000_000).toFixed(1) : '0'

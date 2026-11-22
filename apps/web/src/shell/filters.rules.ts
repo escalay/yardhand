@@ -12,6 +12,8 @@ export const DOORS = [
   { value: 'rest', label: 'REST' },
   { value: 'app', label: 'This app' },
   { value: 'passthrough', label: 'Passthrough' },
+  // A build trying an example task: counted only when this door is picked
+  { value: 'rehearsal', label: 'Rehearsal' },
 ] as const
 export type Door = (typeof DOORS)[number]['value']
 

@@ -1,4 +1,4 @@
-/** Pure rules for Settings › AI: a model's price and size in words. */
+/** Pure rules for Settings › AI: a model's price and size in words, and where a setting comes from. */
 import type { Schemas } from '@/api/client'
 
 type Model = Schemas['AiModel']
@@ -30,3 +30,20 @@ export const KEY_HELP: Record<Schemas['AiJob']['provider']['value'], { url: stri
   local: { url: null, text: 'A local server usually needs no key: leave it empty.' },
   custom: { url: null, text: 'The key your server expects as a bearer token.' },
 }
+
+/** Where Settings › AI keeps the card for Build with AI's model. */
+export const BUILDS_CARD_ID = 'build-with-ai'
+
+type Job = Schemas['AiJob']
+
+export const sourceLabel = (from: Job['provider']['from']) =>
+  from === 'settings' ? 'Set here' : from === 'env' ? '.env' : from === 'grouping' ? 'Smart grouping' : 'Default'
+
+const own = (from: Job['provider']['from']) => from === 'settings' || from === 'env'
+
+/**
+ * Build with AI sets a provider, address or key of its own, so all three are its own and smart grouping's key is
+ * never sent there, but it can't reach a model yet (no key, or no address).
+ */
+export const ownConnectionUnreachable = (job: Pick<Job, 'ready' | 'provider' | 'baseUrl' | 'key'>) =>
+  !job.ready && [job.provider.from, job.baseUrl.from, job.key.from].some(own)

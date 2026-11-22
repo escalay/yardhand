@@ -125,6 +125,32 @@ export const SECTIONS: Section[] = [
   },
   {
     title:
+      'Build with AI: a model drafts a pack from its purpose and tasks. Provider, key, address: its own if any is set, else grouping’s',
+    settings: [
+      {
+        name: 'GATEWAY_AI_BUILDS_PROVIDER',
+        about: [`Where its model runs: ${Object.keys(PROVIDERS).join(', ')}.`],
+        fallback: 'openrouter if its key or address is set, else smart grouping’s provider',
+      },
+      {
+        name: 'GATEWAY_AI_BUILDS_KEY',
+        about: ['Its API key, sent only to its own provider and address.'],
+        fallback: 'no key if its provider or address is set, else smart grouping’s key',
+      },
+      {
+        name: 'GATEWAY_AI_BUILDS_BASE_URL',
+        about: ['For `local` and `custom`: the OpenAI-compatible API, ending /v1.'],
+        fallback: 'its provider’s address if its provider or key is set, else smart grouping’s',
+      },
+      {
+        name: 'GATEWAY_AI_BUILDS_MODEL',
+        about: ['The model that drafts packs: a stronger one than grouping’s writes better playbooks.'],
+        fallback: 'smart grouping’s writer model',
+      },
+    ],
+  },
+  {
+    title:
       'Usage telemetry: once a day, an anonymous report of ranges and yes/no answers. docs/telemetry.md lists it all',
     settings: [
       {
@@ -252,6 +278,9 @@ export const problemsOf = (env: Env) => {
   const provider = env.GATEWAY_AI_GROUPING_PROVIDER
   if (provider && !(provider in PROVIDERS))
     problems.push(`GATEWAY_AI_GROUPING_PROVIDER is ${provider}: it is one of ${Object.keys(PROVIDERS).join(', ')}.`)
+  const buildProvider = env.GATEWAY_AI_BUILDS_PROVIDER
+  if (buildProvider && !(buildProvider in PROVIDERS))
+    problems.push(`GATEWAY_AI_BUILDS_PROVIDER is ${buildProvider}: it is one of ${Object.keys(PROVIDERS).join(', ')}.`)
   const protocol = env.GATEWAY_AI_GROUPING_DECIDER_PROTOCOL
   if (protocol && protocol !== 'typesafe' && protocol !== 'openai')
     problems.push(`GATEWAY_AI_GROUPING_DECIDER_PROTOCOL is ${protocol}: it is typesafe or openai.`)

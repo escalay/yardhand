@@ -10,6 +10,7 @@ import { ClientName, SurfaceSchema } from '../clients/routes.js'
 import { APP_IDS, KEY_APPS } from '../clients/setup.js'
 import { ALIAS } from './entries.js'
 import { PACK_REASONS } from './schema.js'
+import { VARIABLE_DESCRIPTION_MAX, VARIABLES_MAX } from './values.js'
 
 export const PATH = '/api/packs'
 export const FLAGS_PATH = '/api/packs/flags'
@@ -283,6 +284,13 @@ export const PackSchema = PackCardSchema.extend({
       description:
         'Names it used to have that still lead to it, newest first, each with how many of its people last connected there. `DELETE /api/packs/{name}/names/{former}` frees one.',
     }),
+  build: z
+    .object({ id: z.string(), status: z.enum(['running', 'ready', 'stopped']) })
+    .nullable()
+    .openapi({
+      description:
+        'Its newest Build or Refresh with AI while it runs or waits to be accepted, or null. `GET /api/packs/{name}/builds/{id}` reads it.',
+    }),
 }).openapi('Pack', { description: 'A pack with everything in it, in order.' })
 
 const PersonSchema = z
@@ -512,10 +520,10 @@ const VariablesInputSchema = z
             description:
               'Its value, or null for none of the pack’s: only an input filled per person can then read it, with each person’s own value.',
           }),
-          description: z.string().max(400).nullable().optional(),
+          description: z.string().max(VARIABLE_DESCRIPTION_MAX).nullable().optional(),
         }),
       )
-      .max(100),
+      .max(VARIABLES_MAX),
   })
   .openapi('PackVariablesInput', {
     description: 'The pack’s variables from now on, in order: this list replaces the one it had.',

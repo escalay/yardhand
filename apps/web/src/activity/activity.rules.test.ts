@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeFilters, kindOf, matches, parseActivitySearch, statusOf } from './activity.rules'
+import { activeFilters, kindOf, matches, parseActivitySearch, statusOf, VIA_LABEL } from './activity.rules'
 
 describe('activity filters', () => {
   it('reads the address and drops what it can’t use', () => {
@@ -12,6 +12,10 @@ describe('activity filters', () => {
       call: undefined,
     })
     expect(parseActivitySearch({ outcome: 'weird', via: 'smoke' })).toMatchObject({ outcome: 'all', via: undefined })
+  })
+  it('knows the rehearsal door: a build trying an example task', () => {
+    expect(parseActivitySearch({ via: 'rehearsal' }).via).toBe('rehearsal')
+    expect(VIA_LABEL.rehearsal).toBe('Rehearsal')
   })
   it('maps outcomes to the API and to live calls', () => {
     expect(statusOf('problems')).toBe('tool_error,failed')

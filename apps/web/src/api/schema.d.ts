@@ -561,7 +561,7 @@ export interface paths {
         };
         /**
          * AI settings
-         * @description The gateway’s AI jobs (search by meaning, smart grouping), each setting with where it comes from: Settings, .env or a default (owner only).
+         * @description The gateway’s AI jobs (search by meaning, smart grouping, Build with AI), each setting with where it comes from: Settings, .env, smart grouping’s or a default (owner only).
          */
         get: operations["getAiSettings"];
         put?: never;
@@ -587,7 +587,7 @@ export interface paths {
         head?: never;
         /**
          * Change an AI job
-         * @description Saves a job’s provider, address, key or models; they win over .env from then on. null takes a field back to .env (owner only).
+         * @description Saves a job’s provider, address, key or models; they win over .env from then on. null takes a field back to .env; Build with AI takes smart grouping’s provider, address and key only while it sets none of the three, and its writer model while it sets none (owner only).
          */
         patch: operations["updateAiJob"];
         trace?: never;
@@ -1086,6 +1086,90 @@ export interface paths {
          * @description Runs the checks a save runs on a draft of a playbook or of the skill, against the pack as it is, and answers what they find. Nothing is saved, and no version is added.
          */
         post: operations["checkPackDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/builds/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Estimate a build
+         * @description What a Build or Refresh with AI is likely to cost on the model, and the most real read calls its rehearsal may make, before anything runs. A build may spend $1.00 at most (owner only).
+         */
+        post: operations["estimatePackBuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/builds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Build or refresh a pack with AI
+         * @description Drafts tools with reasons, wording, variables, input modes, playbooks and the skill, tries each task with the pack’s read-only tools, and keeps one proposal. Answers 202 at once: poll the `Location`. Nothing changes in the pack until lines are accepted. One build runs at a time per pack, six an hour per pack (owner only).
+         */
+        post: operations["startPackBuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/builds/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A build
+         * @description Where a build is, what it spent, and its proposal once it has one (owner only).
+         */
+        get: operations["getPackBuild"];
+        put?: never;
+        post?: never;
+        /**
+         * Discard a proposal
+         * @description Drops a build’s proposal; the pack stays as it is (owner only).
+         */
+        delete: operations["discardPackBuild"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/builds/{id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept lines of a proposal
+         * @description Applies the chosen lines to the pack through its checks and answers the pack. Every line a chosen line needs must be chosen too. Once only, and only onto the pack as it was when the build started (owner only).
+         */
+        post: operations["acceptPackBuild"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2541,7 +2625,7 @@ export interface components {
         /** @description One of the gateway’s AI jobs and its settings. */
         AiJob: {
             /** @enum {string} */
-            job: "search" | "grouping";
+            job: "search" | "grouping" | "builds";
             title: string;
             /** @description What the job does, in a sentence. */
             does: string;
@@ -2551,59 +2635,59 @@ export interface components {
                 /** @enum {string} */
                 value: "openrouter" | "openai" | "local" | "custom";
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             };
             baseUrl: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             };
             /** @description Whether a key is set and where from; the key itself never leaves the gateway. */
             key: {
                 set: boolean;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             };
             /** @description For search: the embedding model (set by the kit). */
             model: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             } | null;
-            /** @description For grouping: the model that names groups. */
+            /** @description For grouping: the model that names groups. For builds: the model that drafts packs. */
             writerModel: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             } | null;
             /** @description For grouping: the model that files tools. */
             deciderModel: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             } | null;
             /** @description `typesafe`: TypeSafe’s System One API. `openai`: a chat model asked to choose. */
@@ -2611,10 +2695,10 @@ export interface components {
                 /** @enum {string} */
                 value: "typesafe" | "openai";
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             } | null;
         };
@@ -2633,7 +2717,7 @@ export interface components {
         /** @description What a test call to each of the job’s models said. */
         AiTest: {
             /** @enum {string} */
-            job: "search" | "grouping";
+            job: "search" | "grouping" | "builds";
             ok: boolean;
             checks: {
                 name: string;
@@ -2853,6 +2937,12 @@ export interface components {
                 /** @description People listed (`GET /api/packs/{name}/people`) who last connected at this name: those whose access ended count too, since Extend brings their setup back. */
                 people: number;
             }[];
+            /** @description Its newest Build or Refresh with AI while it runs or waits to be accepted, or null. `GET /api/packs/{name}/builds/{id}` reads it. */
+            build: {
+                id: string;
+                /** @enum {string} */
+                status: "running" | "ready" | "stopped";
+            } | null;
         };
         /** @description One tool in a pack. */
         PackTool: {
@@ -3513,6 +3603,133 @@ export interface components {
              */
             markdown: string;
         };
+        /** @description What a build is likely to cost, before it starts. Nothing is asked. */
+        PackBuildEstimate: {
+            /** @enum {string} */
+            mode: "build" | "refresh";
+            /** @description The likely cost on the model, in US dollars; null when no price is known. */
+            usd: number | null;
+            /** @description The most a build may spend on the model. */
+            capUsd: number;
+            /** @description The model’s list price is known. */
+            priceKnown: boolean;
+            /** @description What to know about the figure, when it is not plain. */
+            note: string | null;
+            /** @description Asks to the model: likely, and at most. */
+            modelCalls: {
+                likely: number;
+                max: number;
+            };
+            /** @description The likely tokens, in and out. */
+            tokens: number;
+            /** @description The model Build with AI asks (Settings › AI). */
+            model: string;
+            /** @description The most real calls the rehearsal may make with your accounts: tools that only read, which may cost on their own. Tools that change things are never run. */
+            realCalls: number;
+            _links: components["schemas"]["Links"];
+        };
+        /** @description What to build: the mode, and the example tasks. */
+        PackBuildRequest: {
+            /**
+             * @description `build` drafts the pack from its purpose and the tasks. `refresh` also sends the pack as it is (its tools, wording, variables and the values it fills) and its flags, and asks only for changes.
+             * @enum {string}
+             */
+            mode: "build" | "refresh";
+            /**
+             * @description One to five example tasks the pack is for, 300 characters each. Each gets a playbook and is tried first: up to 6 real read calls a task.
+             * @example [
+             *       "find a quick dinner recipe"
+             *     ]
+             */
+            tasks: string[];
+        };
+        /** @description A Build or Refresh with AI of a pack, and its proposal. */
+        PackBuild: {
+            id: string;
+            pack: string;
+            /** @enum {string} */
+            mode: "build" | "refresh";
+            /**
+             * @description `running`, then `ready` (a proposal to accept), `stopped` (at the cap: what is here can still be accepted) or `failed`; later `accepted` or `discarded`.
+             * @enum {string}
+             */
+            status: "running" | "ready" | "stopped" | "failed" | "accepted" | "discarded";
+            /** @description While running: what it is doing. */
+            step: string | null;
+            tasks: string[];
+            estimate: {
+                usd: number | null;
+                tokens: number;
+                modelCalls: {
+                    likely: number;
+                    max: number;
+                };
+            };
+            spent: {
+                usd: number;
+                tokens: number;
+                modelCalls: number;
+                /** @description The dollars are real (a list price or the provider’s own figure). */
+                known: boolean;
+            };
+            costNote: string | null;
+            /**
+             * @description `cap`: the next ask would have passed $1.00. `provider`: the provider refused for money (402 or 403).
+             * @enum {string|null}
+             */
+            stopped: "cap" | "provider" | null;
+            /** @description For a stopped build: what it didn’t get to. */
+            notDone: string[];
+            error: string | null;
+            proposal: {
+                model: string;
+                lines: components["schemas"]["PackBuildLine"][];
+                skipped: {
+                    name: string;
+                    reason: string;
+                }[];
+                rehearsal: {
+                    task: string;
+                    steps: {
+                        /** @description The pack’s name for the tool the model chose. */
+                        tool: string;
+                        ran: boolean;
+                        /** @description The call in the log (`GET /api/calls/{id}`). */
+                        callId: string | null;
+                        /** @description What the model was told instead, when it didn’t run. */
+                        standIn: string | null;
+                        /** @description Why the gateway refused it or its call failed, when it was tried and didn’t answer. */
+                        error: string | null;
+                    }[];
+                    outcome: string;
+                }[];
+                findings: components["schemas"]["PackFinding"][];
+            } | null;
+            createdAt: string;
+            finishedAt: string | null;
+            _links: components["schemas"]["Links"];
+        };
+        /** @description One change a proposal makes to a pack. */
+        PackBuildLine: {
+            /** @description `tool:<name>`, `wording:<name>`, `input:<name>.<input>`, `variable:<name>`, `playbook:<name>` or `skill`: what accept takes. */
+            id: string;
+            /** @enum {string} */
+            kind: "tool" | "wording" | "variable" | "input" | "playbook" | "skill";
+            target: string;
+            /** @enum {string} */
+            change: "add" | "change" | "remove";
+            /** @description As the pack has it, or null. */
+            before?: unknown;
+            /** @description As drafted, or null for a removal. */
+            after?: unknown;
+            reason: string | null;
+            /** @description A tool that changes things: never tried in rehearsal. */
+            changesThings: boolean;
+            /** @description Ticked to begin with. */
+            suggested: boolean;
+            /** @description The lines it can’t be accepted without. */
+            needs: string[];
+        };
         /** @description A finished call and the tool’s result. */
         CallResult: {
             id: string;
@@ -3606,10 +3823,10 @@ export interface components {
             kind: "tool" | "manual" | "playbook" | "link";
             upstream: string | null;
             /**
-             * @description The door it came in by; `app` is the owner trying a tool in /app.
+             * @description The door it came in by; `app` is the owner trying a tool in /app, `rehearsal` a build trying an example task.
              * @enum {string}
              */
-            via: "rest" | "mcp" | "passthrough" | "app";
+            via: "rest" | "mcp" | "passthrough" | "app" | "rehearsal";
             /**
              * @description `tool_error`: the tool ran and said no. `refused`: the gateway said no. `failed`: the upstream did not answer. `asked`: the upstream asked the caller something mid-call.
              * @enum {string}
@@ -6341,7 +6558,9 @@ export interface operations {
     listAiModels: {
         parameters: {
             query?: {
-                /** @description Which provider; default the grouping job’s. */
+                /** @description Whose key and address to ask with: smart grouping’s (the default) or Build with AI’s, which are grouping’s only while it sets no provider, address or key. Asked for another provider than its own, Build with AI sends no key. */
+                job?: "grouping" | "builds";
+                /** @description Which provider; default the job’s own. */
                 provider?: "openrouter" | "openai" | "local" | "custom";
                 /** @description Only models whose id or name has these words. */
                 q?: string;
@@ -6438,8 +6657,8 @@ export interface operations {
                 "Idempotency-Key"?: string;
             };
             path: {
-                /** @description `search` or `grouping`. */
-                job: "search" | "grouping";
+                /** @description `search`, `grouping` or `builds`. */
+                job: "search" | "grouping" | "builds";
             };
             cookie?: never;
         };
@@ -6495,8 +6714,8 @@ export interface operations {
                 "Idempotency-Key"?: string;
             };
             path: {
-                /** @description `search` or `grouping`. */
-                job: "search" | "grouping";
+                /** @description `search`, `grouping` or `builds`. */
+                job: "search" | "grouping" | "builds";
             };
             cookie?: never;
         };
@@ -8465,6 +8684,381 @@ export interface operations {
             };
         };
     };
+    estimatePackBuild: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackBuildRequest"];
+            };
+        };
+        responses: {
+            /** @description The estimate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackBuildEstimate"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    startPackBuild: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackBuildRequest"];
+            };
+        };
+        responses: {
+            /** @description Started. */
+            202: {
+                headers: {
+                    location: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackBuild"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `too_many_requests`: Slow down: wait the seconds in `Retry-After`, then retry. `spend_cap`: This operation costs money and its budget is used up. Free operations still work. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getPackBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+                /**
+                 * @description The build’s id.
+                 * @example pb_0123456789abcdef
+                 */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The build. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackBuild"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    discardPackBuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+                /**
+                 * @description The build’s id.
+                 * @example pb_0123456789abcdef
+                 */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discarded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    acceptPackBuild: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+                /**
+                 * @description The build’s id.
+                 * @example pb_0123456789abcdef
+                 */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The ids of the lines to apply. */
+                    lines: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description The pack. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["Pack"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     listCalls: {
         parameters: {
             query?: {
@@ -8479,8 +9073,8 @@ export interface operations {
                  * @example tool_error,failed
                  */
                 status?: string;
-                /** @description Only this door. */
-                via?: "rest" | "mcp" | "passthrough" | "app";
+                /** @description Only this door (`rehearsal`: a build trying an example task). */
+                via?: "rest" | "mcp" | "passthrough" | "app" | "rehearsal";
                 /**
                  * @description Only these kinds, comma-separated (all when absent).
                  * @example manual,playbook
@@ -8743,8 +9337,8 @@ export interface operations {
                  * @example tool_error,failed
                  */
                 status?: string;
-                /** @description Only this door. */
-                via?: "rest" | "mcp" | "passthrough" | "app";
+                /** @description Only this door (`rehearsal`: a build trying an example task). */
+                via?: "rest" | "mcp" | "passthrough" | "app" | "rehearsal";
                 /**
                  * @description Only these kinds, comma-separated (all when absent).
                  * @example manual,playbook
@@ -9163,8 +9757,8 @@ export interface operations {
             query?: {
                 /** @description The window. */
                 range?: "24h" | "7d" | "30d";
-                /** @description Only this door. */
-                via?: "rest" | "mcp" | "passthrough" | "app";
+                /** @description Only this door. Rehearsal calls (a build trying an example task) count only when asked for. */
+                via?: "rest" | "mcp" | "passthrough" | "app" | "rehearsal";
                 /** @description Only this agent’s calls. */
                 client?: string;
                 /** @description Only calls by keys locked to this pack. */

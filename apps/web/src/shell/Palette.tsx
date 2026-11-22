@@ -9,21 +9,13 @@ import { useEffect, useState } from 'react'
 import { api, unwrap } from '@/api/client'
 import { shortTitleOf } from '@/connections/connections.rules'
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/ui/shadcn/command'
+import { useSettled } from '@/ui/useSettled'
 import { PLACES } from './nav'
-
-const useDebounced = <Value,>(value: Value, ms = 200) => {
-  const [settled, setSettled] = useState(value)
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), ms)
-    return () => clearTimeout(timer)
-  }, [value, ms])
-  return settled
-}
 
 export const Palette = ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) => {
   const navigate = useNavigate()
   const [q, setQ] = useState('')
-  const words = useDebounced(q.trim())
+  const words = useSettled(q.trim())
   const tools = useQuery({
     queryKey: ['tools', 'palette', words],
     queryFn: () => unwrap(api.GET('/api/tools', { params: { query: { q: words, limit: 8 } } })),

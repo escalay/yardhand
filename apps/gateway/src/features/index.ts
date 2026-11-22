@@ -12,6 +12,7 @@ import type { McpTool } from '../kit/mcp/index.js'
 import type { Services } from '../services.js'
 import { feature as ai } from './ai/index.js'
 import { feature as backups } from './backups/index.js'
+import { feature as builds } from './builds/index.js'
 import { feature as calls } from './calls/index.js'
 import { feature as catalog } from './catalog/index.js'
 import { feature as clients } from './clients/index.js'
@@ -51,6 +52,7 @@ export const FEATURES: Feature[] = [
   ai,
   catalog,
   packs,
+  builds,
   calls,
   events,
   searches,
