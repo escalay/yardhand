@@ -665,6 +665,20 @@ describe('sharing a pack with one person', () => {
     expect((await owner('/api/packs/bare', { method: 'DELETE' })).status).toBe(204)
   })
 
+  it('is not extended once its pack is removed, as any key whose packs are all gone', async () => {
+    await packOf('porch', 'Porch')
+    const sam = await shared('porch', { name: 'Sam', expiresIn: '7d' })
+    await end(sam.id)
+    expect((await owner('/api/packs/porch', { method: 'DELETE' })).status).toBe(204)
+    const before = (await owner(`/api/clients/${sam.id}`)).json.expiresAt
+    const refused = await extend(sam.id, '30d')
+    expect([refused.status, refused.json.detail]).toEqual([
+      409,
+      `Sam’s pack was removed, so extending the key would open nothing: make a new key, or give this one a pack with PATCH /api/clients/${sam.id} {"packs":["<name>"],"expiresIn":"30d"}.`,
+    ])
+    expect((await owner(`/api/clients/${sam.id}`)).json.expiresAt).toBe(before)
+  })
+
   it('is for the owner only, outside a pack, and for a pack that is there', async () => {
     const before = await clientCount()
     const reader = await keyFor({ name: 'a key of the pack', pack: 'garden' })

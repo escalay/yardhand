@@ -290,6 +290,47 @@ describe('the three modes of an input', () => {
   })
 })
 
+describe('a pack shared with a person', () => {
+  const SECRET = 'the back office'
+  let porch: { id: string; key: string; message: string }
+  beforeAll(async () => {
+    await packWith('porch', 'Porch', [
+      { name: 'fixture.greet', alias: 'greet_fixed', fixed: { from: '{{sender}}' } },
+      { name: 'fixture.greet', alias: 'greet_default', defaults: { from: 'the porch' } },
+    ])
+    const set = await owner('/api/packs/porch/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'sender', value: SECRET }] },
+    })
+    expect(set.status).toBe(200)
+    const made = await owner('/api/packs/porch/people', { method: 'POST', body: { name: 'Sam', app: 'claude-code' } })
+    expect(made.status).toBe(201)
+    porch = made.json
+  })
+
+  it('never shows a fixed value in the share’s answer, its message or the People list', async () => {
+    for (const shown of [JSON.stringify(porch), JSON.stringify((await owner('/api/packs/porch/people')).json)]) {
+      expect(shown).not.toContain(SECRET)
+      expect(shown).not.toContain('{{sender}}')
+    }
+    expect(porch.message).toContain(porch.key)
+  })
+
+  it('gives the person’s key the pack’s fixed and default inputs, as any key of the pack', async () => {
+    const fixed = (await api(porch.key, '/p/porch/api/tools/greet_fixed')).json.inputSchema
+    expect(Object.keys(fixed.properties)).toEqual(['to'])
+    const defaulted = (await api(porch.key, '/p/porch/api/tools/greet_default')).json.inputSchema
+    expect(defaulted.properties.from).toEqual({ type: 'string', default: 'the porch' })
+    expect(await greeted(porch.key, 'greet_fixed', { to: 'Ada' })).toBe(`Hello Ada, from ${SECRET}`)
+    expect(await greeted(porch.key, 'greet_default', { to: 'Ada' })).toBe('Hello Ada, from the porch')
+    const forged = await api(porch.key, '/api/calls', {
+      method: 'POST',
+      body: { tool: 'greet_fixed', arguments: { to: 'Ada', from: 'someone else' } },
+    })
+    expect([forged.status, forged.json.detail]).toEqual([400, 'greet_fixed: Porch fills from itself, so leave it out.'])
+  })
+})
+
 describe('a pack’s variables', () => {
   let lobby = ''
   const variables = (list: unknown[]) =>
