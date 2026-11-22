@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { ProblemError } from '../../kit/index.js'
-import { checkPack, type Finding, judge, perPersonOf, personValueProblems, throwOnRefused, usesOf } from './checks.js'
+import {
+  checkPack,
+  type Finding,
+  judge,
+  perPersonOf,
+  personValueProblems,
+  throwOnRefused,
+  usesOf,
+  variableKindOf,
+} from './checks.js'
 import { SKILL_SECTIONS } from './skill.js'
 import { type PackState, withDoc, withEntry, withTools, withVariables } from './state.js'
 
@@ -197,6 +206,45 @@ describe('checkPack on a Per person input', () => {
     expect(checkPack(open({ variables: [{ name: 'city', value: 'the desk', description: null }] }))).toEqual([])
     expect(perPersonOf(open(), 'city')).toBe(true)
     expect(perPersonOf(open({ tools: [] }), 'city')).toBe(false)
+  })
+
+  it('says a variable’s kind as the Per person inputs that read it take it, whether or not the pack has a value', () => {
+    const counted = {
+      name: 'fixture.count',
+      inputSchema: { type: 'object', properties: { times: { type: 'integer' }, loud: { type: 'boolean' } } },
+    }
+    const tally = open({
+      tools: [
+        entry('greet_by_city', { person: { from: '{{city}}' } }),
+        entry('count', { tool: 'fixture.count', live: counted, person: { times: '{{times}}', loud: '{{loud}}' } }),
+      ],
+      variables: [
+        { name: 'city', value: null, description: null },
+        { name: 'times', value: null, description: null },
+        { name: 'loud', value: null, description: null },
+      ],
+    })
+    expect(tally.variables.map((variable) => variableKindOf(tally, variable))).toEqual(['text', 'number', 'boolean'])
+  })
+
+  it('falls back to the kind of the pack’s value, then text, where the inputs that read it don’t say one kind', () => {
+    const mixed = open({
+      tools: [
+        entry('greet_by_city', { person: { from: '{{city}}' } }),
+        entry('greet_gone', { live: null, person: { to: '{{gone}}' } }),
+        entry('count', {
+          live: { name: 'fixture.count', inputSchema: { type: 'object', properties: { times: { type: 'integer' } } } },
+          person: { times: '{{city}}' },
+        }),
+      ],
+      variables: [
+        { name: 'city', value: 7, description: null },
+        { name: 'gone', value: null, description: null },
+        { name: 'loud', value: true, description: null },
+      ],
+    })
+    // city is read as text and as a number, gone by a tool that is not live, loud by no input per person
+    expect(mixed.variables.map((variable) => variableKindOf(mixed, variable))).toEqual(['number', 'text', 'boolean'])
   })
 
   it('errors on an input that is not one declared variable, and on one in two modes', () => {

@@ -392,13 +392,15 @@ export type PersonalField = {
 }
 
 /** The fields the Share sheet and People ask a person's values in: one per variable each person fills. */
-export const personalFields = (pack: { variables: Pick<Variable, 'name' | 'value' | 'description' | 'perPerson'>[] }) =>
+export const personalFields = (pack: {
+  variables: Pick<Variable, 'name' | 'value' | 'description' | 'perPerson' | 'kind'>[]
+}) =>
   pack.variables
     .filter((variable) => variable.perPerson)
     .map(
       (variable): PersonalField => ({
         name: variable.name,
-        kind: kindOfValue(variable.value),
+        kind: variable.kind,
         hint: [
           variable.description ? stop(variable.description) : '',
           variable.value === null
@@ -412,15 +414,25 @@ export const personalFields = (pack: { variables: Pick<Variable, 'name' | 'value
     )
 
 /**
- * What a person's fields say, by variable: each read as the kind of the pack's value (text when it has none), an
- * empty one left out (they get the pack's). Typed in a text box, yes or no is `true` or `false`.
+ * What a person's fields say, by variable: each read as the variable's kind (the gateway's, from the inputs that read
+ * it), an empty one left out (they get the pack's), and one left as `stored` had it sent as it was. Typed in a text
+ * box, yes or no is `true` or `false`.
  */
-export const personValuesOf = (fields: PersonalField[], texts: Record<string, string>) => {
+export const personValuesOf = (
+  fields: PersonalField[],
+  texts: Record<string, string>,
+  stored: Record<string, string | number | boolean> = {},
+) => {
   const values: Record<string, string | number | boolean> = {}
   const errors: Record<string, string> = {}
   for (const field of fields) {
     const text = (texts[field.name] ?? '').trim()
     if (text === '') continue
+    const kept = stored[field.name]
+    if (kept !== undefined && text === String(kept)) {
+      values[field.name] = kept
+      continue
+    }
     const flag = /^(true|false)$/i.exec(text)?.[1]?.toLowerCase()
     const read =
       field.kind !== 'boolean'

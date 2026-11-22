@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  inputKindOf,
   inputProblems,
   lostInputs,
   modeOf,
@@ -293,6 +294,45 @@ describe('a Per person input', () => {
     expect(valueProblem(greet, 'from', 'Porto')).toBeNull()
     expect(valueProblem(greet, 'within', 'Porto')).toBe('within must be integer')
     expect(valueProblem(greet, 'colour', 'red')).toBeNull()
+  })
+})
+
+describe('inputKindOf', () => {
+  const kindsOf = (properties: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    Object.fromEntries(
+      Object.keys(properties).map((input) => [input, inputKindOf({ type: 'object', properties, ...extra }, input)]),
+    )
+
+  it('reads the kind of value an input takes from its type', () => {
+    expect(
+      kindsOf({
+        city: { type: 'string' },
+        days: { type: 'integer' },
+        ratio: { type: 'number' },
+        loud: { type: 'boolean' },
+        maybe: { type: ['integer', 'null'] },
+      }),
+    ).toEqual({ city: 'text', days: 'number', ratio: 'number', loud: 'boolean', maybe: 'number' })
+  })
+
+  it('reads it from the choices when there is no type, also kept beside the inputs', () => {
+    expect(
+      kindsOf(
+        { from: { enum: ['the desk', 'the boss'] }, size: { const: 3 }, greeter: { $ref: '#/$defs/Greeter' } },
+        { $defs: { Greeter: { type: 'string', enum: ['the desk'] } } },
+      ),
+    ).toEqual({ from: 'text', size: 'number', greeter: 'text' })
+  })
+
+  it('can’t tell for an input of several kinds, a list or an object, or none the tool takes', () => {
+    expect(
+      kindsOf({
+        either: { type: ['string', 'number'] },
+        tags: { type: 'array' },
+        any: { anyOf: [{ type: 'string' }, { type: 'number' }] },
+      }),
+    ).toEqual({ either: null, tags: null, any: null })
+    expect(inputKindOf(schema, 'colour')).toBeNull()
   })
 })
 

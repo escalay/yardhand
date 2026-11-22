@@ -9,7 +9,7 @@ import type { Services } from '../../services.js'
 import { expiryOf, standingOf } from '../clients/lifetimes.js'
 import { requireOwner } from '../clients/principals.js'
 import type { ClientRow } from '../clients/schema.js'
-import { perPersonOf, personValueProblems, throwOnRefused } from './checks.js'
+import { perPersonOf, personValueProblems, throwOnRefused, variableKindOf } from './checks.js'
 import { readersOf } from './entries.js'
 import { noPack } from './names.js'
 import { PATH, type routes } from './routes.js'
@@ -189,6 +189,7 @@ export const peopleHandlers = ({
           description: variable.description,
           value: Object.hasOwn(own, variable.name) ? (own[variable.name] as Scalar) : null,
           packValue: variable.value,
+          kind: variableKindOf(state, variable),
           usedBy: state.tools.filter((tool) => readersOf(tool.person, variable.name).length).map((tool) => tool.name),
         })),
       _links: linksOf(origin, {

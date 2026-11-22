@@ -79,7 +79,7 @@ export const ValuesDialog = ({
   const [texts, setTexts] = useState(() =>
     Object.fromEntries(Object.entries(person.values).map(([name, value]) => [name, String(value)])),
   )
-  const read = personValuesOf(fields, texts)
+  const read = personValuesOf(fields, texts, person.values)
   const save = useMutation({
     mutationFn: () =>
       unwrap(

@@ -20,7 +20,8 @@ import { z } from 'zod'
  * and `'enum'` keeps it but takes only `the desk` or `the boss`, as an upstream narrowing one; `'ref'` is the same
  * with the two choices kept beside the inputs under `$defs`, as generated schemas do; `'optional'` no longer requires
  * it and greets from `the house` when it is left out; `'defaulted'` still requires it and gives `the house` as its
- * schema's `default`; `'strict'` drops `from` and refuses any input it doesn't take).
+ * schema's `default`; `'strict'` drops `from` and refuses any input it doesn't take). `counting` adds `repeat`, whose
+ * inputs take a number and a yes or no.
  */
 const Greeter = z.enum(['the desk', 'the boss']).meta({ id: 'Greeter' })
 
@@ -28,10 +29,12 @@ export const startUpstream = async ({
   token,
   asking = false,
   greeting = false,
+  counting = false,
 }: {
   token: string
   asking?: boolean
   greeting?: boolean
+  counting?: boolean
 }) => {
   const state = {
     echoDescription: 'Echoes the text back.',
@@ -115,6 +118,25 @@ export const startUpstream = async ({
         'greet',
         { ...greetMeta, inputSchema: z.object({ to: z.string(), sender: z.string() }) },
         greet,
+      )
+    if (counting)
+      server.registerTool(
+        'repeat',
+        {
+          description: 'Says the text a number of times, loudly or not.',
+          inputSchema: z.object({ text: z.string(), times: z.number().int(), loud: z.boolean() }),
+          annotations: { readOnlyHint: true },
+        },
+        async ({ text, times, loud }) => ({
+          content: [
+            {
+              type: 'text',
+              text: Array(times)
+                .fill(loud ? text.toUpperCase() : text)
+                .join(' '),
+            },
+          ],
+        }),
       )
     if (state.whisper)
       server.registerTool(

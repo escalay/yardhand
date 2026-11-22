@@ -164,6 +164,33 @@ export const valueProblem = (
   return !check || check(value) ? null : `${input} ${check.errors?.[0]?.message ?? 'is invalid'}`
 }
 
+/** The kinds of value a variable can hold, as the app asks for one. */
+export type ValueKind = 'text' | 'number' | 'boolean'
+const KINDS: Record<string, ValueKind> = { string: 'text', number: 'number', integer: 'number', boolean: 'boolean' }
+const typeOfValue = (value: unknown) => (value === null ? 'null' : typeof value)
+
+/**
+ * The kind of value one input takes, from its schema: its `type`, else the type of its choices (`enum`, `const`),
+ * through a `$ref` to what the tool keeps beside its inputs. Null for an input of several kinds, a list or an object,
+ * or one the tool doesn't take.
+ */
+export const inputKindOf = (schema: Record<string, unknown>, input: string): ValueKind | null => {
+  const properties = propertiesOf(schema)
+  const declared = Object.hasOwn(properties, input) ? properties[input] : undefined
+  if (!declared) return null
+  const ref = typeof declared.$ref === 'string' ? /^#\/(\$defs|definitions)\/([^/]+)$/.exec(declared.$ref) : null
+  const kept = ref ? (schema[ref[1] as string] as Record<string, Record<string, unknown>> | undefined) : undefined
+  const property = (ref && kept?.[ref[2] as string]) || declared
+  const choices = [
+    ...(Array.isArray(property.enum) ? property.enum : []),
+    ...(Object.hasOwn(property, 'const') ? [property.const] : []),
+  ]
+  const types = property.type === undefined ? choices.map(typeOfValue) : [property.type].flat()
+  const kinds = new Set(types.filter((type) => type !== 'null').map((type) => KINDS[String(type)] ?? null))
+  const [kind] = kinds
+  return kinds.size === 1 ? (kind ?? null) : null
+}
+
 export type InputMode = 'fixed' | 'default' | 'person'
 
 /** Who fills an input, from what the pack stores: an input in none of the maps is the agent's. */

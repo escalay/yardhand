@@ -7,13 +7,13 @@
 import { ProblemError } from '../../kit/index.js'
 import { OWN_NAMES } from '../../mcp/tools.js'
 import { needsWrite } from '../tools/repo.js'
-import { inputProblems, readersOf, valueProblem } from './entries.js'
+import { inputKindOf, inputProblems, readersOf, type ValueKind, valueProblem } from './entries.js'
 import { withoutFrontMatter } from './frontmatter.js'
 import { MAX_STEPS, PLAYBOOK_NAME, parsePlaybook, stepsIn, toolRefsIn } from './playbook.js'
 import type { BasedOn } from './repo.js'
 import type { PackDocKind } from './schema.js'
 import { packSkillPathOf, packSkillUriOf, SKILL_SECTIONS, sectionsOf } from './skill.js'
-import type { PackState, PackStateDoc } from './state.js'
+import type { PackState, PackStateDoc, PackStateVariable } from './state.js'
 import { namesIn, notNamesIn, placeholdersIn, type Scalar, VARIABLE, type Variables } from './values.js'
 
 export type Finding = {
@@ -60,6 +60,22 @@ export const writersOf = (state: PackState, name: string) =>
 /** Does a Per person input of the pack read this variable? */
 export const perPersonOf = (state: PackState, name: string) =>
   state.tools.some((tool) => readersOf(tool.person, name).length > 0)
+
+/**
+ * The kind of value a variable holds: what the live Per person inputs that read it take, when they say one kind,
+ * else the kind of the pack's value, else text. A person's value is asked as this kind whether or not the pack has one.
+ */
+export const variableKindOf = (state: PackState, variable: PackStateVariable): ValueKind => {
+  const kinds = new Set(
+    state.tools.flatMap(({ live, person }) =>
+      live ? readersOf(person, variable.name).map((input) => inputKindOf(live.inputSchema, input)) : [],
+    ),
+  )
+  kinds.delete(null)
+  const [kind] = kinds
+  if (kinds.size === 1 && kind) return kind
+  return typeof variable.value === 'number' ? 'number' : typeof variable.value === 'boolean' ? 'boolean' : 'text'
+}
 
 /** Where a document's findings are filed: `playbooks.<name>` for one of the pack's own playbooks, `skill`. */
 export const docPathOf = (kind: PackDocKind, name: string) => (kind === 'skill' ? 'skill' : `playbooks.${name}`)

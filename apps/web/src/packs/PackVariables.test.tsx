@@ -38,6 +38,7 @@ const pageSize = {
   value: 5,
   description: 'How many items a look-up returns.',
   perPerson: false,
+  kind: 'number' as const,
   usedBy: ['items.get_item'],
 }
 
@@ -63,7 +64,7 @@ describe('a pack’s variables', () => {
   })
 
   it('lists each variable as it is written, with its value and the tools that write it', () => {
-    show([pageSize, { name: 'desk', value: 'the desk', description: null, perPerson: false, usedBy: [] }])
+    show([pageSize, { name: 'desk', value: 'the desk', description: null, perPerson: false, kind: 'text', usedBy: [] }])
     expect(screen.getByText('{{page_size}}')).toBeTruthy()
     expect(screen.getByText('How many items a look-up returns.')).toBeTruthy()
     expect(screen.getByText('Used by items.get_item')).toBeTruthy()
@@ -156,6 +157,7 @@ describe('a pack’s variables', () => {
       value: 'Lisbon',
       description: null,
       perPerson: true,
+      kind: 'text' as const,
       usedBy: ['items.get_item'],
     }
     show([city])
@@ -168,7 +170,7 @@ describe('a pack’s variables', () => {
   })
 
   it('shows a variable with no value as each person’s own', () => {
-    show([{ name: 'city', value: null, description: null, perPerson: true, usedBy: ['items.get_item'] }])
+    show([{ name: 'city', value: null, description: null, perPerson: true, kind: 'text', usedBy: ['items.get_item'] }])
     expect(screen.getByText('each person’s own')).toBeTruthy()
     expect(screen.getByText('Each person gives their own; nothing for someone who hasn’t.')).toBeTruthy()
   })

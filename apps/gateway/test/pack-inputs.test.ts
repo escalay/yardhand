@@ -15,7 +15,7 @@ import { hashApiKey, testDb } from '../src/kit/index.js'
 import { startUpstream } from './fixtures/upstream.js'
 
 const OWNER = 'owner-key-for-pack-inputs'
-const upstream = await startUpstream({ token: 'fixture-token', greeting: true })
+const upstream = await startUpstream({ token: 'fixture-token', greeting: true, counting: true })
 const db = await testDb()
 const app = await createApp({
   db,
@@ -350,8 +350,8 @@ describe('a pack’s variables', () => {
     ])
     expect(set.status).toBe(200)
     expect(set.json.variables).toEqual([
-      { name: 'desk', value: 'the desk', description: 'Who greets.', perPerson: false, usedBy: [] },
-      { name: 'days', value: 7, description: null, perPerson: false, usedBy: [] },
+      { name: 'desk', value: 'the desk', description: 'Who greets.', perPerson: false, kind: 'text', usedBy: [] },
+      { name: 'days', value: 7, description: null, perPerson: false, kind: 'number', usedBy: [] },
     ])
     expect(set.json.findings).toEqual([
       {
@@ -735,6 +735,7 @@ describe('Per person: an input each person fills with their own value', () => {
         value: null,
         description: 'Where each person greets from.',
         perPerson: true,
+        kind: 'text',
         usedBy: ['greet_city'],
       },
     ])
@@ -1001,5 +1002,48 @@ describe('Per person: an input each person fills with their own value', () => {
       'greet_city needs city, which has no value for you in Loft: ask the owner to set yours.',
     ])
     expect((await valuesOf(sam.id)).json.values[0].value).toBeNull()
+  })
+})
+
+describe('Per person: a value that is a number or yes or no', () => {
+  it('says each variable’s kind from the inputs that read it, though the pack has no value of its own', async () => {
+    await owner('/api/packs', { method: 'POST', body: { name: 'tally', title: 'Tally', description: 'Counts.' } })
+    const declared = await owner('/api/packs/tally/variables', {
+      method: 'PUT',
+      body: {
+        variables: [
+          { name: 'times', value: null, description: null },
+          { name: 'loud', value: null, description: null },
+          { name: 'unread', value: 'hi', description: null },
+        ],
+      },
+    })
+    expect([declared.status, declared.json.detail]).toEqual([200, undefined])
+    const added = await owner('/api/packs/tally', {
+      method: 'PATCH',
+      body: { add: { tools: [{ name: 'fixture.repeat', person: { times: '{{times}}', loud: '{{loud}}' } }] } },
+    })
+    expect([added.status, added.json.detail]).toEqual([200, undefined])
+    expect(
+      (await owner('/api/packs/tally')).json.variables.map((variable: { name: string; kind: string }) => [
+        variable.name,
+        variable.kind,
+      ]),
+    ).toEqual([
+      ['times', 'number'],
+      ['loud', 'boolean'],
+      ['unread', 'text'],
+    ])
+
+    const ada = await owner('/api/packs/tally/people', { method: 'POST', body: { name: 'Ada' } })
+    expect(ada.status).toBe(201)
+    const values = `/api/packs/tally/people/${ada.json.id}/values`
+    const set = await owner(values, { method: 'PUT', body: { values: { times: 2, loud: true } } })
+    expect([set.status, set.json.detail]).toEqual([200, undefined])
+    expect(set.json.values.map((value: { name: string; kind: string }) => [value.name, value.kind])).toEqual([
+      ['times', 'number'],
+      ['loud', 'boolean'],
+    ])
+    expect(await greeted(ada.json.key, 'fixture.repeat', { text: 'hi' })).toBe('HI HI')
   })
 })

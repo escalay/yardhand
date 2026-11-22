@@ -544,6 +544,7 @@ describe('what the pack page stands on', () => {
         value: 'hello',
         description: 'What to say first.',
         perPerson: false,
+        kind: 'text',
         usedBy: ['fixture.echo'],
       },
     ])
@@ -770,6 +771,7 @@ describe('what the pack page stands on', () => {
         value: null,
         description: 'What each person says first.',
         perPerson: true,
+        kind: 'text',
         usedBy: ['fixture.echo'],
       },
     ])

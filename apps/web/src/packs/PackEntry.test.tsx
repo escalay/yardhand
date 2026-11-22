@@ -88,7 +88,16 @@ const toolOf = (over: Partial<PackTool> = {}): PackTool => ({
   ...over,
 })
 
-const variables = [{ name: 'page_size', value: 5, description: null, perPerson: false, usedBy: ['items.get_item'] }]
+const variables = [
+  {
+    name: 'page_size',
+    value: 5,
+    description: null,
+    perPerson: false,
+    kind: 'number' as const,
+    usedBy: ['items.get_item'],
+  },
+]
 
 const GET = vi.mocked(api.GET) as unknown as ReturnType<typeof vi.fn>
 const PATCH = vi.mocked(api.PATCH) as unknown as ReturnType<typeof vi.fn>

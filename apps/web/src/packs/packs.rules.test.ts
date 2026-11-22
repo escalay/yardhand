@@ -702,10 +702,18 @@ describe('an input each person fills', () => {
   it('gives the Share sheet and People a field per variable each person fills, with the pack’s value to fall back on', () => {
     const pack = {
       variables: [
-        { name: 'city', value: 'Lisbon', description: 'Where they are.', perPerson: true, usedBy: [] },
-        { name: 'days', value: 7, description: null, perPerson: true, usedBy: [] },
-        { name: 'account', value: 'ca_1', description: null, perPerson: false, usedBy: [] },
-        { name: 'team', value: null, description: null, perPerson: true, usedBy: [] },
+        {
+          name: 'city',
+          value: 'Lisbon',
+          description: 'Where they are.',
+          perPerson: true,
+          kind: 'text' as const,
+          usedBy: [],
+        },
+        { name: 'days', value: 7, description: null, perPerson: true, kind: 'number' as const, usedBy: [] },
+        { name: 'account', value: 'ca_1', description: null, perPerson: false, kind: 'text' as const, usedBy: [] },
+        { name: 'team', value: null, description: null, perPerson: true, kind: 'text' as const, usedBy: [] },
+        { name: 'seats', value: null, description: null, perPerson: true, kind: 'number' as const, usedBy: [] },
       ],
     }
     expect(personalFields(pack)).toEqual([
@@ -722,14 +730,21 @@ describe('an input each person fills', () => {
         hint: 'Left empty, they get nothing, and a call that needs it is refused.',
         fallback: null,
       },
+      // The kind the gateway says the inputs take, though the pack has no value of its own
+      {
+        name: 'seats',
+        kind: 'number',
+        hint: 'Left empty, they get nothing, and a call that needs it is refused.',
+        fallback: null,
+      },
     ])
   })
 
   it('reads the typed values by each variable’s kind, leaving out what is empty', () => {
     const fields = personalFields({
       variables: [
-        { name: 'city', value: 'Lisbon', description: null, perPerson: true },
-        { name: 'days', value: 7, description: null, perPerson: true },
+        { name: 'city', value: 'Lisbon', description: null, perPerson: true, kind: 'text' },
+        { name: 'days', value: null, description: null, perPerson: true, kind: 'number' },
       ],
     })
     expect(personValuesOf(fields, { city: ' Porto ', days: '3' })).toEqual({
@@ -744,12 +759,20 @@ describe('an input each person fills', () => {
 
   it('reads yes or no as true or false, and nothing else', () => {
     const [flag] = personalFields({
-      variables: [{ name: 'loud', value: false, description: null, perPerson: true }],
+      variables: [{ name: 'loud', value: null, description: null, perPerson: true, kind: 'boolean' }],
     })
     if (!flag) throw new Error('one field')
     expect(personValuesOf([flag], { loud: 'True' })).toEqual({ values: { loud: true }, errors: {} })
     expect(personValuesOf([flag], { loud: 'false' })).toEqual({ values: { loud: false }, errors: {} })
     expect(personValuesOf([flag], { loud: 'yes' })).toEqual({ values: {}, errors: { loud: 'true or false.' } })
+  })
+
+  it('sends a value left as it was stored as it was stored, whatever the field’s kind', () => {
+    const fields = personalFields({
+      variables: [{ name: 'size', value: null, description: null, perPerson: true, kind: 'text' }],
+    })
+    expect(personValuesOf(fields, { size: '7' }, { size: 7 })).toEqual({ values: { size: 7 }, errors: {} })
+    expect(personValuesOf(fields, { size: '8' }, { size: 7 })).toEqual({ values: { size: '8' }, errors: {} })
   })
 
   it('says a person’s values in one line', () => {

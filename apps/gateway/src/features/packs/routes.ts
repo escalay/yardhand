@@ -45,6 +45,11 @@ const VariableValue = z.union([z.string().max(4000), z.number(), z.boolean()]).o
   description: 'A string, a number or true/false. A value that is `{{name}}` and nothing else takes it with its type.',
   example: 7,
 })
+const VariableKind = z.enum(['text', 'number', 'boolean']).openapi({
+  description:
+    'The kind of value it holds: what the Per person inputs that read it take, when they say one kind, else the kind of the pack’s value, else `text`. A person’s value of it is sent as this kind.',
+  example: 'number',
+})
 const VariableSchema = z
   .object({
     name: z.string().openapi({ description: 'Written `{{name}}` in a fixed or default value.', example: 'since_days' }),
@@ -57,6 +62,7 @@ const VariableSchema = z
       description:
         'A Per person input reads it: each person can have their own value (`PUT /api/packs/{name}/people/{client}/values`), and the pack’s is the fallback.',
     }),
+    kind: VariableKind,
     usedBy: z
       .array(z.string())
       .openapi({ description: 'The pack’s tools whose values write it, by the pack’s names.' }),
@@ -368,6 +374,7 @@ const PersonValuesSchema = z
         description: z.string().nullable(),
         value: VariableValue.nullable().openapi({ description: 'Their own value, or null: then they get the pack’s.' }),
         packValue: VariableValue.nullable().openapi({ description: 'The pack’s value, or null for none.' }),
+        kind: VariableKind,
         usedBy: z.array(z.string()).openapi({ description: 'The pack’s tools that read it per person.' }),
       }),
     ),

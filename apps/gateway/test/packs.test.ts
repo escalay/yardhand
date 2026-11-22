@@ -1545,6 +1545,7 @@ describe('packs in the config', () => {
         value: 'the desk',
         description: 'Who greets.',
         perPerson: false,
+        kind: 'text',
         usedBy: ['greet_default', 'greet_fixed'],
       },
     ])

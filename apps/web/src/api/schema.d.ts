@@ -2957,6 +2957,12 @@ export interface components {
             description: string | null;
             /** @description A Per person input reads it: each person can have their own value (`PUT /api/packs/{name}/people/{client}/values`), and the pack’s is the fallback. */
             perPerson: boolean;
+            /**
+             * @description The kind of value it holds: what the Per person inputs that read it take, when they say one kind, else the kind of the pack’s value, else `text`. A person’s value of it is sent as this kind.
+             * @example number
+             * @enum {string}
+             */
+            kind: "text" | "number" | "boolean";
             /** @description The pack’s tools whose values write it, by the pack’s names. */
             usedBy: string[];
         };
@@ -3282,6 +3288,12 @@ export interface components {
                  * @example 7
                  */
                 packValue: string | number | boolean | null;
+                /**
+                 * @description The kind of value it holds: what the Per person inputs that read it take, when they say one kind, else the kind of the pack’s value, else `text`. A person’s value of it is sent as this kind.
+                 * @example number
+                 * @enum {string}
+                 */
+                kind: "text" | "number" | "boolean";
                 /** @description The pack’s tools that read it per person. */
                 usedBy: string[];
             }[];

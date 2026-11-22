@@ -13,7 +13,7 @@ import { OWNER, requireOwner } from '../clients/principals.js'
 import { KEY_PLACEHOLDER, surfacesOf } from '../clients/setup.js'
 import { summaryOf } from '../tools/handlers.js'
 import { type LiveTool, needsWrite } from '../tools/repo.js'
-import { checkPack, judge, perPersonOf, throwOnRefused, writersOf } from './checks.js'
+import { checkPack, judge, perPersonOf, throwOnRefused, variableKindOf, writersOf } from './checks.js'
 import { defaultsOf, fixedOf, inputProblems, lostInputs, modeOf, personOf } from './entries.js'
 import { flagOf, type PersonValues, packFlags, peopleValuesOf, personalProblems } from './flags.js'
 import { noPack } from './names.js'
@@ -247,6 +247,7 @@ export const packsHandlers = ({
       variables: state.variables.map((variable) => ({
         ...variable,
         perPerson: perPersonOf(state, variable.name),
+        kind: variableKindOf(state, variable),
         usedBy: [...new Set(writersOf(state, variable.name).map((writer) => writer.tool))],
       })),
       findings: shownFindings(findings),
