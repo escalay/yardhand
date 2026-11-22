@@ -239,8 +239,9 @@ export const applyKit = (before: Draft, json: unknown, candidates: LiveTool[]) =
   for (const proposed of answer.tools) {
     const held = tools.find((tool) => tool.name === proposed.name)
     if (held) {
-      if (proposed.wording !== undefined)
-        tools = tools.map((tool) => (tool === held ? { ...tool, wording: proposed.wording ?? null } : tool))
+      // Left out or null is unchanged: only new text rewords a tool, and only an empty string clears its wording
+      if (typeof proposed.wording === 'string' && proposed.wording !== (held.wording ?? ''))
+        tools = tools.map((tool) => (tool === held ? { ...tool, wording: proposed.wording || null } : tool))
       continue
     }
     const live = offered.get(proposed.name)
@@ -256,7 +257,7 @@ export const applyKit = (before: Draft, json: unknown, candidates: LiveTool[]) =
       live,
       fixed: {},
       defaults: {},
-      wording: proposed.wording ?? null,
+      wording: proposed.wording || null,
     })
   }
   for (const gone of answer.remove)
