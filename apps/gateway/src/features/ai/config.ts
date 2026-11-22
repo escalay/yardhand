@@ -6,7 +6,8 @@
  *   key is set here; a new model would throw away every stored vector.
  * - `grouping`: smart grouping. A writer names a connection's groups (any OpenAI-compatible chat model); a decider
  *   files each tool in one (TypeSafe's System One API, e.g. `typesafe/jev-1.14`, or a plain chat model).
- * - `builds`: Build with AI. One chat model drafts packs; each field it leaves unset follows smart grouping's.
+ * - `builds`: Build with AI. One chat model drafts packs. Its provider, address and key are one connection: its own
+ *   when it sets any of them, else smart grouping's; its model, left unset, is grouping's writer model.
  */
 
 export const AI_JOBS = ['search', 'grouping', 'builds'] as const
@@ -40,7 +41,7 @@ const DEFAULTS = {
 }
 
 export type Env = Record<string, string | undefined>
-/** `grouping`: the build job sets none of its own, so it takes smart grouping's. */
+/** `grouping`: the build job takes smart grouping's (its whole connection, or its writer model). */
 export type From = 'settings' | 'env' | 'grouping' | 'default'
 export type Field<T> = { value: T; from: From }
 
@@ -138,24 +139,31 @@ const followed = <T>(field: Field<T>): Field<T> => ({
 })
 
 /**
- * The build job as it stands. Each field it doesn't set follows smart grouping's, one by one; only its address
- * follows its own provider when it sets one, so a provider of its own is never sent to grouping's server.
+ * The build job as it stands. Its provider, address and key go together, so a key is only ever sent to the address it
+ * was set with: when it sets any of the three (Settings or .env), all three are its own, each unset one its default
+ * (the default provider, that provider's address, no key); when it sets none, they are smart grouping's. Its model,
+ * left unset, follows grouping's writer model on its own.
  */
 export const resolveBuilds = (saved: AiSettings | undefined, env: Env, grouping: GroupingConfig) => {
   const names = ENV_NAMES.builds
   const envProvider = env[names.provider]
   const ownProvider = own<Provider>(saved?.provider, isProvider(envProvider) ? envProvider : undefined)
-  const provider = ownProvider ?? followed(grouping.provider)
+  const ownBaseUrl = own(saved?.baseUrl, env[names.baseUrl])
+  const ownKey = own(saved?.key, env[names.key])
+  const connection: 'own' | 'grouping' = ownProvider || ownBaseUrl || ownKey ? 'own' : 'grouping'
+  const provider =
+    connection === 'own'
+      ? (ownProvider ?? { value: DEFAULTS.grouping.provider, from: 'default' as From })
+      : followed(grouping.provider)
   const baseUrl =
-    own(saved?.baseUrl, env[names.baseUrl]) ??
-    (ownProvider
-      ? { value: PROVIDERS[provider.value].baseUrl as string, from: 'default' as From }
-      : followed(grouping.baseUrl))
-  const key = own(saved?.key, env[names.key]) ?? followed(grouping.key)
+    connection === 'own'
+      ? (ownBaseUrl ?? { value: PROVIDERS[provider.value].baseUrl as string, from: 'default' as From })
+      : followed(grouping.baseUrl)
+  const key = connection === 'own' ? (ownKey ?? { value: '', from: 'default' as From }) : followed(grouping.key)
   const writerModel = own(saved?.writerModel, env[names.writerModel]) ?? followed(grouping.writerModel)
   // A local server needs no key
   const ready = Boolean(baseUrl.value) && (Boolean(key.value) || provider.value === 'local')
-  return { job: 'builds' as const, provider, baseUrl, key, writerModel, ready }
+  return { job: 'builds' as const, connection, provider, baseUrl, key, writerModel, ready }
 }
 
 export type SearchConfig = ReturnType<typeof resolveSearch>

@@ -150,10 +150,49 @@ describe('AI settings', () => {
     const follows = await owner('/api/ai/models?job=builds&provider=custom&q=decider')
     expect(follows.json.models.map((model: { id: string }) => model.id)).toEqual(['decider-1'])
     // At an address of its own, it asks there and not grouping's server
-    await owner('/api/ai/builds', { method: 'PATCH', body: { baseUrl: 'http://127.0.0.1:9/v1' } })
+    await owner('/api/ai/builds', { method: 'PATCH', body: { provider: 'custom', baseUrl: 'http://127.0.0.1:9/v1' } })
     const own = await owner('/api/ai/models?job=builds&provider=custom')
     expect(own.status).toBe(503)
     expect((await owner('/api/ai/models?provider=custom&q=decider')).status).toBe(200)
-    await owner('/api/ai/builds', { method: 'PATCH', body: { baseUrl: null } })
+    await owner('/api/ai/builds', { method: 'PATCH', body: { provider: null, baseUrl: null } })
+  })
+
+  it('takes Build with AI’s provider, address and key as one: its own when it sets any, else grouping’s', async () => {
+    const before = llm.asks.length
+    // A key of its own: the default provider at its own address, never grouping's server
+    const keyed = builds((await owner('/api/ai/builds', { method: 'PATCH', body: { key: 'own-key-of-its-own' } })).json)
+    expect(keyed).toMatchObject({
+      ready: true,
+      provider: { value: 'openrouter', from: 'default' },
+      baseUrl: { value: 'https://openrouter.ai/api/v1', from: 'default' },
+      key: { set: true, from: 'settings' },
+      writerModel: { value: 'writer-1', from: 'grouping' },
+    })
+    // A provider of its own and no key: grouping's key is never sent there, so it is not set up
+    await owner('/api/ai/builds', { method: 'PATCH', body: { key: null } })
+    const elsewhere = builds((await owner('/api/ai/builds', { method: 'PATCH', body: { provider: 'local' } })).json)
+    expect(elsewhere).toMatchObject({
+      provider: { value: 'local', from: 'settings' },
+      baseUrl: { value: 'http://localhost:11434/v1', from: 'default' },
+      key: { set: false, from: 'default' },
+    })
+    await owner('/api/ai/builds', { method: 'PATCH', body: { provider: 'custom', baseUrl: llm.baseUrl } })
+    const body = { mode: 'build', tasks: ['greet a guest'] }
+    const refused = await owner('/api/packs/desk/builds/estimate', { method: 'POST', body })
+    expect([refused.status, refused.json.detail]).toEqual([
+      409,
+      'Build with AI has a provider, address or key of its own, so it uses none of smart grouping’s, and it can’t reach a model yet: give it a key (and an address for local or custom) in Settings › AI (PATCH /api/ai/builds), or clear all three to use smart grouping’s.',
+    ])
+    // Set none of the three again: grouping's together
+    const back = builds(
+      (await owner('/api/ai/builds', { method: 'PATCH', body: { provider: null, baseUrl: null } })).json,
+    )
+    expect(back).toMatchObject({
+      ready: true,
+      provider: { value: 'custom', from: 'grouping' },
+      baseUrl: { value: llm.baseUrl, from: 'grouping' },
+      key: { set: true, from: 'grouping' },
+    })
+    expect(llm.asks.length).toBe(before)
   })
 })

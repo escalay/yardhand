@@ -6,7 +6,7 @@ import { AI_JOBS, PROVIDERS } from './config.js'
 export const TAG = 'AI'
 const FROM = z.enum(['settings', 'env', 'grouping', 'default']).openapi({
   description:
-    '`settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.',
+    '`settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.',
 })
 const field = <T extends z.ZodTypeAny>(value: T) => z.object({ value, from: FROM, env: z.string().nullable() })
 const ProviderSchema = z.enum(Object.keys(PROVIDERS) as [keyof typeof PROVIDERS, ...(keyof typeof PROVIDERS)[]])
@@ -102,7 +102,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Change an AI job',
     description:
-      'Saves a job’s provider, address, key or models; they win over .env from then on. null takes a field back to .env, and for Build with AI then to smart grouping’s (owner only).',
+      'Saves a job’s provider, address, key or models; they win over .env from then on. null takes a field back to .env; Build with AI takes smart grouping’s provider, address and key only while it sets none of the three, and its writer model while it sets none (owner only).',
     request: {
       params: z.object({ job }),
       body: { required: true, content: { 'application/json': { schema: PatchSchema } } },
@@ -131,7 +131,7 @@ export const routes = {
       query: z.object({
         job: z.enum(['grouping', 'builds']).optional().openapi({
           description:
-            'Whose key and address to ask with: smart grouping’s (the default) or Build with AI’s, which follows grouping’s for what it leaves unset.',
+            'Whose key and address to ask with: smart grouping’s (the default) or Build with AI’s, which are grouping’s only while it sets no provider, address or key. Asked for another provider, Build with AI on grouping’s connection sends no key.',
         }),
         provider: ProviderSchema.optional().openapi({ description: 'Which provider; default the job’s own.' }),
         q: z.string().max(100).optional().openapi({ description: 'Only models whose id or name has these words.' }),

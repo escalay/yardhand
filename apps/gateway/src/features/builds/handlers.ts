@@ -41,11 +41,13 @@ export const buildsHandlers = (services: Services) => {
     return row
   }
   const ready = async () => {
-    if (!(await model.ready()))
-      throw new ProblemError('conflict', {
-        detail:
-          'Build with AI has no model to ask: give it a key in Settings › AI (PATCH /api/ai/builds), or give smart grouping one, which it follows.',
-      })
+    if (await model.ready()) return
+    throw new ProblemError('conflict', {
+      detail:
+        (await services.ai.builds()).connection === 'own'
+          ? 'Build with AI has a provider, address or key of its own, so it uses none of smart grouping’s, and it can’t reach a model yet: give it a key (and an address for local or custom) in Settings › AI (PATCH /api/ai/builds), or clear all three to use smart grouping’s.'
+          : 'Build with AI has no model to ask: give it a key in Settings › AI (PATCH /api/ai/builds), or give smart grouping one, which it follows.',
+    })
   }
 
   /** A build as answered: a `running` row this process doesn't hold was cut off by a restart. */

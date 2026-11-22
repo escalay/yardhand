@@ -587,7 +587,7 @@ export interface paths {
         head?: never;
         /**
          * Change an AI job
-         * @description Saves a job’s provider, address, key or models; they win over .env from then on. null takes a field back to .env, and for Build with AI then to smart grouping’s (owner only).
+         * @description Saves a job’s provider, address, key or models; they win over .env from then on. null takes a field back to .env; Build with AI takes smart grouping’s provider, address and key only while it sets none of the three, and its writer model while it sets none (owner only).
          */
         patch: operations["updateAiJob"];
         trace?: never;
@@ -2611,7 +2611,7 @@ export interface components {
                 /** @enum {string} */
                 value: "openrouter" | "openai" | "local" | "custom";
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
                 from: "settings" | "env" | "grouping" | "default";
@@ -2620,7 +2620,7 @@ export interface components {
             baseUrl: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
                 from: "settings" | "env" | "grouping" | "default";
@@ -2630,7 +2630,7 @@ export interface components {
             key: {
                 set: boolean;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
                 from: "settings" | "env" | "grouping" | "default";
@@ -2640,7 +2640,7 @@ export interface components {
             model: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
                 from: "settings" | "env" | "grouping" | "default";
@@ -2650,7 +2650,7 @@ export interface components {
             writerModel: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
                 from: "settings" | "env" | "grouping" | "default";
@@ -2660,7 +2660,7 @@ export interface components {
             deciderModel: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
                 from: "settings" | "env" | "grouping" | "default";
@@ -2671,7 +2671,7 @@ export interface components {
                 /** @enum {string} */
                 value: "typesafe" | "openai";
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: smart grouping’s, for Build with AI’s provider, address and key while it sets none of the three, and its model while it sets none. `default`: none of them says.
                  * @enum {string}
                  */
                 from: "settings" | "env" | "grouping" | "default";
@@ -6435,7 +6435,7 @@ export interface operations {
     listAiModels: {
         parameters: {
             query?: {
-                /** @description Whose key and address to ask with: smart grouping’s (the default) or Build with AI’s, which follows grouping’s for what it leaves unset. */
+                /** @description Whose key and address to ask with: smart grouping’s (the default) or Build with AI’s, which are grouping’s only while it sets no provider, address or key. Asked for another provider, Build with AI on grouping’s connection sends no key. */
                 job?: "grouping" | "builds";
                 /** @description Which provider; default the job’s own. */
                 provider?: "openrouter" | "openai" | "local" | "custom";

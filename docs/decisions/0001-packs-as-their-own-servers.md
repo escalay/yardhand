@@ -108,10 +108,10 @@ using a pack key day to day showed where it stops feeling like a server of its o
   is asked to split.
 - **Stored in the gateway**, every version kept, carried as plain `.md` files by config export and import. A playbook
   or skill records the tool versions it was written against and is flagged when one changes.
-- **Build with AI / Refresh with AI** (its own model in Settings › AI, which follows smart grouping's writer model,
-  provider, address and key for any field left unset): from the purpose and a few example tasks it proposes tools with
-  reasons, wording, variables, input modes, playbooks and the skill, as a before/after accepted line by line. Nothing
-  is saved until accepted.
+- **Build with AI / Refresh with AI** (its own model in Settings › AI, which follows smart grouping's writer model when
+  unset; its provider, address and key are one connection, its own when any is set, else smart grouping's): from the
+  purpose and a few example tasks it proposes tools with reasons, wording, variables, input modes, playbooks and the
+  skill, as a before/after accepted line by line. Nothing is saved until accepted.
 - **Rehearsal**: before the proposal is shown, each example task runs against the pack. Tools that change things are
   never run: the model gets a stand-in result and the proposal says which steps weren't really tried. Rehearsal calls
   are marked in Activity. Up to **$1** per build or refresh, the estimate shown first and the cost after; at the cap

@@ -47,7 +47,7 @@ export const aiHandlers = ({ ai, vault }: Services) => {
         {
           job: 'builds' as const,
           title: 'Build with AI',
-          does: 'Drafts a pack’s tools, wording, playbooks and skill from its purpose and a few example tasks, and tries each task first. What you leave unset here follows smart grouping.',
+          does: 'Drafts a pack’s tools, wording, playbooks and skill from its purpose and a few example tasks, and tries each task first. With no provider, address or key set here, it uses smart grouping’s; with any, all three are its own. A model left unset is smart grouping’s writer.',
           ready: builds.ready,
           provider: withEnv(builds.provider, buildNames.provider),
           baseUrl: withEnv(builds.baseUrl, buildNames.baseUrl),
@@ -122,14 +122,17 @@ export const aiHandlers = ({ ai, vault }: Services) => {
     requireOwner(c)
     const { job, provider, q, for: role } = c.req.valid('query')
     const base = job === 'builds' ? await ai.builds() : await ai.grouping()
+    const elsewhere = Boolean(provider) && provider !== base.provider.value
     const config = provider
       ? {
           ...base,
           provider: { value: provider, from: 'settings' as const },
-          baseUrl:
-            provider === base.provider.value
-              ? base.baseUrl
-              : { value: PROVIDERS[provider].baseUrl, from: 'default' as const },
+          baseUrl: elsewhere ? { value: PROVIDERS[provider].baseUrl, from: 'default' as const } : base.baseUrl,
+          // Build with AI never sends smart grouping's key to another provider: that provider would be its own
+          key:
+            elsewhere && 'connection' in base && base.connection === 'grouping'
+              ? { value: '', from: 'default' as const }
+              : base.key,
         }
       : base
     const all = await listModels(config).catch((error: unknown) => {

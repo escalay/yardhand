@@ -50,8 +50,9 @@ describe('the build job’s settings', () => {
   const builds = (saved: Parameters<typeof resolveBuilds>[0], more: Record<string, string> = {}) =>
     resolveBuilds(saved, { ...env, ...more }, resolveGrouping(undefined, { ...env, ...more }))
 
-  it('follows smart grouping field by field while it sets nothing of its own', () => {
+  it('uses smart grouping’s provider, address and key together while it sets none of them', () => {
     const job = builds(undefined)
+    expect(job.connection).toBe('grouping')
     expect(job.provider).toEqual({ value: 'custom', from: 'grouping' })
     expect(job.baseUrl).toEqual({ value: 'http://models.local/v1', from: 'grouping' })
     expect(job.key).toEqual({ value: 'grouping-key', from: 'grouping' })
@@ -59,23 +60,51 @@ describe('the build job’s settings', () => {
     expect(job.ready).toBe(true)
   })
 
-  it('takes its own model from Settings over .env, and keeps following grouping for the rest', () => {
+  it('takes its own model from Settings over .env, and keeps grouping’s connection', () => {
     expect(builds(undefined, { GATEWAY_AI_BUILDS_MODEL: 'strong-writer' }).writerModel).toEqual({
       value: 'strong-writer',
       from: 'env',
     })
     const job = builds({ writerModel: 'stronger-writer' }, { GATEWAY_AI_BUILDS_MODEL: 'strong-writer' })
     expect(job.writerModel).toEqual({ value: 'stronger-writer', from: 'settings' })
-    expect(job.key.from).toBe('grouping')
+    expect([job.connection, job.key.from, job.baseUrl.from]).toEqual(['grouping', 'grouping', 'grouping'])
   })
 
-  it('takes a provider’s own address with its own provider, never grouping’s', () => {
+  it('with a provider of its own, takes that provider’s address and no key of grouping’s', () => {
     const job = builds({ provider: 'openai' })
+    expect(job.connection).toBe('own')
     expect(job.provider).toEqual({ value: 'openai', from: 'settings' })
     expect(job.baseUrl).toEqual({ value: 'https://api.openai.com/v1', from: 'default' })
-    // Field by field: a key it doesn't set is still grouping's, wherever its own address points
-    expect(job.key).toEqual({ value: 'grouping-key', from: 'grouping' })
-    expect(builds({ key: 'own-key' }).key).toEqual({ value: 'own-key', from: 'settings' })
+    expect(job.key).toEqual({ value: '', from: 'default' })
+    expect(job.ready).toBe(false)
+    // Its model still follows grouping's on its own
+    expect(job.writerModel).toEqual({ value: 'small-writer', from: 'grouping' })
+  })
+
+  it('with a key of its own, takes the default provider and its address, never grouping’s server', () => {
+    const job = builds({ key: 'own-key' })
+    expect(job.connection).toBe('own')
+    expect(job.provider).toEqual({ value: 'openrouter', from: 'default' })
+    expect(job.baseUrl).toEqual({ value: 'https://openrouter.ai/api/v1', from: 'default' })
+    expect(job.key).toEqual({ value: 'own-key', from: 'settings' })
+    expect(job.ready).toBe(true)
+    const fromEnv = builds(undefined, { GATEWAY_AI_BUILDS_KEY: 'env-key' })
+    expect([fromEnv.connection, fromEnv.baseUrl.value, fromEnv.key]).toEqual([
+      'own',
+      'https://openrouter.ai/api/v1',
+      { value: 'env-key', from: 'env' },
+    ])
+  })
+
+  it('with an address of its own, sends no key of grouping’s there', () => {
+    const job = builds(undefined, { GATEWAY_AI_BUILDS_BASE_URL: 'http://elsewhere.local/v1' })
+    expect(job.connection).toBe('own')
+    expect(job.provider).toEqual({ value: 'openrouter', from: 'default' })
+    expect(job.baseUrl).toEqual({ value: 'http://elsewhere.local/v1', from: 'env' })
+    expect(job.key).toEqual({ value: '', from: 'default' })
+    expect(job.ready).toBe(false)
+    const local = builds({ provider: 'local' })
+    expect([local.baseUrl.value, local.key.value, local.ready]).toEqual(['http://localhost:11434/v1', '', true])
   })
 
   it('says default where grouping itself only has a default, and is not ready without a key', () => {
@@ -84,6 +113,7 @@ describe('the build job’s settings', () => {
     expect(bare.writerModel).toEqual({ value: 'google/gemini-3.5-flash-lite', from: 'default' })
     expect(bare.key).toEqual({ value: '', from: 'default' })
     expect(bare.ready).toBe(false)
+    expect(bare.connection).toBe('grouping')
     expect(resolveBuilds({ provider: 'local' }, {}, resolveGrouping(undefined, {})).ready).toBe(true)
   })
 })

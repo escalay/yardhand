@@ -82,8 +82,9 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   `you`, `group` or `effect`.
 - **AI job** (`features/ai`): search by meaning (embeddings; only its key is settable, the model is the kit's),
   smart grouping (a writer names groups over any OpenAI-compatible API; a decider files tools via TypeSafe's System
-  One, e.g. `typesafe/jev-1.14`, or a chat model) and Build with AI (`builds`: one chat model that drafts packs; each
-  field it leaves unset follows grouping's, shown as `from: grouping`). `.env` seeds (`GATEWAY_AI_GROUPING_*`,
+  One, e.g. `typesafe/jev-1.14`, or a chat model) and Build with AI (`builds`: one chat model that drafts packs; its
+  provider, address and key are one connection, its own once it sets any of them, else grouping's whole, and its
+  model left unset is grouping's writer, each shown as `from: grouping`). `.env` seeds (`GATEWAY_AI_GROUPING_*`,
   `GATEWAY_AI_BUILDS_*`, `OPENROUTER_API_KEY`), Settings › AI wins (sealed in the vault as `ai:<job>`); keys never leave.
 - **Call**: one execution through the pipeline; its record, held result pages and encrypted payload. A call's `kind`
   is `tool`, or a read: `manual`, `playbook`, `link`. Its `via` is the door it came by: `rest`, `mcp`, `passthrough`,

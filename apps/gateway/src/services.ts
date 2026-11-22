@@ -65,7 +65,7 @@ export type Env = {
   GATEWAY_AI_GROUPING_WRITER_MODEL?: string
   GATEWAY_AI_GROUPING_DECIDER_MODEL?: string
   GATEWAY_AI_GROUPING_DECIDER_PROTOCOL?: string
-  /** Build with AI's starting values; a field left empty follows smart grouping's (features/ai/config.ts). */
+  /** Build with AI's starting values; with no provider, address or key, smart grouping's (features/ai/config.ts). */
   GATEWAY_AI_BUILDS_PROVIDER?: string
   GATEWAY_AI_BUILDS_BASE_URL?: string
   GATEWAY_AI_BUILDS_KEY?: string

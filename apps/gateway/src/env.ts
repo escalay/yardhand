@@ -125,18 +125,22 @@ export const SECTIONS: Section[] = [
   },
   {
     title:
-      'Build with AI: a model drafts a pack from its purpose and example tasks. Each one left empty follows smart grouping',
+      'Build with AI: a model drafts a pack from its purpose and tasks. Provider, key, address: its own if any is set, else grouping’s',
     settings: [
       {
         name: 'GATEWAY_AI_BUILDS_PROVIDER',
         about: [`Where its model runs: ${Object.keys(PROVIDERS).join(', ')}.`],
-        fallback: 'smart grouping’s provider',
+        fallback: 'openrouter if its key or address is set, else smart grouping’s provider',
       },
-      { name: 'GATEWAY_AI_BUILDS_KEY', about: ['Its API key.'], fallback: 'smart grouping’s key' },
+      {
+        name: 'GATEWAY_AI_BUILDS_KEY',
+        about: ['Its API key, sent only to its own provider and address.'],
+        fallback: 'no key if its provider or address is set, else smart grouping’s key',
+      },
       {
         name: 'GATEWAY_AI_BUILDS_BASE_URL',
         about: ['For `local` and `custom`: the OpenAI-compatible API, ending /v1.'],
-        fallback: 'its provider’s address, else smart grouping’s',
+        fallback: 'its provider’s address if its provider or key is set, else smart grouping’s',
       },
       {
         name: 'GATEWAY_AI_BUILDS_MODEL',
