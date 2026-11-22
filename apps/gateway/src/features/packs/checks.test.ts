@@ -407,6 +407,31 @@ describe('checkPack on a pack’s own playbooks', () => {
     ])
   })
 
+  it('reads a {{word}} inside a code block too: an argument or a variable passes, any other is an error', () => {
+    const markdown = [
+      '---',
+      'arguments:',
+      '  - name: guest',
+      '---',
+      '```json',
+      '{"text": "{{guest}} at {{desk}}, by {{nope}}"}',
+      '```',
+      '~~~',
+      '{{door}}',
+      '~~~',
+    ].join('\n')
+    expect(found(markdown).map((finding) => [finding.code, finding.message])).toEqual([
+      [
+        'unresolved',
+        '{{nope}} is neither an argument of this playbook nor a variable of Front desk: declare one, or take it out.',
+      ],
+      [
+        'unresolved',
+        '{{door}} is neither an argument of this playbook nor a variable of Front desk: declare one, or take it out.',
+      ],
+    ])
+  })
+
   it('warns about a {{…}} that is not written as a name: nothing fills it in', () => {
     expect(
       found('Greet {{Guest}} and {{guest-name}} from {{ desk }}, never {{}}.').map((finding) => [
@@ -563,6 +588,15 @@ describe('checkPack on a pack’s skill', () => {
       ['error', 'unresolved', '{{guest}} is no variable of Front desk: declare it, or take it out.'],
       ['error', 'not_in_pack', '`fixture.echo` is not in Front desk: add it to the pack, or take it out of the text.'],
     ])
+  })
+
+  it('reads a {{word}} inside a code block too: one that is no variable is an error', () => {
+    expect(
+      checkPack(withSkill(`${sections}\n\n\`\`\`\nfrom: {{desk}}, as {{guest}}\n\`\`\``)).map((finding) => [
+        finding.code,
+        finding.message,
+      ]),
+    ).toEqual([['unresolved', '{{guest}} is no variable of Front desk: declare it, or take it out.']])
   })
 
   it('warns when a manual the pack holds sits at the skill’s own address', () => {

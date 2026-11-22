@@ -142,6 +142,35 @@ describe('renderPlaybook', () => {
     expect(renderPlaybook(parsed('---\narguments:\n  - name: tone\n---\nBe {{tone}}.'), {}, {})).toBe('Be .')
   })
 
+  it('fills a {{word}} inside a code block too: there is no escape to keep one as written', () => {
+    const markdown = [
+      '---',
+      'arguments:',
+      '  - name: guest',
+      '---',
+      '```json',
+      '{"text": "{{guest}} at {{desk}}"}',
+      '```',
+      '~~~',
+      'to: {{guest}}',
+      '~~~',
+      '    from: {{desk}}',
+      'Or `{{guest}}` inline.',
+    ].join('\n')
+    expect(renderPlaybook(parsed(markdown), { guest: 'Sam' }, { desk: 'the desk' })).toBe(
+      [
+        '```json',
+        '{"text": "Sam at the desk"}',
+        '```',
+        '~~~',
+        'to: Sam',
+        '~~~',
+        '    from: the desk',
+        'Or `Sam` inline.',
+      ].join('\n'),
+    )
+  })
+
   it('reads only the arguments given, never a name every object has', () => {
     const markdown = '---\narguments:\n  - name: constructor\n---\nRun it with {{constructor}}.'
     expect(renderPlaybook(parsed(markdown), {}, {})).toBe('Run it with .')
