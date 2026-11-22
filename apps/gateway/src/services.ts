@@ -79,6 +79,16 @@ export type Env = {
 export const publicOriginOf = (host: string | undefined) =>
   !host ? 'http://localhost:4400' : /^https?:\/\//.test(host) ? host.replace(/\/+$/, '') : `https://${host}`
 
+/**
+ * The address the owner set for people to reach the gateway at, from `PUBLIC_HOST`; null when none is set or it names
+ * only this machine (the compose file's default is `http://localhost:<port>`), which nobody else can reach.
+ */
+export const statedOriginOf = (host: string | undefined) => {
+  if (!host) return null
+  const origin = publicOriginOf(host)
+  return /^(localhost|.+\.localhost|127(\.\d+){3}|\[::1\])$/.test(new URL(origin).hostname) ? null : origin
+}
+
 export const createServices = async ({
   db,
   env,
@@ -156,6 +166,7 @@ export const createServices = async ({
   }
   /** Where this gateway is reached; OAuth upstreams send the owner back here. */
   const publicOrigin = publicOriginOf(env.PUBLIC_HOST)
+  const statedOrigin = statedOriginOf(env.PUBLIC_HOST)
   const redirectUrlOf = (via: SignInVia) => (via === 'loopback' ? loopbackRedirect : `${publicOrigin}${callbackPath}`)
   /** Refreshes never send a callback, so background connections take the default; connects pass how they sign in. */
   const oauthProviderFor = (upstreamId: string, onRedirect?: (url: URL) => void, via: SignInVia = 'gateway') =>
@@ -298,6 +309,7 @@ export const createServices = async ({
     oauthProviderFor,
     redirectUrlOf,
     publicOrigin,
+    statedOrigin,
     principals,
     packs,
     /** A pack's own playbooks and skill, as its keys are served them. */

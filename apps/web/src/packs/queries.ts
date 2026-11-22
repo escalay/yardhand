@@ -1,7 +1,7 @@
 /**
- * Packs: the board, one pack, what a playbook uses, what to recheck in the packs, a pack as its keys get it (where
- * it is reached, what a search of it finds, how many tools it lists), and what is written for it: a playbook of its
- * own or its skill with its text and versions, and a check of a draft.
+ * Packs: the board, one pack, the people it is shared with, what a playbook uses, what to recheck in the packs, a
+ * pack as its keys get it (where it is reached, what a search of it finds, how many tools it lists), and what is
+ * written for it: a playbook of its own or its skill with its text and versions, and a check of a draft.
  */
 import { queryOptions } from '@tanstack/react-query'
 import { api, type Schemas, unwrap } from '@/api/client'
@@ -12,6 +12,12 @@ export const packQuery = (name: string) =>
   queryOptions({
     queryKey: ['pack', name],
     queryFn: () => unwrap(api.GET('/api/packs/{name}', { params: { path: { name } } })),
+  })
+
+export const packPeopleQuery = (name: string) =>
+  queryOptions({
+    queryKey: ['people', name],
+    queryFn: () => unwrap(api.GET('/api/packs/{name}/people', { params: { path: { name } } })),
   })
 
 export const usesQuery = (playbook: string, pack?: string) =>

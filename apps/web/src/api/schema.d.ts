@@ -79,7 +79,7 @@ export interface paths {
         put?: never;
         /**
          * Make a client
-         * @description A new API-key client. Answers 201 with the key, shown this once (owner only).
+         * @description A new API-key client. Answers 201 with the key, shown this once (owner only). Sent with an `Idempotency-Key`, the same request sent again within a day is answered the same key, not a second client: that answer is kept sealed with the master key, as every answer kept for an `Idempotency-Key` is.
          */
         post: operations["createClient"];
         delete?: never;
@@ -879,6 +879,30 @@ export interface paths {
          * @description Frees a name the pack used to have: anyone still connecting at `/p/<former>/` is refused from now on, and another pack can take the name.
          */
         delete: operations["freePackName"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A pack’s people
+         * @description Everyone the pack is shared with, one row per client that opens it: the app they connect with, what they can do, when it ends, their last call and their calls in 7 days, and the old address they still use after a rename. Someone whose access ended stays listed for 30 days, to be extended (`PATCH /api/clients/{id}` with `expiresIn`); a revoked key is not listed.
+         */
+        get: operations["listPackPeople"];
+        put?: never;
+        /**
+         * Share a pack with a person
+         * @description Makes one person’s key for this pack alone, read only and for 30 days unless said, and answers with a message ready to send them: what the pack is, what they can do, until when, and the setup for their app with the key in it, at the address set in `PUBLIC_HOST` (unset, or naming only this machine as `localhost` does, the address this request came by). The key and the message are shown this once. Sent with an `Idempotency-Key`, the same request sent again within a day is answered the same key and message, not a second person: that answer is kept sealed with the master key. Extend and Revoke are the client’s own routes (`PATCH` and `DELETE /api/clients/{id}`). A pack that holds no tools is a 409.
+         */
+        post: operations["sharePack"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1740,7 +1764,10 @@ export interface components {
         };
         /** @description A new API-key client, optionally locked to a pack and expiring. */
         ClientCreate: {
-            /** @example invoice-script */
+            /**
+             * @description One line; spaces around it are dropped.
+             * @example invoice-script
+             */
             name: string;
             /**
              * @description `write` lets it call tools that change things.
@@ -1793,7 +1820,10 @@ export interface components {
         };
         /** @description Fields to change. */
         ClientPatch: {
-            /** @example invoice-script */
+            /**
+             * @description One line; spaces around it are dropped.
+             * @example invoice-script
+             */
             name?: string;
             /**
              * @description `write` lets it call tools that change things. Left out, it stays as it is.
@@ -2782,6 +2812,10 @@ export interface components {
             ownPlaybooks: components["schemas"]["PackOwnPlaybook"][];
             skill: components["schemas"]["PackSkill"];
             keyList: components["schemas"]["PackKey"][];
+            /** @description People whose access ends within three days. */
+            ending: number;
+            /** @description People whose access ended in the last 30 days: still listed under People, so it can be extended. `keys` and this are everyone `GET /api/packs/{name}/people` lists. */
+            ended: number;
             createdAt: string;
             /** @description When the owner first searched as the pack (`GET /api/tools?pack=<name>&q=…`) while it listed a tool, or null. */
             triedAt: string | null;
@@ -2792,7 +2826,7 @@ export interface components {
                 name: string;
                 /** @description When it stopped being the pack’s name. */
                 until: string;
-                /** @description Live keys that last connected at this name. */
+                /** @description People listed (`GET /api/packs/{name}/people`) who last connected at this name: those whose access ended count too, since Extend brings their setup back. */
                 people: number;
             }[];
         };
@@ -3090,6 +3124,82 @@ export interface components {
                 playbooks?: string[];
                 manuals?: string[];
             };
+        };
+        /** @description Everyone a pack is shared with: who can use it first, oldest first, then whose access ended. */
+        PackPeople: {
+            count: number;
+            _links: components["schemas"]["Links"];
+            _embedded: {
+                people: components["schemas"]["Person"][];
+            };
+        };
+        /** @description Someone a pack is shared with: one client that opens it. */
+        Person: {
+            /** @description The client’s id: Extend and Revoke are `PATCH` and `DELETE /api/clients/{id}`. */
+            id: string;
+            name: string;
+            /** @enum {string} */
+            kind: "key" | "oauth";
+            /**
+             * @description The app the key was made for, as said when sharing; null when not said.
+             * @enum {string|null}
+             */
+            app: "claude-code" | "cursor" | "codex" | "claude-ai" | "curl" | "typescript" | null;
+            /** @enum {string} */
+            scope: "read" | "write";
+            createdAt: string;
+            /** @description When its access ends, or null for until revoked. */
+            expiresAt: string | null;
+            /** @description Its access ends within three days. */
+            ending: boolean;
+            /** @description Its access ended in the last 30 days: Extend brings it back. */
+            ended: boolean;
+            /** @description Its newest call in the log (90 days), or null. */
+            lastCallAt: string | null;
+            /** @description Calls in the last 7 days. A key that opens several packs counts its calls in all of them. */
+            calls7d: number;
+            /** @description Other packs the same key opens: its end, an Extend and a revoke are theirs too. */
+            otherPacks: string[];
+            /** @description The old name of the pack it last connected by; null once it uses the name now. */
+            oldAddress: {
+                /** @description The old name: it connects at `/p/<name>/`. */
+                name: string;
+                /** @description When it was last noted there (noted at most hourly). */
+                lastAt: string;
+            } | null;
+            _links: components["schemas"]["Links"];
+        };
+        /** @description The new person, with their key and the message to send them, this once. */
+        SharedPack: components["schemas"]["Person"] & {
+            /** @description Their API key. Shown once: store it now. */
+            key: string;
+            /** @description Ready to send to the person: what the pack is, what they can do, until when, and the setup for their app with the key in it. Shown once. */
+            message: string;
+        };
+        /** @description One person to share a pack with. */
+        PackShare: {
+            /**
+             * @description Who it is for, on one line; spaces around it are dropped. It opens the message.
+             * @example Sam
+             */
+            name: string;
+            /**
+             * @description The app they will paste the key into; null or left out when not sure. claude.ai is not one: it signs in and takes no key.
+             * @enum {string|null}
+             */
+            app?: "claude-code" | "cursor" | "codex" | "curl" | "typescript" | null;
+            /**
+             * @description `write` lets them run the pack’s tools that change things.
+             * @default read
+             * @enum {string}
+             */
+            scope: "read" | "write";
+            /**
+             * @description How long it works: 8 hours, a day, 7 days, 30 days, or `never` for until revoked.
+             * @default 30d
+             * @enum {string}
+             */
+            expiresIn: "8h" | "1d" | "7d" | "30d" | "never";
         };
         /** @description A tool’s wording in one pack. */
         WordingInput: {
@@ -3569,8 +3679,11 @@ export interface components {
         };
         /** @description Something that needs the owner, with where to act on it. */
         Nudge: {
-            /** @enum {string} */
-            kind: "reviews" | "pack_wording" | "failing_upstream" | "quiet_key" | "unused_upstream" | "smart_grouping";
+            /**
+             * @description `access_ending`: someone’s access to a pack ends within three days; its `href` is the pack’s People, where Extend is.
+             * @enum {string}
+             */
+            kind: "reviews" | "pack_wording" | "failing_upstream" | "access_ending" | "quiet_key" | "unused_upstream" | "smart_grouping";
             message: string;
             action: string;
             href: string;
@@ -3668,7 +3781,7 @@ export interface components {
                 access: boolean;
                 /** @description Agents can get tokens with OAuth (claude.ai connectors). */
                 oauth: boolean;
-                /** @description Review notices go to a Discord webhook. */
+                /** @description Review notices and access-ending notices go to a Discord webhook. */
                 alerts: boolean;
             };
             publicOrigin: string;
@@ -7195,6 +7308,137 @@ export interface operations {
             };
             /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listPackPeople: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The people. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackPeople"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    sharePack: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackShare"];
+            };
+        };
+        responses: {
+            /** @description The person, their key and the message. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["SharedPack"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

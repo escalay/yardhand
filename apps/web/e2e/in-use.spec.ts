@@ -132,8 +132,8 @@ test('a pack takes a playbook with the tools it uses, and issues a key that expi
   await page.getByRole('button', { name: 'Add to Loud' }).click()
   await expect(page.getByText('Echo · Warm up')).toBeVisible()
 
-  // One flow for every key: opened from the pack, the pack is already chosen
-  await page.getByRole('link', { name: 'Give access' }).first().click()
+  // The pack's own button is Share now; the Agents flow still makes a key for a day, the pack already chosen
+  await page.goto('/app/agents/new?pack=loud')
   await expect(page.getByRole('radio', { name: /^Packs/ })).toBeChecked()
   await expect(page.getByRole('checkbox').first()).toBeChecked()
   await page.getByLabel('Name').fill('e2e session')
@@ -201,9 +201,183 @@ test('a pack’s Overview checks it as it is built: its steps, a search as its k
   await tryTrial.getByRole('button', { name: 'Search' }).click()
   await expect(tryTrial.getByText('This pack holds no tools this key can use.')).toBeVisible()
   await expect(trial).toContainText('0 of 4')
+  // Nobody has it, and a key to a pack without tools would reach nothing: Share waits for the tools
+  const parts = page.getByRole('navigation', { name: 'Parts' })
+  await parts.getByRole('button', { name: /^People/ }).click()
+  await expect(page.getByRole('heading', { name: 'Nobody has access yet' })).toBeVisible()
+  await expect(page.getByText('Add tools first: a key to Trial would reach nothing yet.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Share Trial' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Share', exact: true })).toBeDisabled()
+  await parts.getByRole('button', { name: 'Overview' }).click()
   await page.getByRole('button', { name: 'Remove Trial' }).click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Remove' }).click()
   await expect(page).toHaveURL(/\/app\/packs$/)
+})
+
+test('sharing a pack: who, where and how long, a message with the key, and the person under People', async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page, demo())
+  await page.goto('/app/packs/loud')
+  await page.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(page).toHaveURL(/share=true/)
+  const sheet = page.getByRole('dialog', { name: 'Share Loud' })
+  await expect(sheet.getByLabel('Who')).toBeFocused()
+  const where = sheet.getByRole('radiogroup', { name: 'Where' })
+  await expect(where.getByRole('radio').first()).toHaveAccessibleName('Claude Code')
+  await expect(where.getByRole('radio', { name: 'Not sure' })).toBeVisible()
+  // Loud holds items.delete_item since the test before last: what they can do is asked, and it is reading unless said
+  const can = sheet.getByRole('radiogroup', { name: 'What they can do' })
+  await expect(sheet.getByText(/^\d+ tools? here changes? things$/)).toBeVisible()
+  await expect(can.getByRole('radio', { name: 'Read only' })).toBeChecked()
+  await expect(can.getByRole('radio', { name: 'Can change' })).not.toBeChecked()
+  const long = sheet.getByRole('radiogroup', { name: 'How long' })
+  await expect(long.getByRole('radio')).toHaveCount(3)
+  await expect(long.getByRole('radio', { name: '30 days' })).toBeChecked()
+  // Nobody to share with yet: Share waits for a name
+  await expect(sheet.getByRole('button', { name: 'Share', exact: true })).toBeDisabled()
+
+  await sheet.getByLabel('Who').fill('Sam')
+  await where.getByRole('radio', { name: 'Claude Code' }).click()
+  await sheet.getByRole('button', { name: 'Share', exact: true }).click()
+
+  await expect(sheet.getByRole('heading', { name: 'Send this to Sam' })).toBeVisible()
+  const message = sheet.locator('pre')
+  await expect(message).toContainText("Hi Sam, I'm sharing Loud with you.")
+  await expect(message).toContainText('/p/loud/mcp')
+  const key = /Bearer (gw_[\w-]+)/.exec((await message.textContent()) ?? '')?.[1] ?? ''
+  expect(key).toMatch(/^gw_[\w-]{20,}$/)
+  await expect(sheet.getByText(/shown only now/)).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'Copy message' })).toBeVisible()
+  await expect(sheet.getByText("Waiting for Sam's first call")).toBeVisible()
+  await expect(
+    sheet.getByText('Send Sam the message. Their first call to Loud shows up here the moment it happens.'),
+  ).toBeVisible()
+  // The key is in the message and nowhere else: not in the address
+  expect(page.url()).not.toContain('gw_')
+
+  // Sam's side: no cookies, only the key, at the pack's own address
+  const sam = await request.newContext({ baseURL, extraHTTPHeaders: { authorization: `Bearer ${key}` } })
+  const me = await sam.get('/p/loud/api/me')
+  expect(me.status()).toBe(200)
+  expect(await me.json()).toMatchObject({ name: 'Sam', scope: 'read', pack: { name: 'loud' } })
+  const tools = await (await sam.get('/p/loud/api/tools')).json()
+  const names = tools._embedded.tools.map((tool: { name: string }) => tool.name)
+  // echo.echo only reads, so the read-only key is listed it and runs it; the tool that deletes is kept from it
+  expect(names).toContain('echo.echo')
+  expect(names).not.toContain('items.delete_item')
+  const called = await sam.post('/p/loud/api/calls', { data: { tool: 'echo.echo', arguments: { text: 'hi' } } })
+  expect(called.status()).toBe(200)
+
+  await expect(sheet.getByRole('heading', { name: 'Sam is connected' })).toBeVisible()
+  await expect(sheet.getByRole('link', { name: 'Open the call' })).toBeVisible()
+  // Global pins never apply inside a pack: nothing offers them
+  await expect(page.getByRole('link', { name: /Pin the tools/ })).toHaveCount(0)
+  await sheet.getByRole('button', { name: 'Done' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(page).not.toHaveURL(/share/)
+
+  // People: one row each, the tab counting what it lists
+  const parts = page.getByRole('navigation', { name: 'Parts' })
+  await parts.getByRole('button', { name: /^People/ }).click()
+  await expect(page).toHaveURL(/tab=people/)
+  const row = page.getByRole('row', { name: /Sam/ })
+  await expect(row).toContainText('Claude Code · key')
+  await expect(row).toContainText('read only')
+  const listed = await (await page.request.get('/api/packs/loud/people')).json()
+  const theirs = listed._embedded.people.find((person: { name: string }) => person.name === 'Sam')
+  const days = (Date.parse(theirs.expiresAt) - Date.now()) / (24 * 60 * 60 * 1000)
+  expect(days).toBeGreaterThan(29.9)
+  expect(days).toBeLessThanOrEqual(30)
+  const end = new Date(theirs.expiresAt)
+  const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][end.getUTCMonth()]
+  await expect(row.getByRole('cell').nth(3)).toHaveText(`${end.getUTCDate()} ${month}`)
+  await expect(row.getByRole('cell').nth(5)).toHaveText('1')
+  expect(listed.count).toBeGreaterThanOrEqual(3)
+  await expect(page.getByRole('row')).toHaveCount(listed.count + 1)
+  await expect(parts.getByRole('button', { name: /^People/ })).toHaveText(new RegExp(`^People\\s*${listed.count}$`))
+  // A row's links show where the keyboard is
+  const activity = row.getByRole('link', { name: "Sam's activity" })
+  await page.keyboard.press('Shift')
+  await activity.focus()
+  await expect(activity).not.toHaveCSS('box-shadow', 'none')
+  await expect(activity).toHaveAttribute('href', new RegExp(`/app/activity\\?.*client=${theirs.id}`))
+
+  // Extend moves the end; the same key goes on working
+  await row.getByRole('button', { name: 'Extend Sam' }).click()
+  await page.getByRole('menuitem', { name: 'Until revoked' }).click()
+  await expect(page.getByText('Extended. It applies to their next call.')).toBeVisible()
+  await expect(row.getByRole('cell').nth(3)).toHaveText('never')
+  expect((await sam.get('/p/loud/api/me')).status()).toBe(200)
+
+  // Revoke asks first, then the row is gone and the key is refused
+  await row.getByRole('button', { name: 'Revoke Sam' }).click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toContainText("Sam's key stops working at once; their app will say the key is not valid.")
+  await confirm.getByRole('button', { name: 'Revoke' }).click()
+  await expect(row).toHaveCount(0)
+  await expect(page.getByRole('row')).toHaveCount(listed.count)
+  expect((await sam.get('/p/loud/api/me')).status()).toBe(401)
+  await sam.dispose()
+
+  // A link kept from when the tab was Keys still opens it
+  await page.goto('/app/packs/loud?tab=keys')
+  await expect(parts.getByRole('button', { name: /^People/ })).toHaveAttribute('aria-current', 'page')
+})
+
+test('Home says whose access is about to end, Extend leads to the pack’s People, and extended they are off Home', async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page, demo())
+  const owner = await request.newContext({
+    baseURL,
+    extraHTTPHeaders: { authorization: `Bearer ${demo().ownerKey}` },
+  })
+  const shared = await owner.post('/api/packs/loud/people', { data: { name: 'Ada' } })
+  expect(shared.status()).toBe(201)
+  const ada = (await shared.json()) as { id: string }
+  // Nobody in the demo is in their last three days, so the endings are added to Home's answer on its way to the app
+  const waiting = new Set(['Sam', 'Ada'])
+  const ending = (name: string) => ({
+    kind: 'access_ending',
+    message: `${name}'s access to Loud ends in 2 days (21 Dec 2026). Extend it, or let it end.`,
+    action: 'Extend',
+    href: '/app/packs/loud?tab=people',
+  })
+  await page.route('**/api/overview', async (route) => {
+    const response = await route.fetch()
+    const overview = await response.json()
+    await route.fulfill({ response, json: { ...overview, nudges: [...[...waiting].map(ending), ...overview.nudges] } })
+  })
+  await page.goto('/app')
+  const needs = page.locator('section', { has: page.getByRole('heading', { name: 'Needs you' }) })
+  const nudge = (name: string) =>
+    needs.getByRole('listitem').filter({ hasText: `${name}'s access to Loud ends in 2 days (21 Dec 2026).` })
+  await expect(nudge('Sam')).toBeVisible()
+  // Marked as a warning, to the eye and to a screen reader
+  await expect(nudge('Sam').locator('.bg-warn')).toBeVisible()
+  await expect(nudge('Sam').getByText('Warning:')).toBeAttached()
+  await nudge('Ada').getByRole('link', { name: 'Extend' }).click()
+  await expect(page).toHaveURL(/\/app\/packs\/loud\?tab=people$/)
+  await expect(
+    page.getByRole('navigation', { name: 'Parts' }).getByRole('button', { name: /^People/ }),
+  ).toHaveAttribute('aria-current', 'page')
+
+  // Extended there, Home is read again: no reload, and no waiting for it to go stale
+  await page.getByRole('button', { name: 'Extend Ada' }).click()
+  waiting.delete('Ada')
+  await page.getByRole('menuitem', { name: '30 days from today' }).click()
+  await expect(page.getByText('Extended. It applies to their next call.')).toBeVisible()
+  await page
+    .getByRole('navigation', { name: 'Places' })
+    .getByRole('link', { name: /^Overview/ })
+    .click()
+  await expect(nudge('Sam')).toBeVisible()
+  await expect(nudge('Ada')).toHaveCount(0)
+  expect((await owner.delete(`/api/clients/${ada.id}`)).status()).toBe(204)
+  await owner.dispose()
 })
 
 test('a pack sets its tools’ inputs: a fixed value, a default and a variable, and its keys read the tool that way', async ({
@@ -578,10 +752,33 @@ test('renaming a pack moves its page, keeps the scope and keeps its old address 
   await expect(page.getByRole('button', { name: 'Scope' })).toContainText('Draft')
 
   // The person set up with the old address changes nothing
-  const theirs = await request.newContext({ baseURL })
-  const me = await theirs.get('/p/draft/api/me', { headers: { authorization: `Bearer ${reader.key}` } })
+  const theirs = await request.newContext({ baseURL, extraHTTPHeaders: { authorization: `Bearer ${reader.key}` } })
+  const me = await theirs.get('/p/draft/api/me')
   expect(me.status()).toBe(200)
   expect((await me.json()).pack.name).toBe('drafts')
+
+  // People says who still connects there, and the owner can stop answering at the old address
+  await page.goto('/app/packs/drafts?tab=people')
+  await expect(page.getByRole('row', { name: /draft reader/ })).toContainText('Still connects at /p/draft')
+  // Draft holds only a tool that reads: sharing it does not ask what they can do
+  await page.getByRole('button', { name: 'Share', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Share Draft' })
+  await expect(sheet.getByRole('radiogroup', { name: 'How long' })).toBeVisible()
+  await expect(sheet.getByRole('radiogroup', { name: 'What they can do' })).toHaveCount(0)
+  await sheet.getByRole('button', { name: 'Cancel' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(page).toHaveURL(/\/app\/packs\/drafts\?tab=people$/)
+  const old = page.locator('section', { has: page.getByRole('heading', { name: 'Old addresses' }) })
+  await expect(old).toContainText('/p/draft')
+  await expect(old).toContainText('1 person still connects there')
+  await old.getByRole('button', { name: /^Stop answering there/ }).click()
+  const confirm = page.getByRole('alertdialog')
+  await expect(confirm).toContainText('Anyone still set up with /p/draft is refused from their next call.')
+  await confirm.getByRole('button', { name: 'Stop answering there' }).click()
+  await expect(old).toHaveCount(0)
+  await expect(page.getByRole('row', { name: /draft reader/ })).not.toContainText('Still connects')
+  expect((await theirs.get('/p/draft/api/me')).status()).toBe(403)
+  expect((await theirs.get('/p/drafts/api/me')).status()).toBe(200)
   await theirs.dispose()
 
   expect((await owner.delete(`/api/clients/${reader.id}`)).status()).toBe(204)
@@ -602,6 +799,8 @@ const EVERY_PAGE = [
   '/app/packs/loud',
   '/app/packs/loud?tab=overview',
   '/app/packs/loud?tab=playbooks',
+  '/app/packs/loud?tab=people',
+  '/app/packs/loud?tab=people&share=true',
   '/app/agents',
   '/app/agents/new?pack=loud',
   '/app/activity',
@@ -737,6 +936,13 @@ test('switched off, Settings names the variable; a newer release is named once a
   await expect(group.getByRole('button', { name: 'See the last one sent, 3 h ago' })).toBeVisible()
 })
 
+test('Settings says what a Discord webhook would tell: tool changes and access about to end', async ({ page }) => {
+  await signIn(page, demo())
+  await page.goto('/app/settings')
+  const part = page.locator('div', { has: page.getByText('Alerts on Discord', { exact: true }) }).last()
+  await expect(part).toContainText('Set DISCORD_WEBHOOK_URL to hear about tool changes and access about to end.')
+})
+
 test('a newer version is named on Home and installed from Settings, followed through the restart', async ({ page }) => {
   await signIn(page, demo())
   // The demo never asks for a newer version and has no updater, so the answers are changed on their way to the app
@@ -844,5 +1050,38 @@ test.describe('on a phone', () => {
       .getByRole('link', { name: /^Connections/ })
       .click()
     await expect(page.getByRole('heading', { name: /The servers behind the door/ })).toBeVisible()
+  })
+
+  test.use({ viewport: { width: 390, height: 844 } })
+  test('a pack’s parts are all reached: its variables and a tool’s inputs, its people and Share', async ({ page }) => {
+    await signIn(page, demo())
+    await page.goto('/app/packs/loud')
+    const parts = page.getByRole('navigation', { name: 'Parts' })
+    await expect(parts.getByRole('button')).toHaveText([
+      'Overview',
+      /^Tools/,
+      /^Playbooks & skill/,
+      /^People/,
+      'Activity',
+    ])
+    const variables = page.locator('section', { has: page.getByRole('heading', { name: /^Variables/ }) })
+    await expect(variables.getByText('{{page_size}}')).toBeVisible()
+    await page.getByRole('button', { name: 'Name and inputs of items.get_item' }).click()
+    // The editor scrolls within the window: every input's modes can be brought into view
+    const limit = page.getByRole('radiogroup', { name: 'Who fills limit' })
+    // Down the editor, never off to the side
+    const box = await limit.boundingBox()
+    expect(box && box.x >= 0 && box.x + box.width <= 390, `limit's modes at ${JSON.stringify(box)}`).toBe(true)
+    await limit.scrollIntoViewIfNeeded()
+    await expect(limit).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel' }).click()
+
+    await parts.getByRole('button', { name: /^People/ }).click()
+    await expect(parts.getByRole('button', { name: /^People/ })).toHaveAttribute('aria-current', 'page')
+    await page.getByRole('button', { name: 'Share', exact: true }).first().click()
+    await expect(page.getByRole('dialog', { name: 'Share Loud' }).getByLabel('Who')).toBeInViewport()
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+    expect(overflow).toBeLessThanOrEqual(0)
   })
 })

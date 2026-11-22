@@ -16,6 +16,8 @@ import { mountPackDocs } from './features/packs/docs.js'
 import { createSessionAuth, sessionFeature, type Unclaimed } from './features/session/index.js'
 import { sessionsRepo } from './features/session/repo.js'
 import type { MeaningSearch } from './features/tools/meaning.js'
+import { sealedGuardStore } from './features/vault/answers.js'
+import { parseMasterKey } from './features/vault/crypto.js'
 import { GUIDE_FILES } from './guide.gen.js'
 import { GUIDE_VARS } from './guide.vars.js'
 import {
@@ -120,7 +122,8 @@ export const createApp = async ({
       ],
     },
     oauth,
-    guards: { store: await dbGuardStore(db) },
+    // An answer kept for an `Idempotency-Key` can hold a key shown once: it is kept sealed
+    guards: { store: await sealedGuardStore(db, parseMasterKey(env.GATEWAY_MASTER_KEY)) },
   })
   // The pack a request asks for (its address `/p/<pack>/…` or `x-gateway-pack`), on the caller before any route reads
   // it; a name the pack used to have is read as the one it has now

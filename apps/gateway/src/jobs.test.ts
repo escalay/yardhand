@@ -1,8 +1,18 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { backup, createJobs, dueAt, type JobRun, reviewNotifier, syncAll } from './jobs.js'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  accessNotifier,
+  afterSync,
+  backup,
+  createJobs,
+  discordPost,
+  dueAt,
+  type JobRun,
+  reviewNotifier,
+  syncAll,
+} from './jobs.js'
 import { migrate, openDb } from './kit/index.js'
 
 describe('backup', () => {
@@ -49,6 +59,178 @@ describe('review notifier', () => {
     await notify({ tools, catalog }, 'https://gateway.example.test')
     expect(sent[2]).toMatch(/cookbook \(changed manual, version cv_2\)/)
     await reviewNotifier(null)({ tools, catalog }, 'https://gateway.example.test')
+  })
+})
+
+describe('access notifier', () => {
+  const origin = 'https://gw.example.com'
+  const now = new Date('2026-12-19T12:30:00.000Z')
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const at = (days: number, from = now) => new Date(from.getTime() + days * DAY_MS).toISOString()
+  const key = (id: string, name: string, packId: string, made: number, ends: number) => ({
+    id,
+    name,
+    packId,
+    createdAt: at(made),
+    expiresAt: at(ends),
+    revokedAt: null,
+  })
+  const world = (rows: ReturnType<typeof key>[]) => {
+    const state = { rows }
+    const packs = [
+      { id: 'pk_loud', name: 'loud', title: 'Loud' },
+      { id: 'pk_desk', name: 'desk', title: 'Desk' },
+    ]
+    const services = { clients: { list: async () => state.rows }, packs: { list: async () => packs } } as never
+    return { state, services }
+  }
+  const outbox = () => {
+    const sent: string[] = []
+    return {
+      sent,
+      post: async (text: string) => {
+        sent.push(text)
+      },
+    }
+  }
+
+  it('says once who is ending, and again when an extended key is ending anew', async () => {
+    const { state, services } = world([key('cl_sam', 'Sam', 'pk_loud', -27.5, 2.5)])
+    const { sent, post } = outbox()
+    const notify = accessNotifier(post)
+    await notify(services, origin, now)
+    await notify(services, origin, new Date(now.getTime() + 60 * 60 * 1000))
+    expect(sent).toEqual([
+      [
+        '**Yardhand:** access ending soon',
+        `• Sam's access to Loud ends on 22 Dec 2026. Extend it: ${origin}/app/packs/loud?tab=people (or PATCH ${origin}/api/clients/cl_sam with {"expiresIn":"30d"})`,
+      ].join('\n'),
+    ])
+    // Extended by a week: quiet while it has more than three days, then said again with the new day
+    const extended = new Date(now.getTime() + DAY_MS)
+    state.rows = [{ ...key('cl_sam', 'Sam', 'pk_loud', -27.5, 0), expiresAt: at(7, extended) }]
+    await notify(services, origin, extended)
+    expect(sent).toHaveLength(1)
+    await notify(services, origin, new Date(extended.getTime() + 5 * DAY_MS))
+    expect(sent).toHaveLength(2)
+    expect(sent[1]).toContain("• Sam's access to Loud ends on 27 Dec 2026.")
+  })
+
+  it('gives each person their own pack and request, and stays quiet without a webhook', async () => {
+    const { services } = world([key('cl_sam', 'Sam', 'pk_loud', -27, 2), key('cl_ada', 'Ada', 'pk_desk', -29, 1)])
+    const { sent, post } = outbox()
+    await accessNotifier(post)(services, origin, now)
+    expect(sent).toEqual([
+      [
+        '**Yardhand:** access ending soon',
+        `• Ada's access to Desk ends on 20 Dec 2026. Extend it: ${origin}/app/packs/desk?tab=people (or PATCH ${origin}/api/clients/cl_ada with {"expiresIn":"30d"})`,
+        `• Sam's access to Loud ends on 21 Dec 2026. Extend it: ${origin}/app/packs/loud?tab=people (or PATCH ${origin}/api/clients/cl_sam with {"expiresIn":"30d"})`,
+      ].join('\n'),
+    ])
+    await accessNotifier(null)(services, origin, now)
+    expect(sent).toHaveLength(1)
+  })
+
+  it('keeps a person to their one line, whatever their name or the pack’s title holds', async () => {
+    const state = { rows: [key('cl_sam', 'Sam\r\n**Yardhand:** pay here\u2028now', 'pk_loud', -27, 2)] }
+    const packs = [{ id: 'pk_loud', name: 'loud', title: 'Loud\n\nand clear' }]
+    const services = { clients: { list: async () => state.rows }, packs: { list: async () => packs } } as never
+    const { sent, post } = outbox()
+    await accessNotifier(post)(services, origin, now)
+    expect(sent[0]?.split('\n')).toEqual([
+      '**Yardhand:** access ending soon',
+      `• Sam **Yardhand:** pay here now's access to Loud and clear ends on 21 Dec 2026. Extend it: ${origin}/app/packs/loud?tab=people (or PATCH ${origin}/api/clients/cl_sam with {"expiresIn":"30d"})`,
+    ])
+    expect(sent[0]).not.toMatch(/[\r\u2028\u2029]/)
+  })
+
+  it('remembers across restarts only what is still ending, and says it again when the webhook failed', async () => {
+    const stored: { keys?: string[] } = {}
+    const kept = {
+      load: async () => stored.keys,
+      save: async (keys: string[]) => {
+        stored.keys = keys
+      },
+    }
+    const sam = key('cl_sam', 'Sam', 'pk_loud', -27, 2)
+    const { state, services } = world([sam])
+    const { sent, post } = outbox()
+    const down = accessNotifier(() => Promise.reject(new Error('Discord webhook answered 500')), kept)
+    await expect(down(services, origin, now)).rejects.toThrow('answered 500')
+    expect(stored.keys).toBeUndefined()
+    await accessNotifier(post, kept)(services, origin, now)
+    expect(stored.keys).toEqual([`cl_sam:${sam.expiresAt}`])
+    // A restart: nothing is said twice
+    await accessNotifier(post, kept)(services, origin, now)
+    expect(sent).toHaveLength(1)
+    state.rows = []
+    await accessNotifier(post, kept)(services, origin, now)
+    expect(stored.keys).toEqual([])
+  })
+
+  it('keeps one message within what Discord takes, and says the rest on the next run', async () => {
+    const long = (index: number) => `${'A very long name '.repeat(4)}${index}`
+    const { services } = world(
+      Array.from({ length: 12 }, (_, index) => key(`cl_${index}`, long(index), 'pk_loud', -27, 2)),
+    )
+    const { sent, post } = outbox()
+    const notify = accessNotifier(post)
+    await notify(services, origin, now)
+    await notify(services, origin, now)
+    await notify(services, origin, now)
+    expect(sent.length).toBeGreaterThan(1)
+    expect(sent.every((text) => text.length <= 2000)).toBe(true)
+    expect(sent.join('\n').match(/• A very long name/g)).toHaveLength(12)
+  })
+})
+
+describe('the Discord webhook', () => {
+  it('posts the text and lets it ping nobody, whatever names it carries', async () => {
+    const asked: { url: string; body: unknown }[] = []
+    vi.stubGlobal('fetch', async (url: string, init: { body: string }) => {
+      asked.push({ url, body: JSON.parse(init.body) })
+      return new Response(null, { status: 204 })
+    })
+    try {
+      await discordPost('https://discord.example.test/hook')?.('@everyone Sam <@&1>')
+      expect(asked).toEqual([
+        {
+          url: 'https://discord.example.test/hook',
+          body: { content: '@everyone Sam <@&1>', allowed_mentions: { parse: [] } },
+        },
+      ])
+      expect(discordPost(undefined)).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
+describe('the sync job', () => {
+  it('runs every notice after a sync that failed, and still fails with what the sync said', async () => {
+    const ran: string[] = []
+    const failed = afterSync(() => Promise.reject(new Error('1 of 2 connections synced; failed: almanac')), {
+      'review notice': async () => {
+        ran.push('reviews')
+      },
+      'access notice': async () => {
+        ran.push('access')
+      },
+    })
+    await expect(failed).rejects.toThrow('1 of 2 connections synced; failed: almanac')
+    expect(ran).toEqual(['reviews', 'access'])
+  })
+
+  it('says what the sync said when a notice fails, and still runs the notice after it', async () => {
+    const ran: string[] = []
+    const said = await afterSync(async () => '2 connections synced', {
+      'review notice': () => Promise.reject(new Error('Discord webhook answered 500')),
+      'access notice': async () => {
+        ran.push('access')
+      },
+    })
+    expect(said).toBe('2 connections synced')
+    expect(ran).toEqual(['access'])
   })
 })
 

@@ -8,7 +8,7 @@ import { OWN_NAMES } from '../../mcp/tools.js'
 import type { Services } from '../../services.js'
 import type { ManualContent, PlaybookContent } from '../catalog/content.js'
 import { playbookTitleOf } from '../catalog/content.js'
-import { dayOf } from '../clients/lifetimes.js'
+import { dayOf, standingOf } from '../clients/lifetimes.js'
 import { OWNER, requireOwner } from '../clients/principals.js'
 import { KEY_PLACEHOLDER, surfacesOf } from '../clients/setup.js'
 import { summaryOf } from '../tools/handlers.js'
@@ -18,6 +18,7 @@ import { defaultsOf, fixedOf, inputProblems, lostInputs, modeOf } from './entrie
 import { flagOf, packFlags } from './flags.js'
 import { noPack } from './names.js'
 import { docFlagsOf, ownOf, shownFindings } from './own.handlers.js'
+import { listedOf } from './people.js'
 import type { PackContents } from './repo.js'
 import { FLAGS_PATH, PATH, type routes } from './routes.js'
 import type { PackRow, PackToolRow } from './schema.js'
@@ -175,7 +176,7 @@ export const packsHandlers = ({
           toolRows.filter((tool) => tool.flag || tool.lostInputs.length || tool.inputs.some((input) => input.problem))
             .length + [...docFlags.values()].filter(Boolean).length,
         updatedAt: pack.updatedAt,
-        _links: linksOf(origin, { self: `${PATH}/${pack.name}`, list: PATH }),
+        _links: linksOf(origin, { self: `${PATH}/${pack.name}`, people: `${PATH}/${pack.name}/people`, list: PATH }),
       },
       held,
       toolRows,
@@ -196,10 +197,10 @@ export const packsHandlers = ({
     )
   }
 
-  /** The names that still lead to the pack, each with how many of its live keys last came by it. */
-  const formerNamesOf = async (pack: PackRow, keys: { id: string }[]) => {
-    const live = new Set(keys.map((key) => key.id))
-    const notes = (await clients.cameBy(pack.id)).filter((note) => live.has(note.clientId))
+  /** The names that still lead to the pack, each with how many of the people listed last came by it. */
+  const formerNamesOf = async (pack: PackRow, people: { id: string }[]) => {
+    const listed = new Set(people.map((person) => person.id))
+    const notes = (await clients.cameBy(pack.id)).filter((note) => listed.has(note.clientId))
     return (await packs.formerNames(pack.id)).map((former) => ({
       name: former.name,
       until: former.until,
@@ -209,6 +210,10 @@ export const packsHandlers = ({
 
   const detailOf = async (origin: string, pack: PackRow) => {
     const { card, held, toolRows, docFlags, keys } = await cardOf(origin, pack)
+    const now = new Date()
+    // As People lists them: `keys` counts those that work, `ended` the rest
+    const listed = listedOf(await clients.ofPack(pack.id), now)
+    const standings = listed.map((row) => standingOf(row, now))
     const state = await packStateOf(repos, pack, held)
     const findings = checkPack(state)
     return {
@@ -229,10 +234,12 @@ export const packsHandlers = ({
         expiresAt: key.expiresAt,
         createdAt: key.createdAt,
       })),
+      ending: standings.filter((standing) => standing === 'ending').length,
+      ended: standings.filter((standing) => standing === 'ended').length,
       createdAt: pack.createdAt,
       triedAt: pack.triedAt,
       lastCallAt: await lastCallOf(pack),
-      formerNames: await formerNamesOf(pack, keys),
+      formerNames: await formerNamesOf(pack, listed),
     }
   }
 

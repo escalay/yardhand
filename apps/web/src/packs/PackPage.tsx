@@ -1,10 +1,10 @@
 /**
  * One pack: its tools (why each is in, the pack's wording, flags when an upstream moved on), the playbooks and skill
- * written for it with the playbooks and manuals it holds from its connections, and the keys locked to it, with one
- * more issued from here. The Overview checks it as it is built: the steps of setting it up, its address with setup
- * per app, a search of it as its keys get it, and what its agents read first.
+ * written for it with the playbooks and manuals it holds from its connections, and the people it is shared with,
+ * with one more from the Share sheet. The Overview checks it as it is built: the steps of setting it up, its address
+ * with setup per app, a search of it as its keys get it, and what its agents read first.
  */
-import { IconAlertTriangle, IconKey, IconPencil, IconSearch } from '@tabler/icons-react'
+import { IconAlertTriangle, IconPencil, IconSearch, IconUserPlus } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -37,8 +37,20 @@ import { Checklist } from './Checklist'
 import { PackDocs } from './PackDocs'
 import { UpstreamChips } from './PacksPage'
 import { PackTools } from './PackTools'
-import { expiryOf, holdsLine, isPackName, nameProblem, recheckLine, recheckOf, renameNote } from './packs.rules'
+import { People } from './People'
+import {
+  accessOf,
+  endLine,
+  holdsLine,
+  isPackName,
+  nameProblem,
+  type PackTab,
+  recheckLine,
+  recheckOf,
+  renameNote,
+} from './packs.rules'
 import { packQuery, packsQuery } from './queries'
+import { ShareSheet } from './ShareSheet'
 import { TRY_ID, TryIt } from './TryIt'
 
 type Pack = Schemas['Pack']
@@ -186,49 +198,61 @@ const Briefing = ({ pack }: { pack: Pack }) => {
   )
 }
 
-export type PackTab = 'overview' | 'tools' | 'playbooks' | 'keys' | 'activity'
-const PACK_TABS: PackTab[] = ['overview', 'tools', 'playbooks', 'keys', 'activity']
-/** `?tab=` for every part but Tools, the default; `?add=true` there opens the dialog that adds tools. */
-export const parsePackTab = (raw: Record<string, unknown>): { tab?: PackTab; add?: true } =>
-  PACK_TABS.includes(raw.tab as PackTab) && raw.tab !== 'tools'
-    ? { tab: raw.tab as PackTab }
-    : raw.add === true
-      ? { add: true }
-      : {}
-
-const GiveAccess = ({ pack, variant = 'primary' }: { pack: Pack; variant?: 'primary' | 'ghost' }) => (
-  <Button asChild variant={variant} size={variant === 'ghost' ? 'sm' : 'default'} disabled={!pack.tools.length}>
-    <Link to="/agents/new" search={{ pack: pack.name }}>
-      <IconKey /> Give access
-    </Link>
-  </Button>
-)
-
-const Keys = ({ pack }: { pack: Pack }) => (
+/** Who has the pack, in short, beside its Overview: the People tab has the rest. */
+const Shared = ({ pack, onShare }: { pack: Pack; onShare: () => void }) => (
   <div className="flex flex-col border border-border bg-card">
     {pack.keyList.length ? (
       <ul>
         {pack.keyList.map((key) => (
           <li key={key.id} className="border-b border-border px-4 py-3">
-            <Link to="/agents/$id" params={{ id: key.id }} className="flex flex-col hover:text-primary">
+            <Link
+              to="/agents/$id"
+              params={{ id: key.id }}
+              className="flex flex-col rounded-xs hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
               <span className="text-sm font-medium">{key.name}</span>
-              <span className="text-xs text-muted-foreground">
-                {key.scope === 'write' ? 'Reads and changes' : 'Reads only'} · {expiryOf(key.expiresAt).text}
+              <span className="text-xs text-muted-foreground first-letter:uppercase">
+                {accessOf(key.scope)} · {endLine(key)}
               </span>
             </Link>
           </li>
         ))}
       </ul>
     ) : (
-      <p className="px-4 py-4 text-sm text-muted-foreground">No key is locked to it yet.</p>
+      <p className="border-b border-border px-4 py-4 text-sm text-muted-foreground">Nobody has access yet.</p>
     )}
+    {pack.ended ? (
+      <p className="border-b border-border px-4 py-3 text-sm text-muted-foreground">
+        {pack.ended} ended:{' '}
+        <Link
+          to="/packs/$name"
+          params={{ name: pack.name }}
+          search={{ tab: 'people' }}
+          className="rounded-xs text-foreground underline underline-offset-4 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
+          extend under People
+        </Link>
+      </p>
+    ) : null}
     <div className="p-3">
-      <GiveAccess pack={pack} variant="ghost" />
+      <Button variant="ghost" size="sm" disabled={!pack.tools.length} onClick={onShare}>
+        <IconUserPlus /> Share
+      </Button>
     </div>
   </div>
 )
 
-export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: PackTab; add?: boolean }) => {
+export const PackPage = ({
+  name,
+  tab = 'tools',
+  add,
+  share,
+}: {
+  name: string
+  tab?: PackTab
+  add?: boolean
+  share?: boolean
+}) => {
   const queries = useQueryClient()
   const navigate = useNavigate()
   const pack = useQuery(packQuery(name))
@@ -263,6 +287,7 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
           replace: true,
         })
         queries.removeQueries({ queryKey: ['pack', name] })
+        queries.removeQueries({ queryKey: ['people', name] })
       }
       void queries.invalidateQueries({ queryKey: ['packs'] })
     },
@@ -312,6 +337,15 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
       search: next === 'tools' ? {} : { tab: next as PackTab },
       replace: true,
     })
+  // The sheet opens over the part the owner is on, and closing it leaves them there
+  const sharing = (open: boolean) =>
+    void navigate({
+      to: '/packs/$name',
+      params: { name },
+      search: { ...(tab === 'tools' ? {} : { tab }), ...(open ? { share: true as const } : {}) },
+      replace: true,
+      resetScroll: false,
+    })
   return (
     <Page>
       <EntityHeader
@@ -330,7 +364,14 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
             <Button variant="muted" onClick={() => setEditing(true)}>
               <IconPencil /> Edit
             </Button>
-            <GiveAccess pack={data} />
+            <Button
+              variant="primary"
+              disabled={!data.tools.length}
+              title={data.tools.length ? undefined : 'Add tools first: a key to an empty pack would reach nothing.'}
+              onClick={() => sharing(true)}
+            >
+              <IconUserPlus /> Share
+            </Button>
           </>
         }
         meta={
@@ -359,7 +400,8 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
             count: data.ownPlaybooks.length + data.playbooks.length + data.manuals.length,
             dot: recheck.playbooks > 0 || recheck.skill,
           },
-          { id: 'keys', label: 'Keys', count: data.keys },
+          // Everyone People lists: who has it, and whose access ended and can be extended
+          { id: 'people', label: 'People', count: data.keys + data.ended, dot: Boolean(data.ending) },
           { id: 'activity', label: 'Activity' },
         ]}
       />
@@ -376,13 +418,13 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
             </Section>
           </div>
           <aside className="flex min-w-0 flex-col gap-8">
-            <Section title={`Keys · ${data.keys}`}>
-              <Keys pack={data} />
+            <Section title={`People · ${data.keys}`}>
+              <Shared pack={data} onShare={() => sharing(true)} />
             </Section>
             <Section title="Remove">
               <div className="flex flex-col gap-3 border border-border bg-card p-4 text-sm text-muted-foreground">
                 {data.keys
-                  ? `Revoke its ${data.keys === 1 ? 'key' : `${data.keys} keys`} first: a key locked to a removed pack would reach nothing.`
+                  ? `End access for its ${data.keys === 1 ? 'person' : `${data.keys} people`} first: a key locked to a removed pack would reach nothing.`
                   : 'The tools stay where they are; only the pack and its wording go.'}
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -428,8 +470,8 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
         />
       ) : tab === 'playbooks' ? (
         <PackDocs pack={data} onPatch={save} />
-      ) : tab === 'keys' ? (
-        <Keys pack={data} />
+      ) : tab === 'people' ? (
+        <People pack={data} onShare={() => sharing(true)} />
       ) : (
         <EntityActivity filter={{ pack: data.name }} clientIds={data.keyList.map((key) => key.id)} />
       )}
@@ -444,6 +486,7 @@ export const PackPage = ({ name, tab = 'tools', add }: { name: string; tab?: Pac
         }}
         onSave={save}
       />
+      <ShareSheet pack={data} open={Boolean(share)} onOpenChange={sharing} />
     </Page>
   )
 }

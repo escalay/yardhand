@@ -1,8 +1,13 @@
 /** Pure rules for Home: app paths from the API's hrefs, and what each setup step says and offers. */
+import type { Overview } from '@/api/client'
 import { type Door, parseDoor, parseRange, type Range } from '@/shell/filters.rules'
 
 /** The API names app places as `/app/...`; the router's paths start after its `/app` base. */
 export const routeOf = (href: string) => href.replace(/^\/app(?=\/|$)/, '') || '/'
+
+/** How loud a nudge is: a server that fails is an error, a review or access about to end a warning. */
+export const nudgeTone = (kind: Overview['nudges'][number]['kind']) =>
+  kind === 'failing_upstream' ? 'error' : kind === 'reviews' || kind === 'access_ending' ? 'warn' : 'neutral'
 
 export const STEP_COPY: Record<string, { body: string; action: string }> = {
   connect: {
