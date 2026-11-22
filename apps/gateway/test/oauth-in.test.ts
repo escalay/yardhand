@@ -4,6 +4,8 @@
  * browser keeps every cookie it is given, so an approval that comes to need one more cookie passes unchanged.
  */
 import { createHash, randomBytes } from 'node:crypto'
+import type { AddressInfo } from 'node:net'
+import { serve } from '@hono/node-server'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { exportJWK, generateKeyPair, SignJWT } from 'jose'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -378,5 +380,190 @@ describe('the owner’s session at the approval pages', () => {
     const html = await page.text()
     expect(html).not.toContain('<script>')
     expect(hrefsOf(html)[0]).toMatch(/^\/oauth\/authorize\?/)
+  })
+})
+
+describe('the sign-in log', () => {
+  it('the sign-in log names the resource and never a code or token', async () => {
+    const lines: string[] = []
+    const spy = vi.spyOn(console, 'log').mockImplementation((line: unknown) => void lines.push(String(line)))
+    try {
+      const app = await gateway()
+      const browser = browserOn(app)
+      await signInWithKey(browser)
+      const registered = await app.request('/oauth/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.7, 10.0.0.2' },
+        body: JSON.stringify({ client_name: 'Sample', redirect_uris: [REDIRECT] }),
+      })
+      const clientId = ((await registered.json()) as { client_id: string }).client_id
+      const verifier = randomBytes(32).toString('base64url')
+      const query = new URLSearchParams({
+        response_type: 'code',
+        client_id: clientId,
+        redirect_uri: REDIRECT,
+        code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+        code_challenge_method: 'S256',
+        state: 'state-from-the-app',
+        resource: 'http://localhost/mcp',
+      })
+      // Sent by the app's site: the first leg says where from, the click after it is this site's own
+      const arrived = await app.request(`/oauth/authorize?${query}`, {
+        headers: { 'sec-fetch-site': 'cross-site', referer: 'https://app.example.test/chat/private-thread?x=1' },
+      })
+      expect(arrived.status).toBe(200)
+      const code = await approve(browser, `/oauth/authorize?${query}&hop=1`)
+      const tokens = await tokenFor(app, {
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: REDIRECT,
+        client_id: clientId,
+        code_verifier: verifier,
+        resource: 'http://localhost/mcp',
+      })
+      expect(tokens.status).toBe(200)
+      const refreshed = await tokenFor(app, { grant_type: 'refresh_token', refresh_token: tokens.json.refresh_token })
+      expect(refreshed.status).toBe(200)
+      // An app known by a client_id URL, which this gateway doesn't take yet, and one that sends no resource
+      await app.request('/oauth/authorize?client_id=https%3A%2F%2Fapp.example.test%2Fclient.json&redirect_uri=x')
+      await app.request(`/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(REDIRECT)}`)
+
+      const logged = lines.filter((line) => line.startsWith('sign-in '))
+      // The same short id on every line of one app, and never its client_id
+      const id = /id=([0-9a-f]{8}) /.exec(logged[0] ?? '')?.[1]
+      expect(logged[0]).toBe(
+        `sign-in register 201: client="Sample" id=${id} callbacks=http://localhost:9 address=203.0.113.7`,
+      )
+      expect(logged[1]).toBe(
+        `sign-in authorize 200: client="Sample" by=dcr id=${id} resource="http://localhost/mcp" callback=http://localhost:9 sec-fetch-site=cross-site referer=https://app.example.test`,
+      )
+      // The consent page and the approval it posts, then the code and the refresh
+      expect(logged[2]).toBe(
+        `sign-in authorize 200: client="Sample" by=dcr id=${id} resource="http://localhost/mcp" callback=http://localhost:9 sec-fetch-site=absent referer=absent hop=1`,
+      )
+      expect(logged[3]).toBe(
+        `sign-in token 200: grant=authorization_code client="Sample" by=dcr id=${id} resource="http://localhost/mcp" redirect_uri=sent callback=http://localhost:9 sec-fetch-site=absent referer=absent`,
+      )
+      expect(logged[4]).toBe(
+        'sign-in token 200: grant=refresh_token client=none resource=none redirect_uri=absent sec-fetch-site=absent referer=absent',
+      )
+      expect(logged[5]).toBe(
+        `sign-in authorize 401: client=unknown by=url id=${/id=(\w+)/.exec(logged[5] ?? '')?.[1]} resource=none callback=unreadable sec-fetch-site=absent referer=absent`,
+      )
+      expect(logged[6]).toMatch(/^sign-in authorize 401: client="Sample" by=dcr id=\w+ resource=none /)
+      expect(logged).toHaveLength(7)
+
+      // Nothing secret, nor what would let anyone replay a step
+      const all = logged.join('\n')
+      for (const secret of [
+        code,
+        verifier,
+        clientId,
+        tokens.json.access_token,
+        tokens.json.refresh_token,
+        refreshed.json.access_token,
+        refreshed.json.refresh_token,
+        'state-from-the-app',
+        browser.jar.get('gw_session') ?? 'no cookie',
+        OWNER,
+        'private-thread',
+        'consent_',
+      ])
+        expect(all).not.toContain(secret)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('logs a sign-in made over a real connection, with the address it came from', async () => {
+    const lines: string[] = []
+    const spy = vi.spyOn(console, 'log').mockImplementation((line: unknown) => void lines.push(String(line)))
+    const app = await gateway()
+    const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 })
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()))
+    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    try {
+      const registered = await fetch(`${origin}/oauth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ client_name: 'Sample', redirect_uris: [REDIRECT] }),
+      })
+      expect(registered.status).toBe(201)
+      const clientId = ((await registered.json()) as { client_id: string }).client_id
+      const verifier = randomBytes(32).toString('base64url')
+      const query = new URLSearchParams({
+        response_type: 'code',
+        client_id: clientId,
+        redirect_uri: REDIRECT,
+        code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+        code_challenge_method: 'S256',
+        state: 'state-from-the-app',
+      })
+      expect((await fetch(`${origin}/oauth/authorize?${query}`)).status).toBe(401)
+      const browser = browserOn(app)
+      await signInWithKey(browser)
+      const code = await approve(browser, `/oauth/authorize?${query}`)
+      const tokens = await fetch(`${origin}/oauth/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: REDIRECT,
+          client_id: clientId,
+          code_verifier: verifier,
+        }).toString(),
+      })
+      expect(tokens.status).toBe(200)
+      expect(((await tokens.json()) as Tokens).refresh_token).toBeTruthy()
+      const logged = lines.filter((line) => line.startsWith('sign-in '))
+      expect(logged[0]).toMatch(
+        /^sign-in register 201: client="Sample" id=\w{8} callbacks=http:\/\/localhost:9 address=(::ffff:)?127\.0\.0\.1$/,
+      )
+      expect(logged[1]).toMatch(/^sign-in authorize 401: client="Sample" by=dcr /)
+      expect(logged.at(-1)).toMatch(/^sign-in token 200: grant=authorization_code client="Sample" by=dcr /)
+    } finally {
+      spy.mockRestore()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+
+  it('writes an address only when it reads as one', async () => {
+    const lines: string[] = []
+    const spy = vi.spyOn(console, 'log').mockImplementation((line: unknown) => void lines.push(String(line)))
+    try {
+      const app = await gateway()
+      await app.request('/oauth/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.7" by=dcr' },
+        body: JSON.stringify({ client_name: 'Sample', redirect_uris: [REDIRECT] }),
+      })
+      expect(lines.find((line) => line.startsWith('sign-in register'))).toMatch(/ address=unreadable$/)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('says only what a resource names, never its query', async () => {
+    const lines: string[] = []
+    const spy = vi.spyOn(console, 'log').mockImplementation((line: unknown) => void lines.push(String(line)))
+    try {
+      const app = await gateway()
+      const client = await register(app)
+      const authorize = client.authorize.replace(
+        'resource=http%3A%2F%2Flocalhost%2Fmcp',
+        'resource=https%3A%2F%2Fgw.example.com%2Fp%2Floud%2Fmcp%3Ftoken%3Dhidden&resource=%22%0Afake&resource=https%3A%2F%2Fsam%3Asecret%40gw.example.com%2Fmcp',
+      )
+      await app.request(authorize)
+      const line = lines.filter((one) => one.startsWith('sign-in authorize'))[0] ?? ''
+      expect(line).toContain(
+        'resource="https://gw.example.com/p/loud/mcp" (cut to origin and path),"not a URL","https://gw.example.com/mcp" (cut to origin and path)',
+      )
+      expect(line).not.toContain('hidden')
+      expect(line).not.toContain('secret')
+      expect(line.split('\n')).toHaveLength(1)
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

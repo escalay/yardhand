@@ -17,6 +17,7 @@ import { FEATURES } from './features/index.js'
 import { mountPackDocs } from './features/packs/docs.js'
 import { createSessionAuth, kitOwner, sessionFeature, type Unclaimed } from './features/session/index.js'
 import { sessionsRepo } from './features/session/repo.js'
+import { signInLog } from './features/session/sign-ins.js'
 import type { MeaningSearch } from './features/tools/meaning.js'
 import { sealedGuardStore } from './features/vault/answers.js'
 import { parseMasterKey } from './features/vault/crypto.js'
@@ -99,15 +100,17 @@ export const createApp = async ({
   const hasWeb = existsSync(join(web.dir, 'index.html'))
   // The OAuth callback stays behind sign-in: only the pages themselves are open
   const pages = APP_PAGES.flatMap((page) => (page ? [`/app/${page}`, `/app/${page}/*`] : ['/app', '/app/']))
-  const oauth = env.OAUTH_SIGNING_KEY
-    ? createOAuth({
-        name: 'Yardhand',
-        signingKey: env.OAUTH_SIGNING_KEY,
-        store: await dbOAuthStore(db),
-        // The owner's own session approves an app's sign-in too; claims and device codes need Access
-        owner: async (c) => (await kitOwner(sessions)(c)) ?? (access ? await accessOwner(access)(c) : null),
-      })
-    : undefined
+  const oauthStore = env.OAUTH_SIGNING_KEY ? await dbOAuthStore(db) : undefined
+  const oauth =
+    env.OAUTH_SIGNING_KEY && oauthStore
+      ? createOAuth({
+          name: 'Yardhand',
+          signingKey: env.OAUTH_SIGNING_KEY,
+          store: oauthStore,
+          // The owner's own session approves an app's sign-in too; claims and device codes need Access
+          owner: async (c) => (await kitOwner(sessions)(c)) ?? (access ? await accessOwner(access)(c) : null),
+        })
+      : undefined
   const app = createAgentApi({
     title: 'Yardhand',
     version: VERSION,
@@ -188,5 +191,7 @@ export const createApp = async ({
   // Outermost: a pack's address is rewritten before anything reads it, and its answers link only inside it.
   // Innermost: a playbook's arguments as query parameters are lifted off before the kit refuses them
   app.fetch = withPackAddresses(sessionAuth.wrap(withPlaybookQuery(app.fetch) as never) as typeof app.fetch)
+  // Around everything, until 0.7.0: what each app sends as it signs in, measured before OAuth's rules are settled
+  if (oauthStore) app.fetch = signInLog({ store: oauthStore })(app.fetch as never) as typeof app.fetch
   return Object.assign(app, { services })
 }
