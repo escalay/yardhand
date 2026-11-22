@@ -76,6 +76,9 @@ const RehearsalSchema = z.object({
       ran: z.boolean(),
       callId: z.string().nullable().openapi({ description: 'The call in the log (`GET /api/calls/{id}`).' }),
       standIn: z.string().nullable().openapi({ description: 'What the model was told instead, when it didn’t run.' }),
+      error: z.string().nullable().openapi({
+        description: 'Why the gateway refused it or its call failed, when it was tried and didn’t answer.',
+      }),
     }),
   ),
   outcome: z.string(),

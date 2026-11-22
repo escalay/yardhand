@@ -195,6 +195,26 @@ export const buildsHandlers = (services: Services) => {
       ...proposal.after,
       tools: proposal.after.tools.map((tool) => ({ ...tool, live: live.get(tool.tool) ?? null })),
     }
+    // As adding a tool by hand: a tool that left since the build can't come in, nor can its wording or inputs
+    const gone = [
+      ...new Set(
+        chosen.flatMap((line) => {
+          const target = line.kind === 'input' ? line.target.slice(0, line.target.lastIndexOf('.')) : line.target
+          const tool = after.tools.find((entry) => entry.name === target)
+          const added = !before.tools.some((entry) => entry.name === target)
+          return (line.kind === 'tool' && line.change !== 'remove') ||
+            ((line.kind === 'wording' || line.kind === 'input') && added)
+            ? tool && !tool.live
+              ? [tool.tool]
+              : []
+            : []
+        }),
+      ),
+    ]
+    if (gone.length)
+      throw new ProblemError('bad_request', {
+        detail: `Not live, so not added: ${gone.join(', ')}. Untick its lines, or sync its connection and build again.`,
+      })
     const applied = applyLines(before, after, chosen)
     throwOnRefused(judge(before, applied, touchedOf(chosen)).refused)
     if (!(await builds.settle(pack.id, id, ['ready', 'stopped'], 'accepted')))

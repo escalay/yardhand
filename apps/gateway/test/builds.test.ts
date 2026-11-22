@@ -104,6 +104,7 @@ const deskModel = (extra: Parameters<typeof fakeModel>[0] = {}) =>
       tools: [
         { name: 'fixture.greet', reason: 'Greets the guest.', wording: 'Greets a guest from the desk.' },
         { name: 'fixture.echo', reason: 'Says a note back.' },
+        { name: 'fixture.whisper', reason: 'Whispers to the guest.' },
         { name: 'elsewhere.send_mail', reason: 'Tells the guest.' },
       ],
       skipped: [{ name: 'fixture.shout', reason: 'Nothing here needs shouting.' }],
@@ -116,7 +117,10 @@ const deskModel = (extra: Parameters<typeof fakeModel>[0] = {}) =>
         : { name: 'echo-note', markdown: ECHO_NOTE },
     rehearse: (ask: Ask) =>
       said(ask).task.includes('greet') && !said(ask).steps.length
-        ? { tool: 'fixture.greet', arguments: { to: 'Ada' } }
+        ? {
+            tool: 'fixture.greet',
+            arguments: { to: 'Ada', ...(said(ask).task.includes('boss') ? { from: 'the boss' } : {}) },
+          }
         : { done: true, outcome: 'Greeted Ada from the front desk.' },
     ...extra,
   })
@@ -153,6 +157,7 @@ describe('a build', async () => {
     // A tool it wasn't offered never comes in: it is said to be left out
     expect(done.proposal.skipped).toEqual([
       { name: 'fixture.shout', reason: 'Nothing here needs shouting.' },
+      { name: 'fixture.whisper', reason: 'Not one of the tools this build looked at, so not added.' },
       { name: 'elsewhere.send_mail', reason: 'Not one of the tools this build looked at, so not added.' },
     ])
     expect(done.proposal.model).toBe('fake/writer')
@@ -266,6 +271,37 @@ describe('a build', async () => {
     expect((await api(`/api/packs/desk-all/builds/${done.id}`)).status).toBe(404)
   })
 
+  it('refuses a line on a tool that is no longer live, as adding it by hand is', async () => {
+    upstream.state.whisper = true
+    await api('/api/upstreams/fixture/sync', { method: 'POST' })
+    await pack('desk-quiet', 'Desk quiet', 'Greets guests at the desk and whispers to them.')
+    const quiet = await build('desk-quiet', ['whisper hello to a guest'])
+    expect(quiet.proposal.lines.map((line: { id: string }) => line.id)).toContain('tool:fixture.whisper')
+    upstream.state.whisper = false
+    await api('/api/upstreams/fixture/sync', { method: 'POST' })
+    const refused = await api(`/api/packs/desk-quiet/builds/${quiet.id}/accept`, {
+      method: 'POST',
+      body: { lines: ['tool:fixture.whisper', 'tool:fixture.greet'] },
+    })
+    expect([refused.status, refused.json.detail]).toEqual([
+      400,
+      'Not live, so not added: fixture.whisper. Untick its lines, or sync its connection and build again.',
+    ])
+    expect((await api('/api/packs/desk-quiet')).json.tools).toEqual([])
+  })
+
+  it('says when a tool it tried was refused, without its result', async () => {
+    const tried = await build('desk-quiet', ['greet a guest called Ada, from the boss'])
+    const [step] = tried.proposal.rehearsal[0].steps
+    expect(step).toEqual({
+      tool: 'fixture.greet',
+      ran: true,
+      callId: null,
+      standIn: null,
+      error: 'fixture.greet: Desk quiet fills from itself, so leave it out.',
+    })
+  })
+
   it('refuses accept when the pack changed since the proposal', async () => {
     await pack('desk-moved', 'Desk moved', 'Greets guests at the desk and echoes their notes.')
     const moved = await build('desk-moved', TASKS)
@@ -311,12 +347,13 @@ describe('a rehearsal', async () => {
     expect(upstream.state.calls - before).toBe(1)
     const [rehearsal] = done.proposal.rehearsal
     expect(rehearsal.steps).toEqual([
-      { tool: 'fixture.echo', ran: true, callId: expect.stringMatching(/^call_/), standIn: null },
+      { tool: 'fixture.echo', ran: true, callId: expect.stringMatching(/^call_/), standIn: null, error: null },
       {
         tool: 'fixture.shout',
         ran: false,
         callId: null,
         standIn: '[Not run in rehearsal: fixture.shout changes things. Assume it worked.]',
+        error: null,
       },
     ])
     // What the tool returned went to the model only
@@ -386,6 +423,7 @@ describe('a rehearsal', async () => {
       ran: false,
       callId: null,
       standIn: '[Not run in rehearsal: fixture.echo is switched off by the owner.]',
+      error: null,
     })
     expect(upstream.state.calls).toBe(calls)
     await api('/api/tools/fixture.echo', { method: 'PATCH', body: { access: null } })

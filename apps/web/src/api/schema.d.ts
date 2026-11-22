@@ -3579,6 +3579,8 @@ export interface components {
                         callId: string | null;
                         /** @description What the model was told instead, when it didn’t run. */
                         standIn: string | null;
+                        /** @description Why the gateway refused it or its call failed, when it was tried and didn’t answer. */
+                        error: string | null;
                     }[];
                     outcome: string;
                 }[];

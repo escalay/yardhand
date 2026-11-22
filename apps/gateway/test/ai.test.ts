@@ -49,6 +49,18 @@ describe('AI settings', () => {
     ])
   })
 
+  it('refuses a build while Build with AI has no model to ask', async () => {
+    await owner('/api/packs', { method: 'POST', body: { name: 'desk', title: 'Desk', description: 'Greets guests.' } })
+    const body = { mode: 'build', tasks: ['greet a guest'] }
+    for (const path of ['/api/packs/desk/builds/estimate', '/api/packs/desk/builds']) {
+      const refused = await owner(path, { method: 'POST', body })
+      expect([refused.status, refused.json.detail]).toEqual([
+        409,
+        'Build with AI has no model to ask: give it a key in Settings › AI (PATCH /api/ai/builds), or give smart grouping one, which it follows.',
+      ])
+    }
+  })
+
   it('saves a provider, key and models that win over .env, sealed; null goes back to .env', async () => {
     const saved = await owner('/api/ai/grouping', {
       method: 'PATCH',
@@ -117,6 +129,15 @@ describe('AI settings', () => {
     expect(json).toMatchObject({ job: 'builds', ok: true, checks: [{ name: 'Writer', ok: true }] })
     expect(llm.asks.slice(before).map((ask) => ask.model)).toEqual(['decider-1'])
     await owner('/api/ai/builds', { method: 'PATCH', body: { writerModel: null } })
+  })
+
+  it('estimates a build with the build job’s model, here grouping’s writer, with no price it can know', async () => {
+    const { status, json } = await owner('/api/packs/desk/builds/estimate', {
+      method: 'POST',
+      body: { mode: 'build', tasks: ['greet a guest'] },
+    })
+    expect(status).toBe(200)
+    expect(json).toMatchObject({ model: 'writer-1', usd: null, priceKnown: false })
   })
 
   it('lists the models a provider offers, filtered by words', async () => {

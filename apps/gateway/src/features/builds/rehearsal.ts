@@ -56,6 +56,8 @@ export type RehearsalStep = {
   callId: string | null
   /** What the model was told instead of a result, when it didn't run. */
   standIn: string | null
+  /** Why the gateway refused it or the call failed, when it was tried and didn't answer: never its result. */
+  error: string | null
 }
 export type Rehearsal = { task: string; steps: RehearsalStep[]; outcome: string }
 
@@ -143,18 +145,18 @@ export const rehearse = async ({
             ? `[Not run in rehearsal: ${name} changes things. Assume it worked.]`
             : null
     if (standIn) {
-      steps.push({ tool: name, ran: false, callId: null, standIn })
+      steps.push({ tool: name, ran: false, callId: null, standIn, error: null })
       transcript.push({ tool: name, arguments: args, result: standIn })
       continue
     }
     const result = await pipeline({ principal, toolName: name, args, via: 'rehearsal', interactive: false }).then(
-      (outcome) => ({ callId: outcome.id, text: flattened(outcome.result) }),
-      (error: unknown) => ({
-        callId: null,
-        text: `[Refused or failed: ${error instanceof Error ? error.message : String(error)}]`.slice(0, RESULT_CHARS),
-      }),
+      (outcome) => ({ callId: outcome.id, text: flattened(outcome.result), error: null }),
+      (error: unknown) => {
+        const said = (error instanceof Error ? error.message : String(error)).slice(0, OUTCOME_CHARS)
+        return { callId: null, text: `[Refused or failed: ${said}]`, error: said }
+      },
     )
-    steps.push({ tool: name, ran: true, callId: result.callId, standIn: null })
+    steps.push({ tool: name, ran: true, callId: result.callId, standIn: null, error: result.error })
     transcript.push({ tool: name, arguments: args, result: result.text })
   }
   return { task, steps, outcome: `Not finished in ${REHEARSAL_STEPS} steps.` }
