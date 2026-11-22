@@ -71,7 +71,8 @@ A pack can have a skill and playbooks written for it, by its owner, over its own
 - Its **own playbooks**: listed first in `GET /api/playbooks` and as prompts, with `upstream: null` and `pack` set,
   under the name the pack gave them (`say-hello`, not `<upstream>-<prompt>`). `search_tools` suggests them, and
   `get_playbook` or `GET /api/playbooks/{name}/messages?guest=Sam` (each argument its own query parameter) fills one
-  in with your arguments and the pack's own values. They belong to no connection: `?upstream=<id>` leaves them out, and no connection counts them.
+  in with your arguments and the pack's own values. They belong to no connection: `?upstream=<id>` leaves them out,
+  and no connection counts them.
 
 Playbooks, manuals and calls stay inside the pack too. A call to anything else is refused (403) and logged; the
 per-upstream passthrough (`/u/{id}/mcp`) is refused too. A pack key opens only the links its tools returned in the
