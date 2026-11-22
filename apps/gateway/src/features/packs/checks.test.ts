@@ -868,7 +868,8 @@ describe('checkPack on the playbooks a skill names', () => {
 
 describe('checkPack on file names in a text', () => {
   it('never takes a backticked file name for a tool, but still knows a connection’s tool by its upstream', () => {
-    const markdown = 'Read `README.md`, `tokens.css`, `demo-effect.css`, `app.config.mjs` and `fixture.log`.'
+    const markdown =
+      'Read `README.md`, `tokens.css`, `demo-effect.css`, `app.config.mjs`, `fixture.md`, `fixture.json` and `fixture.log`.'
     expect(
       checkPack(desk({ playbooks: [{ name: 'say-hello', markdown, wrote: [] }] })).map((finding) => [
         finding.code,

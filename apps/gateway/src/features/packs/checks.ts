@@ -105,6 +105,8 @@ const nameShaped = (word: string) =>
   /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(word) && /[_.]/.test(word) && /[A-Za-z]/.test(word)
 /** Shaped like a tool's name and not a file's (`tokens.css`, `README.md`). */
 const toolShaped = (word: string) => nameShaped(word) && !FILE.test(word)
+/** The files 0.6.0 knew: named after a connection, only these are a file's name and not that connection's tool. */
+const KNOWN_FILE = /\.(md|mdx|json|jsonl|txt|ya?ml|csv|tsv|html?|xml|pdf|png|jpe?g|gif|svg|js|ts|py|sh|sql|toml|zip)$/i
 
 type DocRead = { findings: Finding[]; uses: string[] }
 
@@ -186,8 +188,12 @@ const readText = (
           message: `\`${word}\` is called ${aliases.join(' and ')} in ${state.title}: write ${aliases.length === 1 ? 'that' : 'the one you mean'}.`,
         },
       ]
-    // Named after one of the pack's connections, it is that connection's tool whatever it ends in
-    if (nameShaped(word) && state.upstreams.includes(word.slice(0, Math.max(0, word.indexOf('.')))))
+    // Named after a connection, it is that connection's tool unless it ends as a file 0.6.0 knew (`fixture.md`)
+    if (
+      nameShaped(word) &&
+      !KNOWN_FILE.test(word) &&
+      state.upstreams.includes(word.slice(0, Math.max(0, word.indexOf('.'))))
+    )
       return [
         {
           level: 'error',
