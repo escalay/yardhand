@@ -139,8 +139,12 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   working, run through `call_tool`.
 - **Input mode**: who fills one input of a pack tool (`features/packs/entries.ts`). **Fixed**: the pack, on every
   call, hidden from its keys; a call that sends it is a 400. **Default**: shown to its keys with the pack's value as
-  the schema's `default` and filled when a call leaves it out; the caller's own value wins. **Agent decides**: the
-  input as the tool has it. Stored per pack tool as `fixed` and `defaults`; an input in neither is the agent's.
+  the schema's `default` and filled when a call leaves it out; the caller's own value wins. **Per person**: hidden
+  like Fixed, and filled with one variable as it is for the caller: their own value (`pack_person_values`, set by the
+  owner under People and in Share), else the pack's, else nothing is sent; a required input with no value at all is a
+  409 naming the variable, never the input. A person's value fills Per person inputs only, and a lock built for no
+  person (`packScopeFrom` without their values: the owner inside a pack) reads the pack's. **Agent decides**: the input as the tool has it. Stored per pack tool as
+  `fixed`, `defaults` and `person`; an input in none is the agent's.
 - **Variable**: a named value of a pack (`PUT /api/packs/{name}/variables`), written `{{name}}` in a fixed or default
   value and filled in when the pack lock is built (`packScopeFrom`). A value that is one variable and nothing else
   takes its type. Only a name the pack declares is a variable: any other `{{word}}` is sent as written.
