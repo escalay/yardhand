@@ -121,7 +121,7 @@ describe('a refresh that fails or stops', () => {
   const FIRST = 20
   const THEN = 100
   /** A search over sixty tools whose embedder answers from `answers`, one per call, then embeds as it should. */
-  const failingFirst = (answers: (() => Promise<never>)[], rows = 60) => {
+  const failingFirst = (answers: (() => Promise<never>)[], rows = 60, retryDelays = [FIRST, THEN]) => {
     let calls = 0
     const asked: number[] = []
     const search = createMeaningSearch({
@@ -143,7 +143,7 @@ describe('a refresh that fails or stops', () => {
       },
       query: async () => axis(0),
       log: () => {},
-      retryDelays: [FIRST, THEN],
+      retryDelays,
     })
     return Object.assign(search, { calls: () => calls, asked })
   }
@@ -189,6 +189,43 @@ describe('a refresh that fails or stops', () => {
     search.stop?.()
     await new Promise((resolve) => setTimeout(resolve, THEN * 2))
     expect(search.calls()).toBe(1)
+    expect(search.status?.().retryAt).toBeNull()
+  })
+
+  const WAIT = 200
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  it('keeps one try waiting however many refreshes failed in a row', async () => {
+    const search = failingFirst(
+      Array.from({ length: 20 }, () => busy),
+      60,
+      [WAIT],
+    )
+    // A sync, an approval and the start refresh, one after another
+    void search.refresh()
+    void search.refresh()
+    await search.refresh()
+    expect(search.calls()).toBe(3)
+    await vi.waitFor(() => expect(search.calls()).toBeGreaterThanOrEqual(4), { timeout: WAIT * 3 })
+    await pause(WAIT / 2)
+    expect(search.calls()).toBe(4)
+    search.stop?.()
+  })
+
+  it('runs nothing once stopped: neither a refresh still queued nor a try already waiting', async () => {
+    const search = failingFirst(
+      Array.from({ length: 20 }, () => busy),
+      60,
+      [WAIT],
+    )
+    void search.refresh()
+    void search.refresh()
+    await search.refresh()
+    search.stop?.()
+    void search.refresh()
+    await search.refresh()
+    await pause(WAIT * 2)
+    expect(search.calls()).toBe(3)
     expect(search.status?.().retryAt).toBeNull()
   })
 })
