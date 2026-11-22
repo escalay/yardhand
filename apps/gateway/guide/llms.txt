@@ -138,7 +138,8 @@ What the checks say:
   a playbook past 12 steps, a section the skill leaves out.
 - In a fixed or default value, a `{{open}}word}}` the pack has no variable for is sent as written, with a warning:
   a tool whose own input is a template keeps working. In a playbook or the skill nothing is sent as written, so
-  there it is an error.
+  there it is an error. That holds inside fenced code blocks too: there is no escape to keep a `{{open}}word}}` as
+  written.
 
 `GET /api/packs/{name}` shows the pack as it stands: `findings`, `ownPlaybooks`, `skill`, and `flags` once a tool
 changed under a text. A text is never blocked by a tool that moves: it is flagged, and saving it again clears the
