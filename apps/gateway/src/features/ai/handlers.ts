@@ -120,18 +120,18 @@ export const aiHandlers = ({ ai, vault }: Services) => {
 
   const models: RouteHandler<Routes['models']> = async (c) => {
     requireOwner(c)
-    const { provider, q, for: role } = c.req.valid('query')
-    const grouping = await ai.grouping()
+    const { job, provider, q, for: role } = c.req.valid('query')
+    const base = job === 'builds' ? await ai.builds() : await ai.grouping()
     const config = provider
       ? {
-          ...grouping,
+          ...base,
           provider: { value: provider, from: 'settings' as const },
           baseUrl:
-            provider === grouping.provider.value
-              ? grouping.baseUrl
+            provider === base.provider.value
+              ? base.baseUrl
               : { value: PROVIDERS[provider].baseUrl, from: 'default' as const },
         }
-      : grouping
+      : base
     const all = await listModels(config).catch((error: unknown) => {
       throw new ProblemError('upstream', { detail: error instanceof AiError ? error.message : String(error) })
     })

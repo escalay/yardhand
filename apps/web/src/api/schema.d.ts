@@ -6435,7 +6435,9 @@ export interface operations {
     listAiModels: {
         parameters: {
             query?: {
-                /** @description Which provider; default the grouping job’s. */
+                /** @description Whose key and address to ask with: smart grouping’s (the default) or Build with AI’s, which follows grouping’s for what it leaves unset. */
+                job?: "grouping" | "builds";
+                /** @description Which provider; default the job’s own. */
                 provider?: "openrouter" | "openai" | "local" | "custom";
                 /** @description Only models whose id or name has these words. */
                 q?: string;

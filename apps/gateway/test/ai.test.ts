@@ -144,4 +144,16 @@ describe('AI settings', () => {
     const { json } = await owner('/api/ai/models?provider=custom&q=decider')
     expect(json.models.map((model: { id: string }) => model.id)).toEqual(['decider-1'])
   })
+
+  it('lists the models Build with AI can reach, at its own address when it has one', async () => {
+    // Following grouping, it lists what grouping's server offers
+    const follows = await owner('/api/ai/models?job=builds&provider=custom&q=decider')
+    expect(follows.json.models.map((model: { id: string }) => model.id)).toEqual(['decider-1'])
+    // At an address of its own, it asks there and not grouping's server
+    await owner('/api/ai/builds', { method: 'PATCH', body: { baseUrl: 'http://127.0.0.1:9/v1' } })
+    const own = await owner('/api/ai/models?job=builds&provider=custom')
+    expect(own.status).toBe(503)
+    expect((await owner('/api/ai/models?provider=custom&q=decider')).status).toBe(200)
+    await owner('/api/ai/builds', { method: 'PATCH', body: { baseUrl: null } })
+  })
 })

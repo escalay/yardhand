@@ -129,7 +129,11 @@ export const routes = {
       'The models a provider offers, for the picker: OpenRouter’s catalogue with names, prices and context sizes (TypeSafe’s decision models first), else the server’s own /models (owner only).',
     request: {
       query: z.object({
-        provider: ProviderSchema.optional().openapi({ description: 'Which provider; default the grouping job’s.' }),
+        job: z.enum(['grouping', 'builds']).optional().openapi({
+          description:
+            'Whose key and address to ask with: smart grouping’s (the default) or Build with AI’s, which follows grouping’s for what it leaves unset.',
+        }),
+        provider: ProviderSchema.optional().openapi({ description: 'Which provider; default the job’s own.' }),
         q: z.string().max(100).optional().openapi({ description: 'Only models whose id or name has these words.' }),
         for: z.enum(['writer', 'typesafe', 'chat']).optional().openapi({
           description:
