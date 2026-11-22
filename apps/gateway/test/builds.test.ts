@@ -659,6 +659,20 @@ describe('an input value a model drafts', () => {
     expect(refused.status).toBe(400)
     expect(refused.json.detail).toMatch(/^Not saved:/)
   })
+
+  it('may be left out for an input given back to the agent', async () => {
+    const { pack, build } = await gateway(
+      fakeModel({
+        kit: {
+          tools: [{ name: 'fixture.greet', reason: 'Greets a guest.' }],
+          inputs: [{ tool: 'fixture.greet', input: 'from', mode: 'agent' }],
+        },
+      }),
+    )
+    await pack('desk', 'Desk', 'Greets guests at the desk and echoes their notes.')
+    const done = await build('desk', ['greet a guest called Ada'])
+    expect([done.status, done.error]).toEqual(['ready', null])
+  })
 })
 
 describe('a pack whose input each person fills', async () => {

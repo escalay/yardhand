@@ -53,8 +53,8 @@ const KitAnswer = z.object({
         tool: z.string().max(200),
         input: z.string().max(200),
         mode: z.enum(['fixed', 'default', 'agent']),
-        // Any JSON, as a pack's own values: the pack's checks judge it against the tool's schema
-        value: z.unknown(),
+        // Any JSON, as a pack's own values: the pack's checks judge it against the tool's schema; left out for `agent`
+        value: z.unknown().optional(),
       }),
     )
     .max(200)
