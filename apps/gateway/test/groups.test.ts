@@ -199,3 +199,25 @@ describe('tool groups', () => {
     expect((await remove('nope')).status).toBe(404)
   })
 })
+
+describe('a group named after its connection', () => {
+  it('keeps the connection’s own word as it is: never made plural', async () => {
+    const forecast = await owner('/api/upstreams', {
+      method: 'POST',
+      body: {
+        id: 'forecast',
+        title: 'Forecast',
+        kind: 'http',
+        url: 'http://127.0.0.1:9/api',
+        http: { endpoints: [endpoint('getForecast', 'get'), endpoint('listForecastDays', 'get')] },
+        auth: { type: 'none' },
+        trust: 'trusted',
+      },
+    })
+    expect(forecast.status).toBe(201)
+    const view = (await owner('/api/upstreams/forecast/groups')).json
+    expect(view.groups.map((group: { title: string; tools: number }) => [group.title, group.tools])).toEqual([
+      ['Forecast', 2],
+    ])
+  })
+})
