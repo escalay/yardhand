@@ -54,9 +54,9 @@ export type Connection = { id: string; title: string }
 
 /** A group's title: the connection's name as it writes it when the noun is that whole name (one word), else the plural. */
 const titleOf = (word: string, connection?: Connection) => {
-  const names = connection ? [connection.id, connection.title.trim()] : []
+  const names = connection ? [connection.title.trim(), connection.id] : []
   const named = names.find((name) => /^[A-Za-z0-9]+$/.test(name) && singular(name.toLowerCase()) === word)
-  return named ? capital(named.toLowerCase()) : plural(word)
+  return named ? capital(named) : plural(word)
 }
 
 export const keyOf = (title: string) =>

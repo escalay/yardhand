@@ -24,6 +24,11 @@ describe('groups by rules', () => {
       key: 'weather',
       title: 'Weather',
     })
+    // Its title as the owner writes it: an acronym stays in capitals
+    expect(ruleGroupOf({ remoteName: 'get_api' }, [], { id: 'api', title: 'API' })).toEqual({
+      key: 'api',
+      title: 'API',
+    })
     // Only the connection's whole name: a countable noun in a longer title keeps its plural
     expect(ruleGroupOf({ remoteName: 'list_screens' }, [], { id: 'desk', title: 'Desk screen library' })).toEqual({
       key: 'screen',
