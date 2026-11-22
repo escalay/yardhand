@@ -260,6 +260,13 @@ export const PackSchema = PackCardSchema.extend({
       description:
         'Names it used to have that still lead to it, newest first, each with how many of its people last connected there. `DELETE /api/packs/{name}/names/{former}` frees one.',
     }),
+  build: z
+    .object({ id: z.string(), status: z.enum(['running', 'ready', 'stopped']) })
+    .nullable()
+    .openapi({
+      description:
+        'Its newest Build or Refresh with AI while it runs or waits to be accepted, or null. `GET /api/packs/{name}/builds/{id}` reads it.',
+    }),
 }).openapi('Pack', { description: 'A pack with everything in it, in order.' })
 
 const PersonSchema = z

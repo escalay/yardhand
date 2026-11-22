@@ -145,6 +145,17 @@ export const createApp = async ({
   // Per caller: runs reach paid and rate-limited upstreams, so a runaway agent stops here first
   const runs = rateLimit({ policy: 'tool-calls', limit: 300, windowSeconds: 60, store: await dbGuardStore(db) })
   app.on('POST', ['/api/calls', '/api/tools/:name/calls', '/u/:upstream/mcp'], runs)
+  // Six builds an hour per pack and caller, refused ones too: each may spend $1 and run real read calls
+  const builds = await dbGuardStore(db)
+  app.on('POST', '/api/packs/:name/builds', async (c, next) => {
+    const name = c.req.param('name') ?? ''
+    // By the pack's id, so a rename doesn't give it six more
+    const pack = await services.packs.get(name)
+    return rateLimit({ policy: `builds for ${pack?.id ?? name}`, limit: 6, windowSeconds: 3600, store: builds })(
+      c,
+      next,
+    )
+  })
   // Ten tries a minute per address: owner keys are long, but a guess should still be slow
   app.on(
     'POST',

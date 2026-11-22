@@ -11,6 +11,8 @@ import {
   resolveSearch,
 } from './features/ai/config.js'
 import { buildsModel, type Model } from './features/ai/model.js'
+import { createBuilder, type Proposal } from './features/builds/builder.js'
+import { buildsRepo } from './features/builds/repo.js'
 import { createHanded } from './features/calls/handed.js'
 import { createPipeline } from './features/calls/pipeline.js'
 import { createReads } from './features/calls/reads.js'
@@ -309,6 +311,10 @@ export const createServices = async ({
       },
     })
   }
+  const model = givenModel ?? buildsModel(ai)
+  const pipeline = createPipeline({ tools, upstreams, adapters, calls, credentialOf, key: masterKey, handed })
+  const builds = buildsRepo<Proposal>(db, masterKey)
+  const builder = createBuilder({ builds, packs, tools, catalog, upstreams, meaning, model, pipeline })
   return {
     db,
     env,
@@ -342,13 +348,16 @@ export const createServices = async ({
     meaning,
     ai: { ...ai, searchKeyChanged },
     /** The model Build with AI asks: the one given, else the build job's. */
-    model: givenModel ?? buildsModel(ai),
+    model,
+    /** Build and Refresh with AI: the builds kept, and the runs in this process. */
+    builds,
+    builder,
     sync,
     grouping,
     watcher,
     listsChanged,
     handed,
-    pipeline: createPipeline({ tools, upstreams, adapters, calls, credentialOf, key: masterKey, handed }),
+    pipeline,
     reads: createReads({ catalog, tools, upstreams, adapters, calls, credentialOf, handed, packDocs }),
   }
 }

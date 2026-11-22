@@ -54,6 +54,8 @@ export const packsHandlers = ({
   meaning,
   env,
   listsChanged,
+  builds,
+  builder,
 }: Services) => {
   const repos = { packs, tools, catalog, upstreams }
   const packOf = async (name: string) => {
@@ -208,6 +210,15 @@ export const packsHandlers = ({
     }))
   }
 
+  /** Its newest build while it runs or waits to be accepted; a `running` one a restart cut off is none. */
+  const buildOf = async (pack: PackRow) => {
+    const [newest] = await builds.newestOf(pack.id, 1)
+    if (!newest) return null
+    if (newest.status === 'running')
+      return builder.holds(pack.id, newest.id) ? { id: newest.id, status: 'running' as const } : null
+    return newest.status === 'ready' || newest.status === 'stopped' ? { id: newest.id, status: newest.status } : null
+  }
+
   const detailOf = async (origin: string, pack: PackRow) => {
     const { card, held, toolRows, docFlags, keys } = await cardOf(origin, pack)
     const now = new Date()
@@ -240,6 +251,7 @@ export const packsHandlers = ({
       triedAt: pack.triedAt,
       lastCallAt: await lastCallOf(pack),
       formerNames: await formerNamesOf(pack, listed),
+      build: await buildOf(pack),
     }
   }
 
@@ -480,6 +492,7 @@ export const packsHandlers = ({
         detail: `${pack.title} has ${live.length} live key${live.length === 1 ? '' : 's'} (${live.map((key) => key.name).join(', ')}): revoke ${live.length === 1 ? 'it' : 'them'} first.`,
       })
     await packs.remove(pack.id)
+    await builds.forgetPack(pack.id)
     listsChanged()
     return c.body(null, 204)
   }
@@ -611,5 +624,5 @@ export const packsHandlers = ({
     )
   }
 
-  return { flags, list, create, get, setup, update, remove, freeName, wording, entry, variables, uses }
+  return { flags, list, create, get, setup, update, remove, freeName, wording, entry, variables, uses, detailOf }
 }
