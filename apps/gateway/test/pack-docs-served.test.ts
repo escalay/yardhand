@@ -356,6 +356,26 @@ describe('a pack’s own playbooks over REST', () => {
     expect(await lastReads(1)).toEqual([['playbook', 'say-hello', null, 'rest', 'refused']])
   })
 
+  it('record a refused use with placeholders for the values given, which only its answer shows', async () => {
+    const path = '/p/desk/api/playbooks/say-hello/messages'
+    const loggedError = async () =>
+      ((await owner('/api/calls?kind=playbook&limit=1')).json._embedded.calls[0] as { error: string | null }).error
+    const missing = await at(ada.key, `${path}?mood=sunny-7f3a`)
+    expect([missing.status, missing.json.detail]).toEqual([
+      400,
+      `say-hello needs guest: guest (Who to greet.); mood. Send each as its own query parameter: GET http://localhost${path}?guest=<guest>&mood=sunny-7f3a`,
+    ])
+    expect(await loggedError()).toBe(
+      `say-hello needs guest: guest (Who to greet.); mood. Send each as its own query parameter: GET http://localhost${path}?guest=<guest>&mood=<mood>`,
+    )
+    await at(ada.key, `${path}?arguments=${encodeURIComponent('{"mood":"sunny-7f3a"}')}`)
+    expect(await loggedError()).not.toContain('sunny-7f3a')
+    // A refusal's text is kept to its first 1000 characters, as a failed read's is
+    const long = await at(ada.key, `${path}?${'x'.repeat(1500)}=1`)
+    expect([long.status, long.json.detail.length > 1000]).toEqual([400, true])
+    expect((await loggedError())?.length).toBe(1000)
+  })
+
   it('read only the arguments given, even one named like what every object has', async () => {
     await packWith('shelf', 'Shelf', [{ name: 'fixture.echo' }])
     const markdown = (name: string, required: boolean) =>
