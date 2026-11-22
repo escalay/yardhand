@@ -10,6 +10,7 @@ import {
   resolveGrouping,
   resolveSearch,
 } from './features/ai/config.js'
+import { buildsModel, type Model } from './features/ai/model.js'
 import { createHanded } from './features/calls/handed.js'
 import { createPipeline } from './features/calls/pipeline.js'
 import { createReads } from './features/calls/reads.js'
@@ -106,12 +107,15 @@ export const createServices = async ({
   env,
   keys,
   meaning: given,
+  model: givenModel,
 }: {
   db: Db
   env: Env
   keys: Map<string, string>
   /** Search by meaning; tests pass a fake one. Without it and without a key, search is by keywords only. */
   meaning?: MeaningSearch
+  /** The model Build with AI asks; tests and the demo pass a scripted one. */
+  model?: Model
 }) => {
   const masterKey = parseMasterKey(env.GATEWAY_MASTER_KEY)
   const vault = vaultRepo(db, masterKey)
@@ -337,6 +341,8 @@ export const createServices = async ({
     upstreamHeaders,
     meaning,
     ai: { ...ai, searchKeyChanged },
+    /** The model Build with AI asks: the one given, else the build job's. */
+    model: givenModel ?? buildsModel(ai),
     sync,
     grouping,
     watcher,

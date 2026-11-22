@@ -8,6 +8,7 @@
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { Model } from './features/ai/model.js'
 import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { packChoice, withPackAddresses } from './features/clients/pack-choice.js'
 import { callerOf } from './features/clients/principals.js'
@@ -73,11 +74,14 @@ export const createApp = async ({
   db,
   env,
   meaning,
+  model,
   unclaimed,
 }: {
   db: Db
   env: Env
   meaning?: MeaningSearch
+  /** The model Build with AI asks; tests and the demo pass a scripted one. */
+  model?: Model
   /** An instance nobody owns yet waits here for its setup code (see `features/instance`). */
   unclaimed?: Unclaimed
 }) => {
@@ -89,7 +93,7 @@ export const createApp = async ({
   const features = [...FEATURES, session]
   for (const feature of features) await migrate(db, feature.name, feature.migrations)
   const sessionAuth = createSessionAuth({ keys, sessions })
-  const services = await createServices({ db, env, keys, ...(meaning ? { meaning } : {}) })
+  const services = await createServices({ db, env, keys, ...(meaning ? { meaning } : {}), ...(model ? { model } : {}) })
   const web = { dir: env.WEB_DIR ?? DEFAULT_WEB_DIR }
   const hasWeb = existsSync(join(web.dir, 'index.html'))
   // The OAuth callback stays behind sign-in: only the pages themselves are open
