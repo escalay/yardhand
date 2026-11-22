@@ -524,6 +524,26 @@ describe('the estimate and the doors', async () => {
     ).toBe(403)
   })
 
+  it('answers a key that is not the owner’s alike for a pack that exists and one that doesn’t', async () => {
+    const key = await api('/api/clients', { method: 'POST', body: { name: 'Ada', scope: 'read', upstreams: 'all' } })
+    const asked = async (name: string) => {
+      const response = await app.request(`/api/packs/${name}/builds`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key.json.key}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'build', tasks: TASKS }),
+      })
+      const headers = [...response.headers].filter(([header]) => !['date', 'x-request-id'].includes(header))
+      const { instance: _, ...body } = (await response.json()) as Record<string, unknown>
+      return { status: response.status, headers, body }
+    }
+    for (let tries = 0; tries < 7; tries++) {
+      const [there, missing] = [await asked('desk'), await asked('nowhere')]
+      expect(there.status).toBe(403)
+      expect(there.headers).toEqual(missing.headers)
+      expect(there.body).toEqual(missing.body)
+    }
+  })
+
   it('runs one build at a time for a pack', async () => {
     const first = await api('/api/packs/desk/builds', {
       method: 'POST',
