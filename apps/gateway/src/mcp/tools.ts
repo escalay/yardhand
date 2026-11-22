@@ -49,8 +49,8 @@ const coversLine = ({ covers, more }: Covers) =>
     ? `This pack covers: ${covers.join(', ')}${more ? `, and ${more} more` : ''}.`
     : 'This pack holds no tools this key can use.'
 
-/** A pack by the title its agents read. */
-type PackWords = { title: string }
+/** A pack by the title its agents read, and where its skill is read when it has one. */
+type PackWords = { title: string; skill?: string | null }
 
 /** The meta-tools as the gateway words them, or over one pack as that pack words them. */
 export const metaToolsFor = (pack?: PackWords): McpTool[] => [
@@ -151,14 +151,19 @@ export const metaToolsFor = (pack?: PackWords): McpTool[] => [
   mcpTool({
     name: 'read_resource',
     title: 'Read a manual or a link',
-    description:
-      'Reads a server’s manual (gateway://u/<upstream>/manual) or a link a tool returned, as it came (cookbook://recipes/123). Read a server’s manual once before using its tools.',
+    description: pack?.skill
+      ? `Reads a server’s manual (gateway://u/<upstream>/manual), a link a tool returned, as it came (cookbook://recipes/123), or this pack’s skill (${pack.skill}). Read the skill once before the pack’s tools, and a server’s manual once before its tools.`
+      : 'Reads a server’s manual (gateway://u/<upstream>/manual) or a link a tool returned, as it came (cookbook://recipes/123). Read a server’s manual once before using its tools.',
     input: z.object({
       uri: z
         .string()
         .min(3)
         .max(2000)
-        .describe('The link as given, or gateway://u/<upstream>/manual for a server’s manual.'),
+        .describe(
+          pack?.skill
+            ? `The link as given, gateway://u/<upstream>/manual for a server’s manual, or ${pack.skill} for this pack’s skill.`
+            : 'The link as given, or gateway://u/<upstream>/manual for a server’s manual.',
+        ),
       upstream: z.string().max(40).optional().describe('Which server, only when two serve links of the same scheme.'),
     }),
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
@@ -175,14 +180,19 @@ export const metaToolsFor = (pack?: PackWords): McpTool[] => [
   mcpTool({
     name: 'get_playbook',
     title: 'Use a playbook',
-    description:
-      'A playbook filled in with your arguments: a server’s step-by-step way to do one task with its tools. search_tools suggests them; follow the steps it returns.',
+    description: pack
+      ? 'A playbook filled in with your arguments: a step-by-step way to do one task with this pack’s tools. search_tools suggests them; follow the steps it returns.'
+      : 'A playbook filled in with your arguments: a server’s step-by-step way to do one task with its tools. search_tools suggests them; follow the steps it returns.',
     input: z.object({
       name: z
         .string()
         .min(3)
         .max(128)
-        .describe('The playbook name, `<upstream>-<prompt>`, e.g. cookbook-plan-a-dinner.'),
+        .describe(
+          pack
+            ? 'The playbook name as search_tools or the prompt list gives it.'
+            : 'The playbook name, `<upstream>-<prompt>`, e.g. cookbook-plan-a-dinner.',
+        ),
       arguments: z
         .record(z.string(), z.string())
         .optional()

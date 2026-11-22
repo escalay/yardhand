@@ -4,9 +4,9 @@
  * database and join the kit's key map at boot and whenever one is made or revoked.
  *
  * A key locked to a pack reaches only the pack: its upstreams become the pack's, and `reaches` / `runsTool` / `holds`
- * keep tools, playbooks and manuals to what is in it. A pack names its tools its own way and sets some of their
- * inputs (`entryOf`, `shownAs`). `packScopeFrom` is the one builder of that lock, with the pack's variables filled
- * into the values it fixes and defaults.
+ * / `holdsOwn` keep tools, playbooks and manuals, and the playbooks and skill written for the pack, to what is in it.
+ * A pack names its tools its own way and sets some of their inputs (`entryOf`, `shownAs`). `packScopeFrom` is the
+ * one builder of that lock, with the pack's variables filled into the values it fixes and defaults.
  * The owner asking for a pack (its address or the header) is answered as a write key of that pack would be.
  */
 import type { Context } from 'hono'
@@ -14,8 +14,9 @@ import { type Caller, mintApiKey, ProblemError } from '../../kit/index.js'
 import type { CatalogRepo } from '../catalog/repo.js'
 import { type Fixed, type PackEntry, presented, resolveEntry } from '../packs/entries.js'
 import { noPack } from '../packs/names.js'
-import type { PackContents, PacksRepo } from '../packs/repo.js'
+import type { PackContents, PackDoc, PacksRepo } from '../packs/repo.js'
 import type { PackRow } from '../packs/schema.js'
+import { packSkillUriOf } from '../packs/skill.js'
 import { variablesFrom } from '../packs/values.js'
 import { isOff, type LiveTool, needsWrite } from '../tools/repo.js'
 import { dayOf } from './lifetimes.js'
@@ -32,12 +33,19 @@ export type PackScope = {
   tools: Map<string, PackEntry>
   playbooks: Set<string>
   manuals: Set<string>
+  /** The playbooks written for it, by name. */
+  ownPlaybooks: Set<string>
+  /** Where its skill is read (`skill://<pack>/SKILL.md`); null when it has none. */
+  skill: string | null
 }
 
 /** The lock for a pack with these contents: the only place a `PackScope` is built. */
 export const packScopeFrom = (
   pack: Pick<PackRow, 'id' | 'name' | 'title' | 'description'>,
-  contents: Pick<PackContents, 'tools' | 'variables' | 'playbooks' | 'manuals'>,
+  contents: Pick<PackContents, 'tools' | 'variables' | 'playbooks' | 'manuals'> & {
+    /** What is written for it: the lock keeps the names, never the texts. */
+    docs: Pick<PackDoc, 'kind' | 'name'>[]
+  },
 ): PackScope => {
   const variables = variablesFrom(contents.variables)
   return {
@@ -48,6 +56,8 @@ export const packScopeFrom = (
     tools: new Map(contents.tools.map((row) => [row.name, resolveEntry(row, variables)])),
     playbooks: new Set(contents.playbooks),
     manuals: new Set(contents.manuals),
+    ownPlaybooks: new Set(contents.docs.filter((doc) => doc.kind === 'playbook').map((doc) => doc.name)),
+    skill: contents.docs.some((doc) => doc.kind === 'skill') ? packSkillUriOf(pack.name) : null,
   }
 }
 
@@ -135,6 +145,9 @@ export const holds = (principal: Principal, item: { kind: string; name: string }
     : item.kind === 'manual'
       ? principal.pack.manuals.has(item.name)
       : true)
+
+/** Did its pack write this playbook? Never true outside a pack: a pack's own playbook belongs to no connection. */
+export const holdsOwn = (principal: Principal, name: string) => Boolean(principal.pack?.ownPlaybooks.has(name))
 
 /**
  * The tool as this principal reads it: as itself outside a pack; inside one, once per name the pack runs it under,
@@ -285,7 +298,7 @@ export const createPrincipals = ({
         ? (pack ??
           packScopeFrom(
             { id: chosen.id, name: 'removed', title: 'a removed pack', description: '' },
-            { tools: [], variables: [], playbooks: [], manuals: [] },
+            { tools: [], variables: [], playbooks: [], manuals: [], docs: [] },
           ))
         : null,
       packs: byDefault.map((opened) => ({ name: opened.name, title: opened.title })),

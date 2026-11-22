@@ -21,6 +21,7 @@ import {
   shownAs,
 } from '../clients/principals.js'
 import { noPack } from '../packs/names.js'
+import { ownTitleOf } from '../packs/own.js'
 import { fuse } from './meaning.js'
 
 /** Meaning counts a bit more than words: generic words like "app" match too much to lead. */
@@ -60,6 +61,7 @@ export const toolsHandlers = ({
   clients,
   calls,
   packs,
+  packDocs,
   listsChanged,
 }: Services) => {
   const principalOf = (c: Context) => principals.require(callerOf(c))
@@ -339,9 +341,12 @@ export const toolsHandlers = ({
   }
   /**
    * Playbooks made for what was asked, offered to this caller: at most three, each matching enough of the words. They
-   * are searched among the ones it may read, so better matches it can't read never push its own off the page.
+   * are searched among the ones it may read, so better matches it can't read never push its own off the page. The
+   * ones its pack wrote come first; asked for one connection, they are left out, since they belong to none.
    */
   const playbooksFor = async (principal: Principal, words: string, upstream: string | undefined) => {
+    const { pack } = principal
+    const own = pack && !upstream ? await packDocs.playbooks(principal, words) : []
     const offering = (await upstreams.list())
       .filter(
         (row) =>
@@ -356,16 +361,23 @@ export const toolsHandlers = ({
       upstreams: offering,
       names: principal.pack ? [...principal.pack.playbooks] : undefined,
     })
-    return (await catalog.liveByIds(ids))
+    const offered = (await catalog.liveByIds(ids))
       .filter((item) => holds(principal, item))
       .map((item) => ({ item, content: item.content as PlaybookContent }))
       .filter(({ item, content }) => matchesEnough(words, `${item.name} ${content.title ?? ''} ${content.description}`))
-      .slice(0, 3)
       .map(({ item, content }) => ({
         name: item.name,
         title: playbookTitleOf(item.upstreamId, content),
         description: summaryOf(content.description),
       }))
+    return [
+      ...own.map((playbook) => ({
+        name: playbook.name,
+        title: ownTitleOf(pack as NonNullable<typeof pack>, playbook),
+        description: summaryOf(playbook.description),
+      })),
+      ...offered,
+    ].slice(0, 3)
   }
   const detailOf = async (origin: string, tool: LiveTool, principal: Principal, view: 'full' | 'brief' = 'full') => {
     const upstream = await upstreams.get(tool.upstreamId)

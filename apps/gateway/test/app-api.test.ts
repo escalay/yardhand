@@ -562,6 +562,109 @@ describe('what the pack page stands on', () => {
     })
   })
 
+  it('gives the editor a pack’s own playbooks and skill, a check of a draft that saves nothing, and older texts', async () => {
+    const first = '---\ntitle: Say it twice\n---\n\n1. Run `fixture.echo`.\n2. Then `fixture.shout`.\n'
+    const made = await owner('/api/packs/loud/playbooks', {
+      method: 'POST',
+      body: { name: 'say-it-twice', markdown: first },
+    })
+    expect([made.status, made.json.versions.length]).toEqual([201, 1])
+    const skill = await owner('/api/packs/loud/skill', {
+      method: 'PUT',
+      body: { markdown: '## What it is for\n\nSaying things back with `fixture.echo`.\n' },
+    })
+    expect(skill.status).toBe(200)
+
+    // The page: each text with what the checks find in it, counted apart from what the connections gave
+    const page = (await owner('/api/packs/loud')).json
+    expect(page.counts).toMatchObject({ playbooks: 0, ownPlaybooks: 1 })
+    expect(page.ownPlaybooks).toEqual([
+      {
+        name: 'say-it-twice',
+        title: 'Say it twice',
+        description: '',
+        arguments: [],
+        steps: 2,
+        flag: null,
+        findings: [
+          {
+            level: 'warning',
+            code: 'needs_write',
+            path: 'playbooks.say-it-twice',
+            message: '`fixture.shout` changes things: a read-only key can’t run it.',
+          },
+        ],
+      },
+    ])
+    expect(page.skill).toMatchObject({
+      uri: 'skill://loud/SKILL.md',
+      sections: ['What it is for'],
+      flag: null,
+      findings: [{ level: 'warning', code: 'missing_section', path: 'skill' }],
+    })
+
+    // As the owner types: a draft is checked against the pack as it is, and nothing is saved
+    const draft = await owner('/api/packs/loud/checks', {
+      method: 'POST',
+      body: { kind: 'playbook', name: 'say-it-twice', markdown: `${first}3. Then \`fixture.whisper\` to {{guest}}.\n` },
+    })
+    expect(draft.status).toBe(200)
+    expect(
+      draft.json.findings.map((finding: { level: string; code: string }) => [finding.level, finding.code]),
+    ).toEqual([
+      ['error', 'unresolved'],
+      ['warning', 'needs_write'],
+      ['error', 'not_in_pack'],
+    ])
+    const fresh = await owner('/api/packs/loud/checks', {
+      method: 'POST',
+      body: { kind: 'playbook', markdown: '1. Run `fixture.echo`.\n' },
+    })
+    expect(fresh.json.findings).toEqual([])
+    const sections = await owner('/api/packs/loud/checks', {
+      method: 'POST',
+      body: { kind: 'skill', markdown: '## Gotchas\n\n`fixture.whisper` is not here.\n' },
+    })
+    expect(sections.json.findings.map((finding: { code: string }) => finding.code)).toEqual([
+      'not_in_pack',
+      'missing_section',
+    ])
+    const after = (await owner('/api/packs/loud/playbooks/say-it-twice')).json
+    expect([after.markdown, after.versions.length]).toEqual([first, 1])
+    expect((await owner('/api/packs/loud/skill')).json.sections).toEqual(['What it is for'])
+
+    // A save the checks refuse lists each problem by where it is
+    const refused = await owner('/api/packs/loud/playbooks/say-it-twice', {
+      method: 'PUT',
+      body: { markdown: `${first}3. Then \`fixture.whisper\`.\n` },
+    })
+    expect(refused.status).toBe(400)
+    expect(refused.json.errors).toMatchObject([
+      {
+        path: 'playbooks.say-it-twice',
+        message: '`fixture.whisper` is not in Loud: add it to the pack, or take it out of the text.',
+      },
+    ])
+
+    // The versions menu: a new text is served, and the one before it can be read back
+    const second = first.replace('2. Then `fixture.shout`.\n', '')
+    const saved = await owner('/api/packs/loud/playbooks/say-it-twice', { method: 'PUT', body: { markdown: second } })
+    expect([saved.status, saved.json.steps, saved.json.findings]).toEqual([200, 1, []])
+    expect(
+      saved.json.versions.map((version: { live: boolean; source: string }) => [version.live, version.source]),
+    ).toEqual([
+      [true, 'owner'],
+      [false, 'owner'],
+    ])
+    const older = await owner(`/api/packs/loud/playbooks/say-it-twice?version=${saved.json.versions[1].id}`)
+    expect([older.json.markdown, older.json.version, older.json.steps]).toEqual([first, saved.json.versions[1].id, 1])
+
+    // Back as it was
+    expect((await owner('/api/packs/loud/playbooks/say-it-twice', { method: 'DELETE' })).status).toBe(204)
+    expect((await owner('/api/packs/loud/skill', { method: 'DELETE' })).status).toBe(204)
+    expect((await owner('/api/packs/loud')).json).toMatchObject({ ownPlaybooks: [], skill: null, findings: [] })
+  })
+
   it('renames a pack as its Edit dialog does, and frees the old name', async () => {
     const made = await owner('/api/packs', { method: 'POST', body: { name: 'draft', title: 'Draft' } })
     expect([made.status, made.json.formerNames]).toEqual([201, []])

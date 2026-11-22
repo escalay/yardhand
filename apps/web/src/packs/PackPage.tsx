@@ -1,10 +1,10 @@
 /**
- * One pack: its tools (why each is in, the pack's wording, flags when an upstream moved on), its playbooks and
- * manuals, and the people it is shared with, with one more from the Share sheet. The Overview checks it as it is
- * built: the steps of setting it up, its address with setup per app, a search of it as its keys get it, and what its
- * agents read first.
+ * One pack: its tools (why each is in, the pack's wording, flags when an upstream moved on), the playbooks and skill
+ * written for it with the playbooks and manuals it holds from its connections, and the people it is shared with,
+ * with one more from the Share sheet. The Overview checks it as it is built: the steps of setting it up, its address
+ * with setup per app, a search of it as its keys get it, and what its agents read first.
  */
-import { IconAlertTriangle, IconPencil, IconPlus, IconSearch, IconUserPlus, IconX } from '@tabler/icons-react'
+import { IconAlertTriangle, IconPencil, IconSearch, IconUserPlus } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -16,7 +16,6 @@ import { Empty } from '@/ui/Empty'
 import { EntityHeader, EntityTabs } from '@/ui/Entity'
 import { Field } from '@/ui/Field'
 import { Page, Section } from '@/ui/Page'
-import { Status } from '@/ui/Status'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,59 +32,28 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/ui/shadcn/input'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { Textarea } from '@/ui/shadcn/textarea'
-import { AddPlaybook } from './AddPlaybook'
 import { AddressCard } from './AddressCard'
 import { Checklist } from './Checklist'
+import { PackDocs } from './PackDocs'
 import { UpstreamChips } from './PacksPage'
 import { PackTools } from './PackTools'
 import { People } from './People'
-import { accessOf, endLine, holdsLine, isPackName, nameProblem, type PackTab, renameNote } from './packs.rules'
+import {
+  accessOf,
+  endLine,
+  holdsLine,
+  isPackName,
+  nameProblem,
+  type PackTab,
+  recheckLine,
+  recheckOf,
+  renameNote,
+} from './packs.rules'
 import { packQuery, packsQuery } from './queries'
 import { ShareSheet } from './ShareSheet'
 import { TRY_ID, TryIt } from './TryIt'
 
 type Pack = Schemas['Pack']
-type PackItem = Schemas['PackItem']
-
-const ItemList = ({
-  items,
-  empty,
-  onRemove,
-  link,
-}: {
-  items: PackItem[]
-  empty: string
-  onRemove: (name: string) => void
-  link: (item: PackItem) => React.ReactNode
-}) =>
-  items.length ? (
-    <ul>
-      {items.map((item) => (
-        <li key={item.name} className="flex items-start justify-between gap-3 border-b border-border px-5 py-3">
-          <span className="flex min-w-0 flex-col gap-0.5">
-            <span className="flex flex-wrap items-baseline gap-x-2">
-              {link(item)}
-              {item.live ? null : <Status tone="error">Not live</Status>}
-            </span>
-            {item.description ? (
-              <span className="line-clamp-2 text-sm text-muted-foreground">{item.description}</span>
-            ) : null}
-          </span>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label={`Take ${item.name} out`}
-            onClick={() => onRemove(item.name)}
-          >
-            <IconX />
-          </Button>
-        </li>
-      ))}
-    </ul>
-  ) : (
-    <p className="border-b border-border px-5 py-4 text-sm text-muted-foreground">{empty}</p>
-  )
-
 const EditPack = ({
   pack,
   open,
@@ -188,14 +156,24 @@ const EditPack = ({
   )
 }
 
-/** Roughly what an agent with this pack's key is told on connecting: the pack's words, then how to work it. */
+/**
+ * Roughly what an agent with this pack's key is told on connecting: the pack's words, its skill to read first, how
+ * to work it, then its playbooks.
+ */
 const Briefing = ({ pack }: { pack: Pack }) => {
   const listed = pack.tools.filter((tool) => tool.live)
+  // The pack's own first, as its keys are listed them
+  const playbooks = [...pack.ownPlaybooks, ...pack.playbooks].map((item) => item.name)
   return (
     <div className="flex flex-col gap-3 border border-border bg-inverse p-5 font-mono text-[12px] leading-relaxed text-inverse-foreground/85">
       <p className="text-inverse-foreground">
         {pack.title}: {pack.description || '…'}
       </p>
+      {pack.skill ? (
+        <p className="break-words">
+          Start with the skill, read once before the tools: read_resource "{pack.skill.uri}".
+        </p>
+      ) : null}
       {listed.length ? (
         <p>
           Every tool of this pack is listed here: call one as it is. search_tools finds one by what you want to do,
@@ -204,7 +182,7 @@ const Briefing = ({ pack }: { pack: Pack }) => {
       ) : (
         <p>This pack holds no tools this key can use.</p>
       )}
-      {pack.playbooks.length ? <p>Playbooks: {pack.playbooks.map((item) => item.name).join(', ')}.</p> : null}
+      {playbooks.length ? <p>Playbooks: {playbooks.join(', ')}.</p> : null}
       {listed.length ? (
         <div>
           <p>Listed here:</p>
@@ -280,7 +258,6 @@ export const PackPage = ({
   const pack = useQuery(packQuery(name))
   const { scope, setScope } = useScope()
   const [editing, setEditing] = useState(false)
-  const [addingPlaybook, setAddingPlaybook] = useState(false)
   const patch = useMutation({
     mutationFn: (body: Schemas['PackPatch']) =>
       unwrap(api.PATCH('/api/packs/{name}', { params: { path: { name } }, body })),
@@ -351,6 +328,8 @@ export const PackPage = ({
   const titles = new Map(data.playbooks.map((item) => [item.name, item.title ?? item.name]))
   const titleOf = (playbook: string) => titles.get(playbook) ?? playbook
   const save = (body: Schemas['PackPatch']) => patch.mutateAsync(body)
+  const recheck = recheckOf(data)
+  const rechecks = recheckLine(recheck)
   const pick = (next: string) =>
     void navigate({
       to: '/packs/$name',
@@ -399,10 +378,9 @@ export const PackPage = ({
           <>
             <UpstreamChips ids={data.upstreams} />
             <span>{holdsLine(data.counts)}</span>
-            {data.flags ? (
+            {rechecks ? (
               <span className="flex items-center gap-1 text-foreground">
-                <IconAlertTriangle className="size-4 text-warn" /> {data.flags} tool{data.flags === 1 ? '' : 's'} to
-                recheck
+                <IconAlertTriangle className="size-4 text-warn" /> {rechecks}
               </span>
             ) : null}
           </>
@@ -415,8 +393,13 @@ export const PackPage = ({
         onPick={pick}
         tabs={[
           { id: 'overview', label: 'Overview' },
-          { id: 'tools', label: 'Tools', count: data.tools.length, dot: Boolean(data.flags) },
-          { id: 'playbooks', label: 'Playbooks & manuals', count: data.playbooks.length + data.manuals.length },
+          { id: 'tools', label: 'Tools', count: data.tools.length, dot: recheck.tools > 0 },
+          {
+            id: 'playbooks',
+            label: 'Playbooks & skill',
+            count: data.ownPlaybooks.length + data.playbooks.length + data.manuals.length,
+            dot: recheck.playbooks > 0 || recheck.skill,
+          },
           // Everyone People lists: who has it, and whose access ended and can be extended
           { id: 'people', label: 'People', count: data.keys + data.ended, dot: Boolean(data.ending) },
           { id: 'activity', label: 'Activity' },
@@ -453,7 +436,8 @@ export const PackPage = ({
                     <AlertDialogHeader>
                       <AlertDialogTitle>Remove {data.title}?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Its {data.tools.length} tools stay in Yardhand; the pack, its playbook list and its wording go.
+                        Its {data.tools.length} tools stay in Yardhand; the pack, its wording and its playbook list go
+                        {data.ownPlaybooks.length || data.skill ? ', with the playbooks and skill written for it' : ''}.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -485,53 +469,7 @@ export const PackPage = ({
           }
         />
       ) : tab === 'playbooks' ? (
-        <div className="flex flex-col gap-8">
-          <Section
-            title={`Playbooks · ${data.playbooks.length}`}
-            aside={
-              <Button size="sm" variant="ghost" onClick={() => setAddingPlaybook(true)}>
-                <IconPlus /> Add a playbook
-              </Button>
-            }
-          >
-            <div className="border border-border bg-card [&_li:last-child]:border-b-0">
-              <ItemList
-                items={data.playbooks}
-                empty="No playbooks yet. A playbook brings the tools it uses."
-                onRemove={(item) => void save({ remove: { playbooks: [item] } })}
-                link={(item) => (
-                  <span className="flex flex-col">
-                    <span className="text-sm font-medium">{item.title ?? item.name}</span>
-                    <Mono className="text-xs text-muted-foreground">{item.name}</Mono>
-                  </span>
-                )}
-              />
-            </div>
-          </Section>
-          <Section title={`Manuals · ${data.manuals.length}`}>
-            <div className="border border-border bg-card [&_li:last-child]:border-b-0">
-              <ItemList
-                items={data.manuals}
-                empty="No manuals. Adding a playbook offers its server's manual."
-                onRemove={(item) => void save({ remove: { manuals: [item] } })}
-                link={(item) =>
-                  item.upstream ? (
-                    <Link
-                      to="/connections/$id"
-                      params={{ id: item.upstream }}
-                      search={{ tab: 'manual' }}
-                      className="text-sm font-medium hover:text-primary"
-                    >
-                      {item.title ?? item.name}
-                    </Link>
-                  ) : (
-                    <span className="text-sm font-medium">{item.name}</span>
-                  )
-                }
-              />
-            </div>
-          </Section>
-        </div>
+        <PackDocs pack={data} onPatch={save} />
       ) : tab === 'people' ? (
         <People pack={data} onShare={() => sharing(true)} />
       ) : (
@@ -548,7 +486,6 @@ export const PackPage = ({
         }}
         onSave={save}
       />
-      <AddPlaybook pack={data} open={addingPlaybook} onOpenChange={setAddingPlaybook} onAdd={save} />
       <ShareSheet pack={data} open={Boolean(share)} onOpenChange={sharing} />
     </Page>
   )

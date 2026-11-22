@@ -1,14 +1,21 @@
-/** Packs, their tools, variables, playbooks and manuals: the only queries on these tables. */
+/**
+ * Packs, their tools, variables, playbooks and manuals, and the playbooks and skill written for them: the only
+ * queries on these tables. A pack's own document is only ever read by its pack's id, never by its name alone.
+ */
 import { randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNull, like, notInArray, sql } from 'drizzle-orm'
 import type { Db } from '../../kit/index.js'
 import type { Fixed } from './entries.js'
 import {
+  type PackDocKind,
+  type PackDocSource,
   type PackItemRow,
   type PackReason,
   type PackRow,
   type PackToolRow,
   type PackVariableRow,
+  packDocs,
+  packDocVersions,
   packItems,
   packNames,
   packs,
@@ -32,6 +39,24 @@ export type PackVariableDraft = { name: string; value: Scalar; description?: str
 const fixedText = (fixed: Fixed | null | undefined) =>
   fixed && Object.keys(fixed).length ? JSON.stringify(fixed) : null
 
+/**
+ * The tools a document names, by the pack's names, each with the tool version that was live when it was saved
+ * (null for a tool that was not live then).
+ */
+export type BasedOn = Record<string, string | null>
+/** A pack's own playbook or its skill, as served: its newest text. */
+export type PackDoc = {
+  kind: PackDocKind
+  name: string
+  body: string
+  basedOn: BasedOn
+  versionId: string
+  source: PackDocSource
+  createdAt: string
+  updatedAt: string
+}
+export type PackDocDraft = { body: string; basedOn: BasedOn; source: PackDocSource }
+
 /** A pack with everything in it, in order. */
 export type PackContents = {
   pack: PackRow
@@ -39,19 +64,51 @@ export type PackContents = {
   variables: PackVariableRow[]
   playbooks: string[]
   manuals: string[]
+  /** The playbooks and the skill written for it. */
+  docs: PackDoc[]
 }
 
 export const packsRepo = (db: Db) => {
   const variablesOf = (packId: string) =>
     db.select().from(packVariables).where(eq(packVariables.packId, packId)).orderBy(asc(packVariables.position))
+  /** Documents joined to the version each serves, a pack's in the order they were first saved. */
+  const liveDocs = () =>
+    db
+      .select({ doc: packDocs, version: packDocVersions, pack: packs })
+      .from(packDocs)
+      .innerJoin(packDocVersions, eq(packDocVersions.id, packDocs.liveVersion))
+      .innerJoin(packs, eq(packs.id, packDocs.packId))
+  const docOf = ({
+    doc,
+    version,
+  }: {
+    doc: typeof packDocs.$inferSelect
+    version: typeof packDocVersions.$inferSelect
+  }): PackDoc => ({
+    kind: doc.kind,
+    name: doc.name,
+    body: version.body,
+    basedOn: JSON.parse(version.basedOn) as BasedOn,
+    versionId: version.id,
+    source: version.source,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+  })
+  const docsOf = async (packId: string) =>
+    (await liveDocs().where(eq(packDocs.packId, packId)).orderBy(asc(packDocs.position))).map(docOf)
+  const ofDoc = (table: typeof packDocs | typeof packDocVersions, packId: string, kind: PackDocKind, name: string) =>
+    and(eq(table.packId, packId), eq(table.kind, kind), eq(table.name, name))
+  const doc = async (packId: string, kind: PackDocKind, name: string) =>
+    (await liveDocs().where(ofDoc(packDocs, packId, kind, name))).map(docOf)[0]
   const contentsOf = async (pack: PackRow): Promise<PackContents> => {
-    const [toolRows, variables, itemRows] = await Promise.all([
+    const [toolRows, variables, itemRows, docs] = await Promise.all([
       db.select().from(packTools).where(eq(packTools.packId, pack.id)).orderBy(asc(packTools.position)),
       variablesOf(pack.id),
       db.select().from(packItems).where(eq(packItems.packId, pack.id)).orderBy(asc(packItems.position)),
+      docsOf(pack.id),
     ])
     const namesOf = (kind: PackItemRow['kind']) => itemRows.filter((row) => row.kind === kind).map((row) => row.name)
-    return { pack, tools: toolRows, variables, playbooks: namesOf('playbook'), manuals: namesOf('manual') }
+    return { pack, tools: toolRows, variables, playbooks: namesOf('playbook'), manuals: namesOf('manual'), docs }
   }
   const touch = (packId: string) =>
     db.update(packs).set({ updatedAt: new Date().toISOString() }).where(eq(packs.id, packId))
@@ -62,6 +119,26 @@ export const packsRepo = (db: Db) => {
       .where(eq(table.packId, packId))
     return Number(row?.top ?? -1) + 1
   }
+  const versionOf = (packId: string, kind: PackDocKind, name: string, draft: PackDocDraft) => ({
+    id: `pdv_${randomUUID().replaceAll('-', '').slice(0, 16)}`,
+    packId,
+    kind,
+    name,
+    body: draft.body,
+    basedOn: JSON.stringify(draft.basedOn),
+    source: draft.source,
+    createdAt: new Date().toISOString(),
+  })
+  /** A document's row for its first version, placed after the pack's others in the statement that writes it. */
+  const docRowOf = (version: ReturnType<typeof versionOf>) => ({
+    packId: version.packId,
+    kind: version.kind,
+    name: version.name,
+    liveVersion: version.id,
+    position: sql<number>`(select coalesce(max(position), -1) + 1 from pack_docs where pack_id = ${version.packId})`,
+    createdAt: version.createdAt,
+    updatedAt: version.createdAt,
+  })
   const get = async (name: string) => (await db.select().from(packs).where(eq(packs.name, name)))[0]
   const byId = async (id: string) => (await db.select().from(packs).where(eq(packs.id, id)))[0]
   const formerName = async (name: string) => (await db.select().from(packNames).where(eq(packNames.name, name)))[0]
@@ -166,6 +243,8 @@ export const packsRepo = (db: Db) => {
       await db.delete(packItems).where(eq(packItems.packId, packId))
       await db.delete(packVariables).where(eq(packVariables.packId, packId))
       await db.delete(packNames).where(eq(packNames.packId, packId))
+      await db.delete(packDocs).where(eq(packDocs.packId, packId))
+      await db.delete(packDocVersions).where(eq(packDocVersions.packId, packId))
       await db.delete(packs).where(eq(packs.id, packId))
     },
     /** Adds tools at the end; a name already in (the alias, else the tool's) keeps its place, wording and reason. */
@@ -299,6 +378,79 @@ export const packsRepo = (db: Db) => {
           .where(and(eq(packItems.packId, packId), eq(packItems.kind, kind), inArray(packItems.name, names)))
       await touch(packId)
     },
+    docsOf,
+    doc,
+    /** Every pack's documents, for the flags across packs. */
+    allDocs: async () =>
+      (await liveDocs().orderBy(asc(packs.title), asc(packDocs.position))).map((row) => ({
+        pack: row.pack,
+        doc: docOf(row),
+      })),
+    /**
+     * Saves a document's text as its newest version. The text it already serves adds no version: only the tool
+     * versions it stands on are noted anew, which is how the owner keeps a text after a tool changed.
+     */
+    saveDoc: async (packId: string, kind: PackDocKind, name: string, draft: PackDocDraft) => {
+      const basedOn = JSON.stringify(draft.basedOn)
+      const had = await doc(packId, kind, name)
+      if (had?.body === draft.body) {
+        await db.update(packDocVersions).set({ basedOn }).where(eq(packDocVersions.id, had.versionId))
+        return { versionId: had.versionId, added: false }
+      }
+      const version = versionOf(packId, kind, name, draft)
+      await db.insert(packDocVersions).values(version)
+      await db
+        .insert(packDocs)
+        .values(docRowOf(version))
+        .onConflictDoUpdate({
+          target: [packDocs.packId, packDocs.kind, packDocs.name],
+          set: { liveVersion: version.id, updatedAt: version.createdAt },
+        })
+      await touch(packId)
+      return { versionId: version.id, added: true }
+    },
+    /**
+     * Makes a document under a name the pack has none of, and returns its version; undefined when the name is taken.
+     * The name is claimed in one statement, so of two makes at once one wins and the other's text is taken back out.
+     */
+    createDoc: async (packId: string, kind: PackDocKind, name: string, draft: PackDocDraft) => {
+      const version = versionOf(packId, kind, name, draft)
+      await db.insert(packDocVersions).values(version)
+      const claimed = await db
+        .insert(packDocs)
+        .values(docRowOf(version))
+        .onConflictDoNothing()
+        .returning({ name: packDocs.name })
+      if (!claimed.length) {
+        await db.delete(packDocVersions).where(eq(packDocVersions.id, version.id))
+        return undefined
+      }
+      await touch(packId)
+      return version.id
+    },
+    /** Removes a document with every version of it; false when the pack had none of that name. */
+    removeDoc: async (packId: string, kind: PackDocKind, name: string) => {
+      if (!(await doc(packId, kind, name))) return false
+      await db.delete(packDocs).where(ofDoc(packDocs, packId, kind, name))
+      await db.delete(packDocVersions).where(ofDoc(packDocVersions, packId, kind, name))
+      await touch(packId)
+      return true
+    },
+    /** Every text a document had, newest first. */
+    docVersions: (packId: string, kind: PackDocKind, name: string) =>
+      db
+        .select()
+        .from(packDocVersions)
+        .where(ofDoc(packDocVersions, packId, kind, name))
+        .orderBy(desc(packDocVersions.createdAt), desc(sql`${packDocVersions}.rowid`)),
+    /** One version, only as a version of this document. */
+    docVersion: async (packId: string, kind: PackDocKind, name: string, id: string) =>
+      (
+        await db
+          .select()
+          .from(packDocVersions)
+          .where(and(ofDoc(packDocVersions, packId, kind, name), eq(packDocVersions.id, id)))
+      )[0],
   }
 }
 

@@ -14,25 +14,38 @@ const ArgumentSchema = z
 
 export const PlaybookSchema = z
   .object({
-    name: z
+    name: z.string().openapi({
+      description: 'As agents see it: `<upstream>-<prompt>`, or the pack’s own name for one it wrote.',
+      example: 'cookbook-plan-a-dinner',
+    }),
+    upstream: z
       .string()
-      .openapi({ description: 'As agents see it: `<upstream>-<prompt>`.', example: 'cookbook-plan-a-dinner' }),
-    upstream: z.string(),
-    prompt: z.string().openapi({ description: 'The upstream’s own name for it.' }),
+      .nullable()
+      .openapi({ description: 'The upstream that offers it; null for a playbook a pack wrote.' }),
+    pack: z.string().nullable().openapi({
+      description: 'The pack that wrote it, for a playbook written for the pack this request is locked to; else null.',
+    }),
+    prompt: z.string().openapi({ description: 'The upstream’s own name for it; a pack’s own goes by its one name.' }),
     title: z
       .string()
       .openapi({ description: 'How clients that show titles list it.', example: 'Cookbook · Plan a dinner' }),
     description: z.string(),
     arguments: z.array(ArgumentSchema),
-    offered: z
-      .boolean()
-      .openapi({ description: 'Offered to agents: its upstream’s playbooks are switched on (owner sees all).' }),
+    offered: z.boolean().openapi({
+      description:
+        'Offered to agents: its upstream’s playbooks are switched on (owner sees all). Always true for a pack’s own.',
+    }),
     _links: LinksSchema,
   })
-  .openapi('Playbook', { description: 'A prompt an upstream offers: a ready-made way to do one task with its tools.' })
+  .openapi('Playbook', {
+    description:
+      'A ready-made way to do one task: a prompt an upstream offers, or a playbook written for a pack over the pack’s tools.',
+  })
 const PlaybookListSchema = z
   .object({ count: z.number().int(), _links: LinksSchema, _embedded: z.object({ playbooks: z.array(PlaybookSchema) }) })
-  .openapi('PlaybookList', { description: 'Playbooks, best match first when searching, else by name.' })
+  .openapi('PlaybookList', {
+    description: 'Playbooks: a pack’s own first, then the upstreams’, best match first when searching, else by name.',
+  })
 
 const ManualCardSchema = z
   .object({
@@ -84,14 +97,20 @@ const MessagesSchema = z
     description: z.string().nullable(),
     messages: z
       .array(z.unknown())
-      .openapi({ description: 'MCP prompt messages (role + content): what the upstream would have the agent read.' }),
+      .openapi({ description: 'MCP prompt messages (role + content): what the agent is to read and follow.' }),
     _links: LinksSchema,
   })
-  .openapi('PlaybookMessages', { description: 'A playbook filled in with arguments, as the upstream wrote it.' })
+  .openapi('PlaybookMessages', {
+    description:
+      'A playbook filled in with arguments: as its upstream wrote it, or a pack’s own with the pack’s variables filled in too.',
+  })
 const ResourceSchema = z
   .object({
     uri: z.string(),
-    upstream: z.string(),
+    upstream: z
+      .string()
+      .nullable()
+      .openapi({ description: 'The upstream it was read from; null for a pack’s own skill.' }),
     callId: z.string().openapi({ description: 'This read in the call log.' }),
     contents: z.array(
       z.object({
@@ -103,13 +122,20 @@ const ResourceSchema = z
     ),
     _links: LinksSchema,
   })
-  .openapi('ResourceRead', { description: 'What a link holds, read with the upstream’s credential.' })
+  .openapi('ResourceRead', {
+    description: 'What a link holds, read with the upstream’s credential, or a pack’s own skill.',
+  })
 
 const ok = <Schema extends z.ZodTypeAny>(description: string, schema: Schema) => ({
   content: { [HAL_JSON]: { schema } },
   description,
 })
 const upstreamFilter = z.string().max(40).optional().openapi({ description: 'Only this upstream.' })
+const playbookName = z
+  .string()
+  .min(3)
+  .max(128)
+  .openapi({ description: 'The playbook name: `<upstream>-<prompt>`, or a pack’s own name for one it wrote.' })
 
 export const routes = {
   playbooks: createRoute({
@@ -119,11 +145,13 @@ export const routes = {
     tags: [TAG],
     summary: 'Playbooks',
     description:
-      'Prompts the upstreams you may use offer, as playbooks: a ready-made way to do one task. Search with `q` (what you want to do), among the playbooks you may read: a pack key searches its pack’s own.',
+      'Playbooks: a ready-made way to do one task. They are the prompts the upstreams you may use offer and, for a pack key, the playbooks written for its pack, which come first. Search with `q` (what you want to do), among the playbooks you may read: a pack key searches only its pack’s.',
     request: {
       query: z.object({
         q: z.string().max(200).optional().openapi({ description: 'What you want to do.', example: 'plan a dinner' }),
-        upstream: upstreamFilter,
+        upstream: z.string().max(40).optional().openapi({
+          description: 'Only this upstream: a pack’s own playbooks, which belong to no upstream, are then left out.',
+        }),
         limit: z.coerce.number().int().min(1).max(200).default(100).openapi({ description: 'At most this many.' }),
       }),
     },
@@ -136,11 +164,7 @@ export const routes = {
     tags: [TAG],
     summary: 'A playbook',
     description: 'One playbook with its arguments.',
-    request: {
-      params: z.object({
-        name: z.string().min(3).max(128).openapi({ description: 'The playbook name, `<upstream>-<prompt>`.' }),
-      }),
-    },
+    request: { params: z.object({ name: playbookName }) },
     responses: { 200: ok('The playbook.', PlaybookSchema), ...problemResponses(401, 403, 404) },
   }),
   messages: createRoute({
@@ -150,11 +174,9 @@ export const routes = {
     tags: [TAG],
     summary: 'Use a playbook',
     description:
-      'A playbook filled in with your arguments: the steps its upstream would have you follow with its tools. Logged like a call.',
+      'A playbook filled in with your arguments: the steps to follow with its tools, as its upstream wrote them or, for a pack’s own, as the pack wrote them with its variables filled in. Logged like a call.',
     request: {
-      params: z.object({
-        name: z.string().min(3).max(128).openapi({ description: 'The playbook name, `<upstream>-<prompt>`.' }),
-      }),
+      params: z.object({ name: playbookName }),
       query: z.object({
         arguments: z
           .string()
@@ -208,7 +230,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Follow a link',
     description:
-      'Reads a link an upstream serves, as a tool returned it (`cookbook://recipes/123`), with the upstream’s credential. `gateway://u/<upstream>/manual` is its manual. Logged like a call.',
+      'Reads a link an upstream serves, as a tool returned it (`cookbook://recipes/123`), with the upstream’s credential. `gateway://u/<upstream>/manual` is its manual, and `skill://<pack>/SKILL.md` is the skill of the pack a request is locked to (`pack.skill` on GET /api/me). Logged like a call.',
     request: {
       query: z.object({
         uri: z

@@ -1,7 +1,8 @@
 /**
  * Pure rules for packs: names from titles, what a pack holds in words, why a tool is in, how long a key lasts, the
  * steps of setting one up, what a try of it says, who fills each input of its tools, its variables, where a refused
- * save went wrong, what sharing it asks and what its People list says of each person.
+ * save went wrong, what it has to recheck, what a flag says in Reviews, what sharing it asks and what its People list
+ * says of each person.
  */
 import type { Schemas } from '@/api/client'
 import { argumentsOf, type FormField } from '@/tools/schema-form.rules'
@@ -11,6 +12,20 @@ type Person = Schemas['Person']
 type PackTool = Schemas['PackTool']
 type ToolCard = Schemas['ToolCard']
 type Use = Schemas['PlaybookUse']
+type PackFlag = Schemas['PackFlag']
+
+/**
+ * What Reviews says under a flag: what the tool's server says now, what is wrong with a value, or for a playbook or
+ * the skill, which tools it was written for that have since moved.
+ */
+export const flagLine = (flag: Pick<PackFlag, 'kind' | 'was' | 'now'>) =>
+  flag.kind === 'input'
+    ? `${flag.now}. Open the pack to change the value.`
+    : flag.kind === 'wording'
+      ? `Its server now says: ${flag.now}`
+      : `It was ${flag.was}, which changed or left the pack since. Read it again and save it.`
+
+const countOf = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
 
 /** `Design reviews` → `design-reviews`: the name keys and URLs use. */
 export const slugOf = (title: string) =>
@@ -40,16 +55,53 @@ export const renameNote = (keys: number, from: string) =>
     ? `Its ${keys} ${keys === 1 ? 'person keeps' : 'people keep'} working at /p/${from}; new setup says the new address.`
     : `Nobody has a working key to it, so nobody connects at /p/${from} now.`
 
-/** "12 tools · 3 playbooks · 1 manual", leaving out what it has none of. */
-export const holdsLine = ({ tools, playbooks, manuals }: { tools: number; playbooks: number; manuals: number }) => {
+/**
+ * "12 tools · 3 playbooks · 1 manual", leaving out what it has none of. The playbooks written for the pack count
+ * with the ones it holds from its connections.
+ */
+export const holdsLine = ({
+  tools,
+  playbooks,
+  manuals,
+  ownPlaybooks = 0,
+}: {
+  tools: number
+  playbooks: number
+  manuals: number
+  ownPlaybooks?: number
+}) => {
   const parts = [
     [tools, 'tool'],
-    [playbooks, 'playbook'],
+    [playbooks + ownPlaybooks, 'playbook'],
     [manuals, 'manual'],
   ]
     .filter(([count]) => Number(count) > 0)
     .map(([count, word]) => `${count} ${word}${count === 1 ? '' : 's'}`)
   return parts.length ? parts.join(' · ') : 'Nothing in it yet'
+}
+
+type Flagged = { flag: unknown | null }
+
+/**
+ * What a pack has to recheck, by where it is settled: its flagged playbooks and skill, and its tools, which are the
+ * rest of `flags` (the gateway counts the pack's own texts in it too).
+ */
+export const recheckOf = (pack: { flags: number; ownPlaybooks: Flagged[]; skill: Flagged | null }) => {
+  const playbooks = pack.ownPlaybooks.filter((playbook) => playbook.flag).length
+  const skill = Boolean(pack.skill?.flag)
+  return { tools: Math.max(0, pack.flags - playbooks - (skill ? 1 : 0)), playbooks, skill }
+}
+
+/** "2 tools, 1 playbook and the skill to recheck", "The skill to recheck", or null when nothing is flagged. */
+export const recheckLine = ({ tools, playbooks, skill }: ReturnType<typeof recheckOf>) => {
+  const parts = [
+    ...(tools ? [countOf(tools, 'tool')] : []),
+    ...(playbooks ? [countOf(playbooks, 'playbook')] : []),
+    ...(skill ? ['the skill'] : []),
+  ]
+  if (!parts.length) return null
+  const listed = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : `${parts[0]}`
+  return `${listed.charAt(0).toUpperCase()}${listed.slice(1)} to recheck`
 }
 
 /** Why a tool is in the pack, in words: who put it there. */
@@ -315,7 +367,8 @@ export const placeOf = (path: string): { tool: string; input: string } | { varia
 
 type Refused = { message: string; errors: { path: string; message: string }[] }
 
-const stop = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`)
+/** A sentence with its full stop. */
+export const stop = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`)
 
 /**
  * A refused save of one pack tool: each problem beside its input, and the rest to say under the form. `tools` are
@@ -385,8 +438,6 @@ export const freeAlias = (alias: string, taken: Set<string>) => {
   while (taken.has(`${alias}_${n}`)) n++
   return `${alias}_${n}`
 }
-
-const countOf = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
 
 /** The four steps of setting a pack up, in order. A pack whose keys already call counts as tried. */
 export const checklistOf = (pack: Pick<Pack, 'description' | 'counts' | 'triedAt' | 'lastCallAt'>) => {

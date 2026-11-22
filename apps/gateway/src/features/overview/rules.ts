@@ -131,7 +131,7 @@ export const nudgesOf = ({
     ? [
         {
           kind: 'pack_wording' as const,
-          message: `${plural(packFlags, 'thing')} in your packs to recheck: ${packFlags === 1 ? 'its server changed the tool it was' : 'their servers changed the tools they were'} set up for.`,
+          message: `${plural(packFlags, 'thing')} in your packs to recheck: ${packFlags === 1 ? 'a tool it was set up for has changed or left its pack' : 'tools they were set up for have changed or left their packs'}.`,
           action: 'Recheck',
           href: '/app/tools/reviews',
         },

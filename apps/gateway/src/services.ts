@@ -14,6 +14,7 @@ import { clientsRepo } from './features/clients/repo.js'
 import { callbackPath, loopbackRedirect, type SignInVia, vaultOAuthProvider } from './features/connections/provider.js'
 import { createEvents } from './features/events/bus.js'
 import { createGrouping } from './features/groups/grouping.js'
+import { createPackDocs } from './features/packs/own.js'
 import { packsRepo } from './features/packs/repo.js'
 import { searchesRepo } from './features/searches/repo.js'
 import type { Telemetry } from './features/telemetry/index.js'
@@ -177,6 +178,7 @@ export const createServices = async ({
   )
   const credentialOf = (id: string) => vault.get<Credential>(secretIdOf(id))
   const packs = packsRepo(db)
+  const packDocs = createPackDocs({ packs })
   const handed = createHanded({ calls, catalog })
   const principals = createPrincipals({ clients, packs, catalog, keys })
   await principals.loadKeys()
@@ -310,6 +312,8 @@ export const createServices = async ({
     statedOrigin,
     principals,
     packs,
+    /** A pack's own playbooks and skill, as its keys are served them. */
+    packDocs,
     credentialOf,
     upstreamHeaders,
     meaning,
@@ -320,7 +324,7 @@ export const createServices = async ({
     listsChanged,
     handed,
     pipeline: createPipeline({ tools, upstreams, adapters, calls, credentialOf, key: masterKey, handed }),
-    reads: createReads({ catalog, tools, upstreams, adapters, calls, credentialOf, handed }),
+    reads: createReads({ catalog, tools, upstreams, adapters, calls, credentialOf, handed, packDocs }),
   }
 }
 

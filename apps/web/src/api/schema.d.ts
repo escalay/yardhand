@@ -621,7 +621,7 @@ export interface paths {
         };
         /**
          * Playbooks
-         * @description Prompts the upstreams you may use offer, as playbooks: a ready-made way to do one task. Search with `q` (what you want to do), among the playbooks you may read: a pack key searches its pack’s own.
+         * @description Playbooks: a ready-made way to do one task. They are the prompts the upstreams you may use offer and, for a pack key, the playbooks written for its pack, which come first. Search with `q` (what you want to do), among the playbooks you may read: a pack key searches only its pack’s.
          */
         get: operations["listPlaybooks"];
         put?: never;
@@ -661,7 +661,7 @@ export interface paths {
         };
         /**
          * Use a playbook
-         * @description A playbook filled in with your arguments: the steps its upstream would have you follow with its tools. Logged like a call.
+         * @description A playbook filled in with your arguments: the steps to follow with its tools, as its upstream wrote them or, for a pack’s own, as the pack wrote them with its variables filled in. Logged like a call.
          */
         get: operations["getPlaybookMessages"];
         put?: never;
@@ -741,7 +741,7 @@ export interface paths {
         };
         /**
          * Follow a link
-         * @description Reads a link an upstream serves, as a tool returned it (`cookbook://recipes/123`), with the upstream’s credential. `gateway://u/<upstream>/manual` is its manual. Logged like a call.
+         * @description Reads a link an upstream serves, as a tool returned it (`cookbook://recipes/123`), with the upstream’s credential. `gateway://u/<upstream>/manual` is its manual, and `skill://<pack>/SKILL.md` is the skill of the pack a request is locked to (`pack.skill` on GET /api/me). Logged like a call.
          */
         get: operations["readResource"];
         put?: never;
@@ -760,8 +760,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Pack tools to recheck
-         * @description Every pack wording whose tool its upstream has since rewritten (old and new text), and every tool with a fixed or default value its live tool no longer takes: the input is gone, or the value no longer fits it.
+         * What to recheck in the packs
+         * @description Every pack wording whose tool its upstream has since rewritten (old and new text), every tool with a fixed or default value its live tool no longer takes (the input is gone, or the value no longer fits it), and every playbook or skill written for a pack whose tools have since changed or left it.
          */
         get: operations["listPackFlags"];
         put?: never;
@@ -806,7 +806,7 @@ export interface paths {
         get?: never;
         /**
          * Set a pack’s variables
-         * @description Replaces the pack’s variables. A fixed or default value writes one as `{{name}}`; a `{{word}}` that is no variable of the pack is sent as written. Refused (400) when a name is bad or repeated, when a new value no longer fits an input that uses it, or when a variable left out is still written somewhere.
+         * @description Replaces the pack’s variables. A fixed or default value writes one as `{{name}}`, and so do the pack’s own playbooks and its skill; in a value, a `{{word}}` that is no variable of the pack is sent as written. Refused (400) when a name is bad or repeated, when a new value no longer fits an input that uses it, or when a variable left out is still written by a value, a playbook or the skill.
          */
         put: operations["setPackVariables"];
         post?: never;
@@ -825,7 +825,7 @@ export interface paths {
         };
         /**
          * One pack
-         * @description A pack with its tools (wording, why each is in, who fills each input, flags), variables, playbooks, manuals and keys, and what the checks find in it.
+         * @description A pack with its tools (wording, why each is in, who fills each input, flags), variables, the playbooks and manuals it holds from its connections, the playbooks and skill written for it, its keys, and what the checks find in it.
          */
         get: operations["getPack"];
         put?: never;
@@ -839,7 +839,7 @@ export interface paths {
         head?: never;
         /**
          * Change a pack
-         * @description Changes its name, its title, what it is for, and adds or removes tools, playbooks and manuals. A new name moves its address; if the pack has a key that is not revoked then, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack. A name another pack has, or that still leads to one, is a 409. A tool can go in with fixed inputs and defaults: they are checked against its live input schema, and a problem the pack already had elsewhere never blocks the change. A change that is refused leaves the pack, and its name, as they were.
+         * @description Changes its name, its title, what it is for, and adds or removes tools, playbooks and manuals. A new name moves its address; if the pack has a key that is not revoked then, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack. A name another pack has, or that still leads to one, is a 409. A tool can go in with fixed inputs and defaults: they are checked against its live input schema, and a problem the pack already had elsewhere never blocks the change. Removing a tool that one of the pack’s own playbooks or its skill names goes through: the text is flagged and listed in `findings` until it is saved again. A connection’s playbook named like one of the pack’s own is refused (400). A change that is refused leaves the pack, and its name, as they were.
          */
         patch: operations["updatePack"];
         trace?: never;
@@ -943,7 +943,7 @@ export interface paths {
         head?: never;
         /**
          * Rename a pack tool or set its inputs
-         * @description Gives one of the pack’s tools its own name (an alias) and sets its inputs: `fixed` are filled on every call and never shown to the pack’s keys, `defaults` are shown with the pack’s value and filled when a call leaves them out, and every other input is the agent’s. A value may write a variable of the pack as `{{name}}`. Only the maps sent are checked, against the live tool’s input schema with the variables filled in.
+         * @description Gives one of the pack’s tools its own name (an alias) and sets its inputs: `fixed` are filled on every call and never shown to the pack’s keys, `defaults` are shown with the pack’s value and filled when a call leaves them out, and every other input is the agent’s. A value may write a variable of the pack as `{{name}}`. Only the maps sent are checked, against the live tool’s input schema with the variables filled in. A new name never fails on a playbook or the skill that writes the old one: the text is flagged, and the pack’s `findings` say where.
          */
         patch: operations["updatePackTool"];
         trace?: never;
@@ -962,6 +962,106 @@ export interface paths {
         get: operations["getPlaybookUses"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/playbooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A pack’s own playbooks
+         * @description The playbooks written for this pack, each with what the checks find in it and a flag when a tool it was written for has changed or left the pack. The playbooks the pack holds from its connections are on the pack itself.
+         */
+        get: operations["listPackPlaybooks"];
+        put?: never;
+        /**
+         * Write a playbook for a pack
+         * @description A new playbook of the pack’s own, as Markdown. The text is checked first, and refused (400) with everything wrong in it: a tool named in backticks that is not in the pack, or by its own name where the pack gives it another; a `{{word}}` that is neither an argument nor a variable of the pack; front matter that can’t be read. Warnings come back in `findings` and never block: a tool a read-only key can’t run, a name that looks like a tool and is none, a `{{…}}` that is not written as a name, more than about 12 steps. A name the pack already has a playbook under is a 409: `PUT` replaces its text.
+         */
+        post: operations["createPackPlaybook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/playbooks/{playbook}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One of a pack’s own playbooks
+         * @description The playbook with its text as written, what the checks find in it, its flag and every version it had. `?version=<id>` reads an older text.
+         */
+        get: operations["getPackPlaybook"];
+        /**
+         * Replace a pack playbook’s text
+         * @description Saves a new text for one of the pack’s own playbooks; the text it had is kept as a version. The text is checked first, and refused (400) with everything wrong in it: a tool named in backticks that is not in the pack, or by its own name where the pack gives it another; a `{{word}}` that is neither an argument nor a variable of the pack; front matter that can’t be read. Warnings come back in `findings` and never block: a tool a read-only key can’t run, a name that looks like a tool and is none, a `{{…}}` that is not written as a name, more than about 12 steps. Saving the text it already has adds no version and clears its flag: it now stands on the tools as they are.
+         */
+        put: operations["setPackPlaybook"];
+        post?: never;
+        /**
+         * Remove a pack playbook
+         * @description Removes one of the pack’s own playbooks with every version of it.
+         */
+        delete: operations["deletePackPlaybook"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/skill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A pack’s skill
+         * @description The skill written for the pack: its text as stored, `SKILL.md` whole as it is read (front matter and heading from the pack, variables filled in), what the checks find, its flag and every version it had. 404 until one is written. `?version=<id>` reads an older text.
+         */
+        get: operations["getPackSkill"];
+        /**
+         * Write a pack’s skill
+         * @description Saves the pack’s one skill, “Working with <title>”; the text it had is kept as a version. Front matter and a first `# ` heading are dropped from what is sent: the gateway writes both from the pack. The text is checked first, and refused (400) for a tool named in backticks that is not in the pack, or by its own name where the pack gives it another, and for a `{{word}}` that is no variable of the pack. Warnings never block: a section of the six that is missing, a tool a read-only key can’t run, a manual of the pack at the same skill address. Saving the text it already has adds no version and clears its flag.
+         */
+        put: operations["setPackSkill"];
+        post?: never;
+        /**
+         * Remove a pack’s skill
+         * @description Removes the pack’s skill with every version of it.
+         */
+        delete: operations["deletePackSkill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a draft without saving it
+         * @description Runs the checks a save runs on a draft of a playbook or of the skill, against the pack as it is, and answers what they find. Nothing is saved, and no version is added.
+         */
+        post: operations["checkPackDraft"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1325,13 +1425,13 @@ export interface paths {
         };
         /**
          * Export the settings
-         * @description Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs and defaults, as written), variables, playbooks and manuals, as one JSON document (owner only).
+         * @description Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs and defaults, as written), variables, playbooks and manuals, as one JSON document (owner only). The playbooks and the skill written for a pack are under its `files`, by path: `playbooks/<name>.md` as written and `SKILL.md` as it is read, with its `{{name}}` left as written. Each is a plain Markdown file to keep in git; their older versions are not exported.
          */
         get: operations["exportConfig"];
         put?: never;
         /**
          * Import the settings
-         * @description Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the variables, tools, playbooks and manuals it lacks. Variables go in first, so a tool’s fixed inputs and defaults are checked with them filled in; a variable or a tool that would leave a value its tool’s live schema refuses is skipped and named. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.
+         * @description Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the variables, tools, playbooks, manuals and files it lacks. Variables go in first, so a tool’s fixed inputs and defaults are checked with them filled in; a variable or a tool that would leave a value its tool’s live schema refuses is skipped and named. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. A pack’s `files` go in last, each a plain Markdown file by path (`playbooks/<name>.md`, `SKILL.md`), checked as a save of it is: one that names a tool the pack does not have yet, or that the checks refuse, is skipped and named; one the pack already has is kept as it is. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.
          */
         post: operations["importConfig"];
         delete?: never;
@@ -1560,8 +1660,17 @@ export interface components {
                 name: string;
                 title: string;
                 description: string;
+                /** @description The playbooks it holds from its connections, by name. */
                 playbooks: string[];
+                /** @description The manuals it holds from its connections, by name. */
                 manuals: string[];
+                /** @description The playbooks written for this pack, by name: read like any other playbook. */
+                ownPlaybooks: string[];
+                /**
+                 * @description Where the pack’s skill is read (GET /api/resources?uri=…), or null when it has none. Read it once, before the pack’s tools.
+                 * @example skill://desk/SKILL.md
+                 */
+                skill: string | null;
                 /** @description True when the key has pins of its own: `pins` is then only those this pack holds. False: `pins` is every tool of the pack. */
                 ownPins: boolean;
             } | null;
@@ -2509,7 +2618,7 @@ export interface components {
                 detail: string;
             }[];
         };
-        /** @description Playbooks, best match first when searching, else by name. */
+        /** @description Playbooks: a pack’s own first, then the upstreams’, best match first when searching, else by name. */
         PlaybookList: {
             count: number;
             _links: components["schemas"]["Links"];
@@ -2517,15 +2626,18 @@ export interface components {
                 playbooks: components["schemas"]["Playbook"][];
             };
         };
-        /** @description A prompt an upstream offers: a ready-made way to do one task with its tools. */
+        /** @description A ready-made way to do one task: a prompt an upstream offers, or a playbook written for a pack over the pack’s tools. */
         Playbook: {
             /**
-             * @description As agents see it: `<upstream>-<prompt>`.
+             * @description As agents see it: `<upstream>-<prompt>`, or the pack’s own name for one it wrote.
              * @example cookbook-plan-a-dinner
              */
             name: string;
-            upstream: string;
-            /** @description The upstream’s own name for it. */
+            /** @description The upstream that offers it; null for a playbook a pack wrote. */
+            upstream: string | null;
+            /** @description The pack that wrote it, for a playbook written for the pack this request is locked to; else null. */
+            pack: string | null;
+            /** @description The upstream’s own name for it; a pack’s own goes by its one name. */
             prompt: string;
             /**
              * @description How clients that show titles list it.
@@ -2534,7 +2646,7 @@ export interface components {
             title: string;
             description: string;
             arguments: components["schemas"]["PlaybookArgument"][];
-            /** @description Offered to agents: its upstream’s playbooks are switched on (owner sees all). */
+            /** @description Offered to agents: its upstream’s playbooks are switched on (owner sees all). Always true for a pack’s own. */
             offered: boolean;
             _links: components["schemas"]["Links"];
         };
@@ -2544,13 +2656,13 @@ export interface components {
             description: string | null;
             required: boolean;
         };
-        /** @description A playbook filled in with arguments, as the upstream wrote it. */
+        /** @description A playbook filled in with arguments: as its upstream wrote it, or a pack’s own with the pack’s variables filled in too. */
         PlaybookMessages: {
             name: string;
             /** @description This read in the call log. */
             callId: string;
             description: string | null;
-            /** @description MCP prompt messages (role + content): what the upstream would have the agent read. */
+            /** @description MCP prompt messages (role + content): what the agent is to read and follow. */
             messages: unknown[];
             _links: components["schemas"]["Links"];
         };
@@ -2613,10 +2725,11 @@ export interface components {
             mimeType: string | null;
             _links: components["schemas"]["Links"];
         };
-        /** @description What a link holds, read with the upstream’s credential. */
+        /** @description What a link holds, read with the upstream’s credential, or a pack’s own skill. */
         ResourceRead: {
             uri: string;
-            upstream: string;
+            /** @description The upstream it was read from; null for a pack’s own skill. */
+            upstream: string | null;
             /** @description This read in the call log. */
             callId: string;
             contents: {
@@ -2628,7 +2741,7 @@ export interface components {
             }[];
             _links: components["schemas"]["Links"];
         };
-        /** @description Every pack tool to recheck. */
+        /** @description Everything in the packs to recheck. */
         PackFlagList: {
             count: number;
             _links: components["schemas"]["Links"];
@@ -2636,21 +2749,24 @@ export interface components {
                 flags: components["schemas"]["PackFlag"][];
             };
         };
-        /** @description Something in a pack to recheck because its upstream changed the tool. */
+        /** @description Something in a pack to recheck because a tool changed under it. `_links.tool` is left out for a `playbook` or `skill` whose name no longer leads to a tool. */
         PackFlag: {
             /**
-             * @description `wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack fixes or defaults, or no longer takes its value.
+             * @description `wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack fixes or defaults, or no longer takes its value. `playbook`, `skill`: one of the pack’s own playbooks, or its skill, was written for a tool that has since changed or left the pack.
              * @enum {string}
              */
-            kind: "wording" | "input";
+            kind: "wording" | "input" | "playbook" | "skill";
             pack: string;
             packTitle: string;
-            /** @description The name the pack calls it. */
+            /** @description The name the pack calls it. For `playbook` and `skill`: the first name the text was written for that has moved, which may no longer be in the pack. */
             tool: string;
+            /** @description For `playbook`: the playbook’s name. For `skill`: `SKILL.md`. Null for a tool’s own flags. */
+            item: string | null;
+            /** @description The pack’s wording of the tool; empty for `playbook` and `skill`. */
             wording: string;
-            /** @description `wording`: the upstream’s description when the wording was written. `input`: what the pack sets, e.g. `fixes from` or `defaults from`. */
+            /** @description `wording`: the upstream’s description when the wording was written. `input`: what the pack sets, e.g. `fixes from` or `defaults from`. `playbook`, `skill`: the names it was written for that have moved, e.g. `written for greet_from_desk`. */
             was: string;
-            /** @description `wording`: the upstream’s description now. `input`: what is wrong with it now. */
+            /** @description `wording`: the upstream’s description now. `input`: what is wrong with it now. `playbook`, `skill`: what happened to each name. */
             now: string;
             _links: components["schemas"]["Links"];
         };
@@ -2669,13 +2785,16 @@ export interface components {
             description: string;
             counts: {
                 tools: number;
+                /** @description Playbooks it holds from its connections. */
                 playbooks: number;
                 manuals: number;
+                /** @description Playbooks written for it. */
+                ownPlaybooks: number;
             };
             upstreams: string[];
             /** @description Live keys locked to it. */
             keys: number;
-            /** @description Tools to recheck: wording their upstream rewrote, or a fixed or default value that no longer fits. */
+            /** @description What to recheck: tools whose wording their upstream rewrote or with a fixed or default value that no longer fits, and playbooks of its own, or its skill, written for a tool that has changed or left the pack. */
             flags: number;
             updatedAt: string;
             _links: components["schemas"]["Links"];
@@ -2686,8 +2805,12 @@ export interface components {
             variables: components["schemas"]["PackVariable"][];
             /** @description What the checks find in the pack as it stands: errors to fix, and warnings. */
             findings: components["schemas"]["PackFinding"][];
+            /** @description The playbooks it holds from its connections. */
             playbooks: components["schemas"]["PackItem"][];
             manuals: components["schemas"]["PackItem"][];
+            /** @description The playbooks written for it, in the order they were made. Their text is at `GET /api/packs/{name}/playbooks/{playbook}`. */
+            ownPlaybooks: components["schemas"]["PackOwnPlaybook"][];
+            skill: components["schemas"]["PackSkill"];
             keyList: components["schemas"]["PackKey"][];
             /** @description People whose access ends within three days. */
             ending: number;
@@ -2805,17 +2928,17 @@ export interface components {
         /** @description Something the checks found in a pack. */
         PackFinding: {
             /**
-             * @description `error`: calls that use the value can fail (a tool input’s `problem` says which), and a save that sends it is refused. `warning`: worth a look; nothing fails.
+             * @description `error`: calls that use the value can fail (a tool input’s `problem` says which), or a text names something that is not there; a save that sends it is refused. `warning`: worth a look; nothing fails.
              * @enum {string}
              */
             level: "error" | "warning";
             /**
-             * @description `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`.
+             * @description In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `name_clash`, `bad_name`, `bad_front_matter`, `bad_argument_name`, `empty`, `too_big`, or a warning: `unknown_name`, `not_a_name`, `needs_write`, `split`, `missing_section`, `skill_path`.
              * @example bad_value
              */
             code: string;
             /**
-             * @description Where: `tools.<name>.fixed.<input>`, `tools.<name>.defaults.<input>` or `variables.<name>`.
+             * @description Where: `tools.<name>.fixed.<input>`, `tools.<name>.defaults.<input>`, `variables.<name>`, `playbooks.<name>` (one of the pack’s own) or `skill`.
              * @example tools.greet_from_desk.fixed.from
              */
             path: string;
@@ -2829,6 +2952,50 @@ export interface components {
             description: string | null;
             live: boolean;
         };
+        /** @description A playbook written for a pack. */
+        PackOwnPlaybook: {
+            name: string;
+            /** @description From the front matter, else made from the name. */
+            title: string;
+            description: string;
+            /** @description What an agent fills, written `{{name}}` in the text. */
+            arguments: {
+                name: string;
+                description: string | null;
+                required: boolean;
+            }[];
+            /** @description The numbered steps in the text. */
+            steps: number;
+            flag: components["schemas"]["PackDocFlag"];
+            /** @description What the checks find in this playbook as it stands. */
+            findings: components["schemas"]["PackFinding"][];
+        };
+        /** @description A tool this text was written for has changed or left the pack: read the text again. Saving it, changed or not, clears the flag, and is refused while it still names a tool the pack no longer has. */
+        PackDocFlag: {
+            /**
+             * @description The tools it was written for that have since moved, by the names the pack called them.
+             * @example written for greet_from_desk
+             */
+            was: string;
+            /**
+             * @description What happened to each: it left the pack, it is not live, or its server changed it.
+             * @example greet_from_desk is no longer in Front desk
+             */
+            now: string;
+        } | null;
+        /** @description The skill written for it, or null. Its text is at `GET /api/packs/{name}/skill`. */
+        PackSkill: {
+            /**
+             * @description Where the skill sits.
+             * @example skill://desk/SKILL.md
+             */
+            uri: string;
+            /** @description Which of the six sections the text has. */
+            sections: string[];
+            flag: components["schemas"]["PackDocFlag"];
+            /** @description What the checks find in the skill as it stands. */
+            findings: components["schemas"]["PackFinding"][];
+        } | null;
         /** @description A live key locked to the pack. */
         PackKey: {
             id: string;
@@ -3088,6 +3255,144 @@ export interface components {
             summary: string;
             /** @description Already in the pack asked about. */
             inPack: boolean;
+        };
+        /** @description The playbooks written for a pack, in the order they were made. */
+        PackOwnPlaybookList: {
+            count: number;
+            _links: components["schemas"]["Links"];
+            _embedded: {
+                playbooks: components["schemas"]["PackOwnPlaybook"][];
+            };
+        };
+        /** @description A playbook written for a pack, with its text and versions. With `?version=`, `markdown` and `version` are that older text; everything else describes the playbook as it is served. */
+        PackOwnPlaybookDetail: components["schemas"]["PackOwnPlaybook"] & {
+            /** @description The text as written, front matter included. */
+            markdown: string;
+            /** @description The version whose text `markdown` is. */
+            version: string;
+            /** @description Every text it had, newest first. */
+            versions: {
+                id: string;
+                /**
+                 * @description Who wrote it: `owner` (through these routes), `ai` (a build) or `import` (a config import).
+                 * @enum {string}
+                 */
+                source: "owner" | "ai" | "import";
+                createdAt: string;
+                /** @description The text the pack serves. */
+                live: boolean;
+            }[];
+            updatedAt: string;
+            _links: components["schemas"]["Links"];
+        };
+        /** @description A new playbook for a pack. */
+        PackPlaybookInput: {
+            /**
+             * @description The playbook’s name in this pack: a lowercase letter, then lowercase letters, digits or `-`, 3 to 64 in all.
+             * @example say-hello
+             */
+            name: string;
+            /**
+             * @description The playbook as Markdown. Front matter (between `---` lines) may give `title`, `description` and `arguments` (each `name`, and optionally `description` and `required`). The text writes an argument or a variable of the pack as `{{name}}`, names the pack’s tools in backticks by the names the pack calls them, and numbers its steps. 60,000 characters at most.
+             * @example ---
+             *     title: Say hello
+             *     description: Greets a guest by name, from the desk.
+             *     arguments:
+             *       - name: guest
+             *         description: Who to greet.
+             *         required: true
+             *     ---
+             *
+             *     1. Run `greet_from_desk` with `to` set to {{guest}}.
+             *     2. Say it back with `fixture.echo`.
+             */
+            markdown: string;
+        };
+        /** @description A playbook’s text from now on. */
+        PackPlaybookText: {
+            /**
+             * @description The playbook as Markdown. Front matter (between `---` lines) may give `title`, `description` and `arguments` (each `name`, and optionally `description` and `required`). The text writes an argument or a variable of the pack as `{{name}}`, names the pack’s tools in backticks by the names the pack calls them, and numbers its steps. 60,000 characters at most.
+             * @example ---
+             *     title: Say hello
+             *     description: Greets a guest by name, from the desk.
+             *     arguments:
+             *       - name: guest
+             *         description: Who to greet.
+             *         required: true
+             *     ---
+             *
+             *     1. Run `greet_from_desk` with `to` set to {{guest}}.
+             *     2. Say it back with `fixture.echo`.
+             */
+            markdown: string;
+        };
+        /** @description The skill written for a pack, with its text and versions. With `?version=`, `markdown`, `served` and `version` are that older text. */
+        PackSkillDetail: components["schemas"]["PackSkill"] & {
+            /** @description The text as stored: no front matter, no first heading. */
+            markdown: string;
+            /** @description `SKILL.md` whole: the front matter and heading the gateway writes, then the text with the pack’s variables filled in. */
+            served: string;
+            /** @description The version whose text `markdown` is. */
+            version: string;
+            /** @description Every text it had, newest first. */
+            versions: {
+                id: string;
+                /**
+                 * @description Who wrote it: `owner` (through these routes), `ai` (a build) or `import` (a config import).
+                 * @enum {string}
+                 */
+                source: "owner" | "ai" | "import";
+                createdAt: string;
+                /** @description The text the pack serves. */
+                live: boolean;
+            }[];
+            updatedAt: string;
+            _links: components["schemas"]["Links"];
+        };
+        /** @description A pack’s skill from now on. */
+        PackSkillInput: {
+            /**
+             * @description The skill’s text as Markdown, in six `## ` sections: What it is for, Which tool for which job, Values already set, Playbooks, Gotchas, What it can’t do. It writes a variable of the pack as `{{name}}` and names the pack’s tools in backticks. Front matter and a first `# ` heading are the gateway’s to write (from the pack’s name, title and what it is for): sent ones are dropped. 60,000 characters at most.
+             * @example ## What it is for
+             *
+             *     Greeting guests at {{door}}.
+             *
+             *     ## Which tool for which job
+             *
+             *     `greet_from_desk` greets.
+             */
+            markdown: string;
+        };
+        /** @description What a save of this draft would say. Nothing was saved. */
+        PackCheck: {
+            /** @description What the checks find in the draft. A save is refused while one of them is an `error`. */
+            findings: components["schemas"]["PackFinding"][];
+            _links: components["schemas"]["Links"];
+        };
+        /** @description A draft of a playbook or of the skill. */
+        PackCheckInput: {
+            /** @enum {string} */
+            kind: "playbook" | "skill";
+            /**
+             * @description For a playbook: the name it has or will have. One the pack already has is checked as a new text for that playbook; left out, it is checked as a new playbook called `draft`.
+             * @example say-hello
+             */
+            name?: string;
+            /**
+             * @description The text to check, as a save would take it.
+             * @example ---
+             *     title: Say hello
+             *     description: Greets a guest by name, from the desk.
+             *     arguments:
+             *       - name: guest
+             *         description: Who to greet.
+             *         required: true
+             *     ---
+             *
+             *     1. Run `greet_from_desk` with `to` set to {{guest}}.
+             *     2. Say it back with `fixture.echo`.
+             */
+            markdown: string;
         };
         /** @description A finished call and the tool’s result. */
         CallResult: {
@@ -3777,6 +4082,10 @@ export interface components {
                 playbooks: string[];
                 /** @default [] */
                 manuals: string[];
+                /** @default {} */
+                files: {
+                    [key: string]: string;
+                };
             }[];
         } & {
             [key: string]: unknown;
@@ -6107,7 +6416,7 @@ export interface operations {
                  * @example plan a dinner
                  */
                 q?: string;
-                /** @description Only this upstream. */
+                /** @description Only this upstream: a pack’s own playbooks, which belong to no upstream, are then left out. */
                 upstream?: string;
                 /** @description At most this many. */
                 limit?: number;
@@ -6161,7 +6470,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The playbook name, `<upstream>-<prompt>`. */
+                /** @description The playbook name: `<upstream>-<prompt>`, or a pack’s own name for one it wrote. */
                 name: string;
             };
             cookie?: never;
@@ -6217,7 +6526,7 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description The playbook name, `<upstream>-<prompt>`. */
+                /** @description The playbook name: `<upstream>-<prompt>`, or a pack’s own name for one it wrote. */
                 name: string;
             };
             cookie?: never;
@@ -7312,6 +7621,573 @@ export interface operations {
                 };
                 content: {
                     "application/hal+json": components["schemas"]["PlaybookUses"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listPackPlaybooks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The playbooks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackOwnPlaybookList"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createPackPlaybook: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackPlaybookInput"];
+            };
+        };
+        responses: {
+            /** @description The playbook. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackOwnPlaybookDetail"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getPackPlaybook: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Read an older text: a version’s id, as `versions` lists them.
+                 * @example pdv_0123456789abcdef
+                 */
+                version?: string;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+                /**
+                 * @description The playbook’s name in this pack: a lowercase letter, then lowercase letters, digits or `-`, 3 to 64 in all.
+                 * @example say-hello
+                 */
+                playbook: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The playbook. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackOwnPlaybookDetail"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setPackPlaybook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+                /**
+                 * @description The playbook’s name in this pack: a lowercase letter, then lowercase letters, digits or `-`, 3 to 64 in all.
+                 * @example say-hello
+                 */
+                playbook: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackPlaybookText"];
+            };
+        };
+        responses: {
+            /** @description The playbook. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackOwnPlaybookDetail"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deletePackPlaybook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+                /**
+                 * @description The playbook’s name in this pack: a lowercase letter, then lowercase letters, digits or `-`, 3 to 64 in all.
+                 * @example say-hello
+                 */
+                playbook: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getPackSkill: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Read an older text: a version’s id, as `versions` lists them.
+                 * @example pdv_0123456789abcdef
+                 */
+                version?: string;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The skill. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackSkillDetail"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setPackSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackSkillInput"];
+            };
+        };
+        responses: {
+            /** @description The skill. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackSkillDetail"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deletePackSkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    checkPackDraft: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackCheckInput"];
+            };
+        };
+        responses: {
+            /** @description What the checks find. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackCheck"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */

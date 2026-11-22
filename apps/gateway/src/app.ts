@@ -19,6 +19,7 @@ import type { MeaningSearch } from './features/tools/meaning.js'
 import { sealedGuardStore } from './features/vault/answers.js'
 import { parseMasterKey } from './features/vault/crypto.js'
 import { GUIDE_FILES } from './guide.gen.js'
+import { GUIDE_VARS } from './guide.vars.js'
 import {
   accessOwner,
   createAgentApi,
@@ -149,7 +150,7 @@ export const createApp = async ({
   // The caller's W3C trace context (a `traceparent` header; MCP's `_meta.traceparent` arrives as one): calls join it
   app.use('/api/*', (c, next) => traceContext.run(parseTraceparent(c.req.header('traceparent')), next))
   for (const feature of features) feature.register(app, services)
-  serveGuide(app, { files: GUIDE_FILES, vars: () => ({}), full: ['llms.txt'] })
+  serveGuide(app, { files: GUIDE_FILES, vars: () => GUIDE_VARS, full: ['llms.txt'] })
   // Each pack's own guide, OpenAPI document and docs page, at its address
   mountPackDocs(app, services)
   const mcp = mountGatewayMcp(app, services, {

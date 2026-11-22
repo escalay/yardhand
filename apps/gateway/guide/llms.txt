@@ -59,6 +59,18 @@ A pack sets some inputs of its tools. An input the pack fills itself is not in t
 call that sends it is refused (400). An input the pack gives a default shows that default in the tool's schema; send
 your own value to replace it.
 
+A pack can have a skill and playbooks written for it, by its owner, over its own tools:
+
+- Its **skill**, "Working with <title>": what the pack is for, which tool does which job, what is already set, and
+  what it can't do. Read it once, before the pack's tools: `read_resource` `skill://<pack>/SKILL.md` (MCP), or
+  `GET /api/resources?uri=skill://<pack>/SKILL.md`. `GET /api/me` gives the address (`pack.skill`, null when the
+  pack has none), the server instructions name it, and MCP clients with the Skills extension get it as a skill. It
+  also opens the pack's guide, `/p/<pack>/llms.txt`.
+- Its **own playbooks**: listed first in `GET /api/playbooks` and as prompts, with `upstream: null` and `pack` set,
+  under the name the pack gave them (`say-hello`, not `<upstream>-<prompt>`). `search_tools` suggests them, and
+  `get_playbook` or `GET /api/playbooks/{name}/messages?arguments={…}` fills one in with your arguments and the
+  pack's own values. They belong to no connection: `?upstream=<id>` leaves them out, and no connection counts them.
+
 Playbooks, manuals and calls stay inside the pack too. A call to anything else is refused (403) and logged; the
 per-upstream passthrough (`/u/{id}/mcp`) is refused too. A pack key opens only the links its tools returned in the
 last day (through `/u/{upstream}/r/…` and `read_resource`), so `GET /api/links` is empty for it. Its connections
@@ -77,6 +89,62 @@ new request.
 The owner's key at a pack's address (or with the header) is answered as a write key of that pack: what its agents
 see. Routes that manage the gateway answer 403 there. From the root, `GET /api/tools?pack=<pack>` searches as the
 pack's keys do, and with `as=<client id>` as that one key.
+
+## Writing a pack
+
+With the owner's key, at the root (a pack's own address answers 403 to these), an agent can write a pack as the owner
+does in `/app`. Every save is checked first and refused whole when what it sends is wrong: a 400 whose `detail`
+starts `Not saved:`, with one entry per problem under `errors`. Nothing is half saved.
+
+- **Variables**: named values of the pack. `PUT /api/packs/{name}/variables` with
+  `{"variables": [{"name": "city", "value": "Lisbon"}]}` replaces the whole set. A name is lowercase letters, digits
+  and `_`; a value is text, a number or true/false.
+- **Inputs**: `PATCH /api/packs/{name}/tools/{tool}` with `fixed` (the pack fills the input on every call, and its
+  keys never see it) and `defaults` (shown with the pack's value, which the agent may replace). An input in neither
+  is the agent's. A value writes a variable as `{{open}}city}}`; a value that is one variable and nothing else keeps
+  the variable's type. `{tool}` is the name the pack calls the tool: its alias, else `<upstream>.<tool>`.
+- **A playbook**: `POST /api/packs/{name}/playbooks` with `{"name": "find-roles", "markdown": "…"}`;
+  `PUT` and `DELETE /api/packs/{name}/playbooks/{playbook}` replace and remove one. The Markdown opens with front
+  matter (`title`, `description`, `arguments`), then the steps:
+
+  ```markdown
+  ---
+  title: Find roles
+  description: Finds open roles in a city and lists the best five.
+  arguments:
+    - name: role
+      description: The kind of role, e.g. product designer.
+      required: true
+  ---
+
+  1. Run `jobs.search_postings` with `query` set to {{open}}role}}, in {{open}}city}}.
+  2. List the five best matches, newest first.
+  ```
+
+  The text writes an argument or one of the pack's variables as `{{open}}name}}` and numbers its steps. It names the
+  pack's tools in backticks, by the names the pack calls them: only a name in backticks is read as a tool.
+- **The skill**: `PUT /api/packs/{name}/skill` with `{"markdown": "…"}`. A pack has one, "Working with <title>", in
+  six `##` sections: What it is for, Which tool for which job, Values already set, Playbooks, Gotchas, What it can't
+  do. Send the sections only: the gateway writes the front matter and the heading from the pack.
+- **Try a draft**: `POST /api/packs/{name}/checks` with `{"kind": "playbook", "markdown": "…"}` (or
+  `"kind": "skill"`) answers `findings` and saves nothing.
+
+What the checks say:
+
+- Refused, as an `error`: a tool in backticks that is not in the pack, or written by its own name where the pack
+  gives it another; a `{{open}}word}}` in a playbook's text or the skill that is neither an argument nor a
+  variable; front matter that can't be read; a fixed or default value the tool's input schema does not take.
+- Saved, with a `warning` in `findings`: a tool a read-only key can't run, a name shaped like a tool that is none,
+  a playbook past 12 steps, a section the skill leaves out.
+- In a fixed or default value, a `{{open}}word}}` the pack has no variable for is sent as written, with a warning:
+  a tool whose own input is a template keeps working. In a playbook's text or the skill nothing is sent as written,
+  so there it is an error. That holds inside fenced code blocks too: there is no escape to keep a `{{open}}word}}` as
+  written. A playbook's front matter (its title, description and arguments' descriptions) is not read for them: it is
+  served as written.
+
+`GET /api/packs/{name}` shows the pack as it stands: `findings`, `ownPlaybooks`, `skill`, and `flags` once a tool
+changed under a text. A text is never blocked by a tool that moves: it is flagged, and saving it again clears the
+flag. The pack's keys get what you wrote at once (see Pack keys).
 
 ## Rules worth knowing
 

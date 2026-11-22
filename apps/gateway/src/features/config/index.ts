@@ -1,16 +1,21 @@
 /**
  * Config: the gateway's settings as one JSON document (upstreams, clients, pins, tool access, packs), never a secret. Kept
  * with the nightly backups and diffable in git; credentials stay in the vault and the key hashes stay in the database.
+ * The playbooks and skill written for a pack ride in it as Markdown files, by path.
  */
 import { createRoute, z } from '@hono/zod-openapi'
 import { problemResponses } from '../../kit/index.js'
 import { VERSION } from '../../version.js'
+import { type ManualContent, skillPathOf } from '../catalog/content.js'
 import { requireOwner } from '../clients/principals.js'
 import type { Feature } from '../index.js'
-import { judge, sentenceOf } from '../packs/checks.js'
+import { basedOnOf, docPathOf, judge, sentenceOf } from '../packs/checks.js'
 import { ALIAS, defaultsOf, fixedOf } from '../packs/entries.js'
+import { withoutFrontMatter } from '../packs/frontmatter.js'
+import { toolRefsIn } from '../packs/playbook.js'
 import { PACK_REASONS } from '../packs/schema.js'
-import { packStateOf, withTools, withVariables } from '../packs/state.js'
+import { SKILL_DOC, skillBodyOf, skillFile } from '../packs/skill.js'
+import { packStateOf, withDoc, withHeld, withTools, withVariables } from '../packs/state.js'
 import { type Scalar, VARIABLE } from '../packs/values.js'
 
 const TAG = 'Config'
@@ -25,7 +30,7 @@ const route = createRoute({
   tags: [TAG],
   summary: 'Export the settings',
   description:
-    'Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs and defaults, as written), variables, playbooks and manuals, as one JSON document (owner only).',
+    'Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs and defaults, as written), variables, playbooks and manuals, as one JSON document (owner only). The playbooks and the skill written for a pack are under its `files`, by path: `playbooks/<name>.md` as written and `SKILL.md` as it is read, with its `{{name}}` left as written. Each is a plain Markdown file to keep in git; their older versions are not exported.',
   responses: {
     200: { content: { 'application/json': { schema: ConfigSchema } }, description: 'The settings.' },
     ...problemResponses(401, 403),
@@ -85,6 +90,7 @@ const ImportSchema = z
             .default([]),
           playbooks: z.array(z.string().min(1).max(160)).default([]),
           manuals: z.array(z.string().min(1).max(160)).default([]),
+          files: z.record(z.string().min(1).max(200), z.string().max(200_000)).default({}),
         }),
       )
       .default([]),
@@ -120,7 +126,7 @@ const importRoute = createRoute({
   tags: [TAG],
   summary: 'Import the settings',
   description:
-    'Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the variables, tools, playbooks and manuals it lacks. Variables go in first, so a tool’s fixed inputs and defaults are checked with them filled in; a variable or a tool that would leave a value its tool’s live schema refuses is skipped and named. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.',
+    'Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the variables, tools, playbooks, manuals and files it lacks. Variables go in first, so a tool’s fixed inputs and defaults are checked with them filled in; a variable or a tool that would leave a value its tool’s live schema refuses is skipped and named. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. A pack’s `files` go in last, each a plain Markdown file by path (`playbooks/<name>.md`, `SKILL.md`), checked as a save of it is: one that names a tool the pack does not have yet, or that the checks refuse, is skipped and named; one the pack already has is kept as it is. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.',
   request: { body: { required: true, content: { 'application/json': { schema: ImportSchema } } } },
   responses: {
     200: { content: { 'application/json': { schema: ImportResultSchema } }, description: 'What changed.' },
@@ -133,6 +139,7 @@ export const feature: Feature = {
   tag: { name: TAG, description: 'The gateway’s settings as one JSON document, without secrets.' },
   migrations: [],
   register: (app, { upstreams, clients, tools, sync, packs, catalog }) => {
+    const repos = { packs, tools, catalog, upstreams }
     app.openapi(route, async (c) => {
       requireOwner(c)
       const rows = await upstreams.list()
@@ -191,6 +198,14 @@ export const feature: Feature = {
               })),
               playbooks: held.playbooks,
               manuals: held.manuals,
+              // The skill as it is read, its `{{name}}` left as written; a playbook as written
+              files: Object.fromEntries(
+                held.docs.map((doc) =>
+                  doc.kind === 'skill'
+                    ? ['SKILL.md', skillFile(pack, doc.body, {})]
+                    : [`playbooks/${doc.name}.md`, doc.body],
+                ),
+              ),
               variables: held.variables.flatMap((variable) =>
                 variable.value === null
                   ? []
@@ -272,7 +287,7 @@ export const feature: Feature = {
         if (!pack) continue
         const held = existing ? await packs.contentsOf(existing) : null
         // Each addition is judged as a change of its own, so a problem the pack already has never keeps a good one out
-        let state = await packStateOf({ packs, tools }, pack)
+        let state = await packStateOf(repos, pack)
         // Variables first: the values of the tools that follow are checked with them filled in
         const declaring: typeof wanted.variables = []
         for (const variable of wanted.variables) {
@@ -334,14 +349,62 @@ export const feature: Feature = {
           const had = new Set(kind === 'playbook' ? held?.playbooks : held?.manuals)
           const names = (kind === 'playbook' ? wanted.playbooks : wanted.manuals).filter((name) => !had.has(name))
           const liveNames: string[] = []
-          for (const name of names)
-            if (await catalog.live(kind, name)) liveNames.push(name)
-            else result.skipped.push(`pack ${wanted.name} ${kind} ${name}: not live yet`)
+          const manualPaths: string[] = []
+          for (const name of names) {
+            // The request route refuses this too (`checkAdds`): one name, one playbook
+            if (kind === 'playbook' && state.playbooks.some((doc) => doc.name === name)) {
+              result.skipped.push(
+                `pack ${wanted.name} playbook ${name}: the pack has a playbook of its own called that (rename that one first)`,
+              )
+              continue
+            }
+            const item = await catalog.live(kind, name)
+            if (!item) result.skipped.push(`pack ${wanted.name} ${kind} ${name}: not live yet`)
+            else {
+              liveNames.push(name)
+              if (kind === 'manual') manualPaths.push(skillPathOf(item.upstreamId, item.content as ManualContent))
+            }
+          }
           await packs.addItems(packId, kind, liveNames)
           items += liveNames.length
+          state = withHeld(state, kind === 'playbook' ? { playbooks: liveNames } : { manualPaths })
+        }
+        // The pack's own texts last, each judged as a save of it against everything that went in before
+        const naming = new Set(wanted.tools.map((tool) => tool.alias ?? tool.name))
+        let docs = 0
+        for (const [file, text] of Object.entries(wanted.files)) {
+          const playbook = /^playbooks\/(.+)\.md$/.exec(file)?.[1]
+          const kind = file === 'SKILL.md' ? 'skill' : playbook ? 'playbook' : null
+          if (!kind) {
+            result.skipped.push(
+              `pack ${wanted.name} ${file}: not a file a pack holds (SKILL.md, or playbooks/<name>.md)`,
+            )
+            continue
+          }
+          const name = playbook ?? SKILL_DOC
+          if (kind === 'skill' ? state.skill : state.playbooks.some((doc) => doc.name === name)) continue
+          const body = kind === 'skill' ? skillBodyOf(text) : text
+          const after = withDoc(state, kind, name, body)
+          const where = docPathOf(kind, name)
+          // A tool the export has that is not in yet: the text waits for it, as the tool waits for its connection
+          const waiting = toolRefsIn(withoutFrontMatter(body)).filter(
+            (word) => naming.has(word) && !after.tools.some((tool) => tool.name === word),
+          )
+          const { refused } = judge(state, after, [where])
+          if (waiting.length)
+            result.skipped.push(
+              `pack ${wanted.name} ${file}: names ${waiting.join(', ')}, which ${waiting.length === 1 ? 'is' : 'are'} not in the pack yet (import again once its tools are in)`,
+            )
+          else if (refused.length)
+            result.skipped.push(`pack ${wanted.name} ${file}: ${refused.map(sentenceOf).join('; ')}`)
+          else {
+            await packs.saveDoc(packId, kind, name, { body, basedOn: basedOnOf(after, where), source: 'import' })
+            state = after
+            docs++
+          }
         }
         if (!existing) result.packs.created.push(wanted.name)
-        else if (variables + added + items) result.packs.filled.push(wanted.name)
+        else if (variables + added + items + docs) result.packs.filled.push(wanted.name)
       }
       return c.json(result, 200)
     })

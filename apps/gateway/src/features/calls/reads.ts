@@ -6,13 +6,18 @@
  * Links are taken as they come: `cookbook://recipes/123` finds its upstream by scheme among those the client may use
  * (or by `upstream` when two share a scheme), `gateway://u/cookbook/<uri>` names it outright, `gateway://u/cookbook/manual`
  * is cookbook's manual, and `skill://<manual>/<file>` is one file of a manual.
+ *
+ * What a pack wrote for itself is read here too, through `packDocs`: its own playbooks by name, before any
+ * connection's, and its skill at `skill://<pack>/SKILL.md`. They belong to no connection, so they are logged with
+ * no upstream.
  */
 import type { Adapters, Credential, PromptResult, ResourceResult } from '../../adapters/index.js'
 import { ProblemError } from '../../kit/index.js'
-import { type ManualContent, type PlaybookContent, skillPathOf } from '../catalog/content.js'
+import { type ManualContent, type PlaybookArgument, type PlaybookContent, skillPathOf } from '../catalog/content.js'
 import { agentFilesOf, noteFor, schemeOf } from '../catalog/manual.js'
 import type { CatalogRepo, LiveItem } from '../catalog/repo.js'
-import { allows, holds, type Principal } from '../clients/principals.js'
+import { allows, holds, holdsOwn, type Principal } from '../clients/principals.js'
+import type { PackDocs } from '../packs/own.js'
 import type { ToolsRepo } from '../tools/repo.js'
 import type { UpstreamsRepo } from '../upstreams/repo.js'
 import type { UpstreamRow } from '../upstreams/schema.js'
@@ -41,6 +46,7 @@ export const createReads = ({
   calls,
   credentialOf,
   handed,
+  packDocs,
 }: {
   catalog: CatalogRepo
   tools: ToolsRepo
@@ -49,6 +55,7 @@ export const createReads = ({
   calls: CallsRepo
   credentialOf: (id: string) => Promise<Credential | undefined>
   handed: Handed
+  packDocs: PackDocs
 }) => {
   type Context = { principal: Principal; via: CallRow['via'] }
   const record = (
@@ -126,9 +133,40 @@ export const createReads = ({
     return { id, ...found }
   }
 
-  /** Which manual a `skill://…` URI is in, and which of its files: the manual whose skill path is the longest prefix. */
-  const skillTarget = async (principal: Principal, uri: string) => {
+  /** The pack's own skill, as served; a read of `SKILL.md`, so it is logged as a manual read under its address. */
+  const packSkill = async (context: Context) => {
+    const started = Date.now()
+    const skill = await packDocs.skill(context.principal)
+    if (!skill) {
+      const problem = new ProblemError('not_found', {
+        detail: `${context.principal.pack?.title ?? 'This client'} has no skill of its own. GET /api/manuals lists the manuals you may read.`,
+      })
+      await record(
+        context,
+        { kind: 'manual', name: context.principal.pack?.skill ?? 'SKILL.md', upstreamId: null },
+        { status: 'refused', error: problem.message, started },
+      )
+      throw problem
+    }
+    const id = await record(
+      context,
+      { kind: 'manual', name: skill.uri, upstreamId: null, versionId: skill.versionId },
+      { status: 'ok', started, bytes: skill.text.length },
+    )
+    return { id, ...skill }
+  }
+
+  /**
+   * What a `skill://…` URI leads to for this caller: its pack's own skill, for exactly that address, else a manual
+   * and which of its files (the manual whose skill path is the longest prefix). The pack's skill wins its address;
+   * a manual's other files under the same root still lead to the manual.
+   */
+  const skillTarget = async (
+    principal: Principal,
+    uri: string,
+  ): Promise<{ own: true } | { name: string; file: string } | undefined> => {
     if (!uri.startsWith('skill://')) return undefined
+    if (principal.pack?.skill === uri) return { own: true }
     const manuals = await catalog.listLive({ kinds: ['manual'], upstreams: principal.upstreams })
     const matches = manuals
       .filter((item) => holds(principal, item))
@@ -152,11 +190,47 @@ export const createReads = ({
     return manual(context, chosen.name)
   }
 
+  const noPlaybook = (name: string) =>
+    new ProblemError('not_found', {
+      detail: `No playbook ${name} for this client. GET /api/playbooks?q=<what you want to do> finds yours.`,
+    })
+  /** The 400 for a use that leaves a required argument out, or nothing. */
+  const missingIn = (name: string, wanted: PlaybookArgument[], args: Record<string, string>) => {
+    const given = (argument: string) => (Object.hasOwn(args, argument) ? args[argument]?.trim() : undefined)
+    const missing = wanted.filter((arg) => arg.required && !given(arg.name)).map((arg) => arg.name)
+    return missing.length
+      ? new ProblemError('bad_request', {
+          detail: `${name} needs ${missing.join(', ')}: ${wanted.map((arg) => `${arg.name}${arg.description ? ` (${arg.description})` : ''}`).join('; ')}.`,
+        })
+      : null
+  }
+
+  /** A playbook the caller's pack wrote, filled in here: the arguments given, then the pack's variables. */
+  const ownPlaybook = async (context: Context, name: string, args: Record<string, string>) => {
+    const started = Date.now()
+    const own = await packDocs.playbook(context.principal, name)
+    const entry = { kind: 'playbook' as const, name, upstreamId: null, versionId: own?.versionId }
+    const problem = own ? missingIn(name, own.arguments, args) : noPlaybook(name)
+    if (!own || problem) {
+      await record(context, entry, { status: 'refused', error: problem?.message, started })
+      throw problem
+    }
+    const text = await packDocs.render(context.principal, own, args)
+    const result: PromptResult = {
+      ...(own.description ? { description: own.description } : {}),
+      messages: [{ role: 'user', content: { type: 'text', text } }],
+    }
+    const id = await record(context, entry, { status: 'ok', started, bytes: JSON.stringify(result).length })
+    await calls.keepPayload(id, { arguments: args, result })
+    return { id, name, result }
+  }
+
   const playbook = async (
     context: Context,
     name: string,
     args: Record<string, string>,
-  ): Promise<{ id: string; item: LiveItem; result: PromptResult }> => {
+  ): Promise<{ id: string; name: string; result: PromptResult }> => {
+    if (holdsOwn(context.principal, name)) return ownPlaybook(context, name, args)
     const started = Date.now()
     const item = await catalog.live('playbook', name)
     const row = item && holds(context.principal, item) ? await reachable(context.principal, item.upstreamId) : undefined
@@ -169,20 +243,11 @@ export const createReads = ({
       throw problem
     }
     if (!item || !row || !(row.playbooks || context.principal.owner || context.principal.pack))
-      return refuse(
-        new ProblemError('not_found', {
-          detail: `No playbook ${name} for this client. GET /api/playbooks?q=<what you want to do> finds yours.`,
-        }),
-      )
+      return refuse(noPlaybook(name))
     if (!row.enabled) return refuse(new ProblemError('unavailable', { detail: `Upstream ${row.id} is switched off.` }))
     const content = item.content as PlaybookContent
-    const missing = content.arguments.filter((arg) => arg.required && !args[arg.name]?.trim()).map((arg) => arg.name)
-    if (missing.length)
-      return refuse(
-        new ProblemError('bad_request', {
-          detail: `${name} needs ${missing.join(', ')}: ${content.arguments.map((arg) => `${arg.name}${arg.description ? ` (${arg.description})` : ''}`).join('; ')}.`,
-        }),
-      )
+    const missing = missingIn(name, content.arguments, args)
+    if (missing) return refuse(missing)
     try {
       const result = await adapters
         .for(row.kind)
@@ -193,7 +258,7 @@ export const createReads = ({
         { status: 'ok', started, bytes: JSON.stringify(result).length },
       )
       await calls.keepPayload(id, { arguments: args, result })
-      return { id, item, result }
+      return { id, name: item.name, result }
     } catch (error) {
       await record(
         context,
@@ -231,11 +296,19 @@ export const createReads = ({
     context: Context,
     uri: string,
     named?: string,
-  ): Promise<{ id: string; upstream: string; result: ResourceResult }> => {
+  ): Promise<{ id: string; upstream: string | null; result: ResourceResult }> => {
     const match = GATEWAY_LINK.exec(uri)
     const gateway = match?.[1] && match[2] ? { upstream: match[1], uri: match[2] } : null
     if (gateway?.uri === 'manual') return asResource(await manualOfUpstream(context, gateway.upstream), uri)
     const skill = named ? undefined : await skillTarget(context.principal, uri)
+    if (skill && 'own' in skill) {
+      const read = await packSkill(context)
+      return {
+        id: read.id,
+        upstream: null,
+        result: { contents: [{ uri, mimeType: 'text/markdown', text: read.text }] },
+      }
+    }
     if (skill) {
       const read = await manual(context, skill.name)
       const text = read.files[skill.file]
@@ -250,6 +323,19 @@ export const createReads = ({
       }
     }
     const started = Date.now()
+    // A skill address nothing answers for this caller: no connection serves `skill://`, so say what there is
+    if (!named && uri.startsWith('skill://')) {
+      const own = context.principal.pack?.skill
+      const problem = new ProblemError('not_found', {
+        detail: `No skill at ${uri} for this client. GET /api/manuals lists the manuals you may read${own ? `, and this pack's skill is ${own}` : ''}.`,
+      })
+      await record(
+        context,
+        { kind: 'manual', name: uri, upstreamId: null },
+        { status: 'refused', error: problem.message, started },
+      )
+      throw problem
+    }
     const target = gateway ? gateway.uri : uri
     let upstreamId: string
     try {
@@ -314,7 +400,7 @@ export const createReads = ({
     result: { contents: [{ uri, mimeType: 'text/markdown', text: read.files['SKILL.md'] ?? '' }] },
   })
 
-  return { manual, manualFiles, manualOfUpstream, skillTarget, playbook, link }
+  return { manual, manualFiles, manualOfUpstream, skillTarget, packSkill, playbook, link }
 }
 
 export type Reads = ReturnType<typeof createReads>

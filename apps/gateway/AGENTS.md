@@ -22,7 +22,7 @@ A new feature: a folder under `src/features/<plural-name>/` with its schema, rep
 | `src/features/index.ts` | `FEATURES`, the one list of features, and the `Feature` shape |
 | `src/features/<name>/` | one feature: `schema.ts` (tables + migration steps) · `repo.ts` (the only queries) · `routes.ts` (OpenAPI contracts) · `handlers.ts` (request → repo → HAL) · `tools.ts` (MCP tools) · `index.ts` (register, tools, sample tool arguments) · `<name>.test.ts` |
 | `src/kit/` | the copied kit, owned by this app; `kit.json` records its version, and each module's `README.md` says what it is for and its rules (start with `core`, `db`, `mcp`, `testing`). Update with `diff --patch`, then `update` |
-| `guide/` | the agent guide: templates whose `{{api.endpoints}}` and `{{mcp.tools}}` are generated from the code |
+| `guide/` | the agent guide: templates whose `{{api.endpoints}}` and `{{mcp.tools}}` are generated from the code. Every `{{word}}` there is a placeholder: one to be read as written is written `{{open}}word}}` (`src/guide.vars.ts`) |
 | `test/api.test.ts` | every route linted, every MCP tool run (`toolsRun`), every guide placeholder filled |
 | `container/entrypoint.sh` | the env allowlist: the API sees only the variables it reads |
 

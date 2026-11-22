@@ -24,6 +24,14 @@ export const variablesFrom = (rows: { name: string; value: string | null }[]): V
 /** The names written as `{{name}}` in a text, each once, in order. */
 export const placeholdersIn = (text: string) => unique([...text.matchAll(PLACEHOLDER)].map((match) => match[1] ?? ''))
 
+/** Every `{{…}}` in a text that is not written as a name, each once: nothing fills these in. */
+export const notNamesIn = (text: string) =>
+  unique(
+    [...text.matchAll(/\{\{([^{}]*)\}\}/g)]
+      .filter((match) => !/^\s*[a-z][a-z0-9_]*\s*$/.test(match[1] ?? ''))
+      .map((match) => match[0]),
+  )
+
 /** The names written as `{{name}}` anywhere in a value, each once. */
 export const namesIn = (value: unknown): string[] =>
   typeof value === 'string'

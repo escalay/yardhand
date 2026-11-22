@@ -129,7 +129,7 @@ if (seed) {
   await asAgent(`/api/resources?uri=${encodeURIComponent('fixture://notes/7')}`)
   await owner('/api/pins', { method: 'PUT', body: { tools: ['echo.echo'] } })
   // A pack started from a playbook, with a tool picked by hand that has a default from a variable, one tool in its
-  // own words, and a session key
+  // own words, a playbook and a skill written for it, and a session key
   await owner('/api/packs', {
     method: 'POST',
     body: {
@@ -150,6 +150,62 @@ if (seed) {
   await owner('/api/packs/loud/tools/echo.echo/wording', {
     method: 'PUT',
     body: { description: 'Says your words back exactly. Call it first to check the line, then shout.' },
+  })
+  // What is written for the pack: a playbook of its own and its skill, saved as an owner saves them. A text the
+  // checks refuse must not go missing quietly
+  const written = async (path: string, method: string, body: unknown) => {
+    const response = await app.request(path, {
+      method,
+      headers: { authorization: `Bearer ${OWNER_KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) throw new Error(`The demo's seed was refused at ${path}: ${await response.text()}`)
+  }
+  await written('/api/packs/loud/playbooks', 'POST', {
+    name: 'look-up-and-say',
+    markdown: [
+      '---',
+      'title: Look an item up and say it',
+      'description: Looks one item up, then says its name back.',
+      'arguments:',
+      '  - name: wanted',
+      '    description: The id of the item to look up.',
+      '    required: true',
+      '---',
+      '',
+      '1. Run `items.get_item` with `id` set to {{wanted}}.',
+      '2. Say the item’s name back with `echo.echo`.',
+      '',
+    ].join('\n'),
+  })
+  await written('/api/packs/loud/skill', 'PUT', {
+    markdown: [
+      '## What it is for',
+      '',
+      'Saying things back, and looking items up on the way.',
+      '',
+      '## Which tool for which job',
+      '',
+      '- `echo.echo` says your words back exactly: call it first, to check the line.',
+      '- `items.get_item` looks one item up by its id.',
+      '',
+      '## Values already set',
+      '',
+      '- `items.get_item` returns {{page_size}} lines unless you ask for another number.',
+      '',
+      '## Playbooks',
+      '',
+      '- `look-up-and-say`: one item, looked up and said back.',
+      '',
+      '## Gotchas',
+      '',
+      'An id that is not there comes back as an error from the tool, not as an empty answer.',
+      '',
+      '## What it can’t do',
+      '',
+      'It changes nothing: it only reads and repeats.',
+      '',
+    ].join('\n'),
   })
   await owner('/api/clients', {
     method: 'POST',

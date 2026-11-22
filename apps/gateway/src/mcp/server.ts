@@ -22,6 +22,7 @@ import { z } from 'zod'
 import { VIA_HEADER } from '../features/calls/handlers.js'
 import { progressSink } from '../features/calls/progress.js'
 import { type Principal, packScopeFrom } from '../features/clients/principals.js'
+import { SKILL_DOC } from '../features/packs/skill.js'
 import { MODERN_PROTOCOL_VERSION, originOf, pathWith } from '../kit/index.js'
 import {
   type AgentMcpFactory,
@@ -215,7 +216,8 @@ const howToWork = (pack: NonNullable<Me['pack']>, pins: Pin[]) =>
       ]
 
 /**
- * A pack connection's instructions: the pack's own words, how to work it, then what it holds. `connections` are its
+ * A pack connection's instructions: the pack's own words, its skill to start with, how to work it, then what it
+ * holds, the playbooks written for it before those of its connections. `connections` are its
  * upstreams as `GET /api/upstreams` counts them for the pack; `pins` are the tools listed directly; `shadowed` are
  * the pack's names that one of the connection's own tools holds.
  */
@@ -232,6 +234,7 @@ export const packInstructions = (
   [
     `${pack.title}: ${pack.description}`.trim(),
     '',
+    ...(pack.skill ? [`Start with the skill, read once before the tools: read_resource "${pack.skill}".`, ''] : []),
     ...howToWork(pack, pins),
     ...(shadowed.length
       ? [
@@ -247,10 +250,10 @@ export const packInstructions = (
         ]
       : []),
     ...(readOnly ? ['This key is read-only: tools in the pack that change things are left out.'] : []),
-    ...(pack.playbooks.length
+    ...(pack.ownPlaybooks.length + pack.playbooks.length
       ? [
           '',
-          `Playbooks (step-by-step ways to do one task, as prompts or with get_playbook): ${pack.playbooks.join(', ')}.`,
+          `Playbooks (step-by-step ways to do one task, as prompts or with get_playbook): ${[...pack.ownPlaybooks, ...pack.playbooks].join(', ')}.`,
         ]
       : []),
     ...(pack.manuals.length
@@ -309,6 +312,9 @@ type Me = {
     description: string
     playbooks: string[]
     manuals: string[]
+    /** The playbooks written for the pack, and where its skill is read (null without one). */
+    ownPlaybooks: string[]
+    skill: string | null
     ownPins: boolean
   } | null
   packs: { name: string; title: string; mcpUrl: string; default: boolean }[]
@@ -338,7 +344,17 @@ const registerPlaybooks = async (server: McpServer, callApi: CallApi, auth: Auth
       Object.fromEntries(
         playbook.arguments.map((arg) => {
           const text = arg.description ? z.string().describe(arg.description) : z.string()
-          return [arg.name, arg.required ? text : text.optional()]
+          const field = arg.required ? text : text.optional()
+          // An argument named like what every object has (`constructor`) would read the inherited one when left out
+          return [
+            arg.name,
+            Object.hasOwn(Object.prototype, arg.name)
+              ? z.preprocess(
+                  (value) => (value === Object.prototype[arg.name as keyof object] ? undefined : value),
+                  field,
+                )
+              : field,
+          ]
         }),
       ),
     )
@@ -522,7 +538,7 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
         macTools: false,
         resultCap: caller.resultCap,
         packs: caller.packs.map(({ name, title }) => ({ name, title })),
-        // Only manuals and playbooks are read off this one; the routes resolve tools themselves
+        // Only manuals, playbooks and the pack's skill are read off this one; the routes resolve tools themselves
         pack: caller.pack
           ? packScopeFrom(
               {
@@ -531,7 +547,16 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
                 title: caller.pack.title,
                 description: caller.pack.description,
               },
-              { tools: [], variables: [], playbooks: caller.pack.playbooks, manuals: caller.pack.manuals },
+              {
+                tools: [],
+                variables: [],
+                playbooks: caller.pack.playbooks,
+                manuals: caller.pack.manuals,
+                docs: [
+                  ...caller.pack.ownPlaybooks.map((name) => ({ kind: 'playbook' as const, name })),
+                  ...(caller.pack.skill ? [{ kind: 'skill' as const, name: SKILL_DOC }] : []),
+                ],
+              },
             )
           : null,
       }

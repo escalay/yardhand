@@ -121,7 +121,7 @@ beforeAll(async () => {
       method: 'POST',
       body: { name, title, description: 'Say things back.', playbook: 'fixture-say-it-back' },
     })
-    expect(made.json.counts).toEqual({ tools: 2, playbooks: 1, manuals: 1 })
+    expect(made.json.counts).toEqual({ tools: 2, playbooks: 1, manuals: 1, ownPlaybooks: 0 })
   }
 })
 
