@@ -861,3 +861,41 @@ describe('a pack’s guide', () => {
     expect(await lastReads(1)).toEqual(before)
   })
 })
+
+describe('a person a pack is shared with', () => {
+  /** What was written for desk and for loud: none of it is in what People and Share answer. */
+  const WRITTEN = [
+    'Saying things loudly.',
+    'Says a line twice',
+    'Shout it',
+    'Greets a guest',
+    'Greeting people',
+    'say-hello',
+  ]
+
+  it('reads with the key Share made the pack’s own playbooks and skill, and nothing written for another pack', async () => {
+    const shared = await owner('/api/packs/loud/people', { method: 'POST', body: { name: 'Sam shared' } })
+    expect([shared.status, shared.json?.detail]).toEqual([201, undefined])
+    const key = shared.json.key as string
+    for (const word of WRITTEN) expect(shared.text).not.toContain(word)
+    const people = await owner('/api/packs/loud/people')
+    expect(namesOf(people.json._embedded.people)).toContain('Sam shared')
+    for (const word of WRITTEN) expect(people.text).not.toContain(word)
+
+    expect(namesOf(await playbooksAt(key, '/p/loud/api/playbooks'))).toEqual(['shout-it'])
+    expect((await filled(key, '/p/loud/api/playbooks/shout-it')).text).toContain('Run `fixture.shout`')
+    expect((await skillAt(key, '/p/loud/api', 'loud')).json.contents[0].text).toContain('Saying things loudly.')
+    expect((await at(key, '/p/loud/api/playbooks/say-hello')).status).toBe(404)
+    expect((await filled(key, '/p/loud/api/playbooks/say-hello', { guest: 'Sam' })).status).toBe(404)
+    expect((await skillAt(key, '/p/loud/api', 'desk')).status).toBe(404)
+    expect(await hintsAt(key, '/p/loud/api/tools?q=greet+a+guest')).toEqual([])
+    expect((await at(key, '/p/desk/api/playbooks')).status).toBe(403)
+
+    const client = await mcp(key, '/p/loud/mcp')
+    expect(namesOf((await client.listPrompts()).prompts)).toEqual(['use_pack', 'shout-it'])
+    expect(await skillsOf(client)).toEqual(['skill://loud/SKILL.md'])
+    expect((await said(client, 'read_resource', { uri: 'skill://desk/SKILL.md' })).isError).toBe(true)
+    await client.close()
+    expect((await owner(`/api/clients/${shared.json.id}`, { method: 'DELETE' })).status).toBe(204)
+  })
+})
