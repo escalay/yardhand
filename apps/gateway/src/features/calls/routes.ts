@@ -170,9 +170,9 @@ export const routes = {
     tags: [TAG],
     summary: 'Run a tool',
     description:
-      'Runs a tool through the gateway with its stored credentials. Read the tool first (GET /api/tools/{name}) for its input schema. Tools that change things need write scope.',
+      'Runs a tool through the gateway with its stored credentials. Read the tool first (GET /api/tools/{name}) for its input schema. Tools that change things need write scope. Inside a pack, a 409 says a value the pack fills for you per person is missing or no longer fits, and names its variable: ask the owner.',
     request: { body: json(CallInputSchema) },
-    responses: { 200: ok('The result.', CallResultSchema), ...problemResponses(400, 401, 403, 404, 429, 503) },
+    responses: { 200: ok('The result.', CallResultSchema), ...problemResponses(400, 401, 403, 404, 409, 429, 503) },
   }),
   callNamed: createRoute({
     method: 'post',
@@ -188,7 +188,7 @@ export const routes = {
       }),
       body: json(Args),
     },
-    responses: { 200: ok('The result.', CallResultSchema), ...problemResponses(400, 401, 403, 404, 429, 503) },
+    responses: { 200: ok('The result.', CallResultSchema), ...problemResponses(400, 401, 403, 404, 409, 429, 503) },
   }),
   list: createRoute({
     method: 'get',

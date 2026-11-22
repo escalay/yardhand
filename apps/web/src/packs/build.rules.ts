@@ -129,7 +129,7 @@ export const toggled = (id: string, chosen: string[], lines: Line[]) => {
 }
 
 const valueText = (value: unknown) => JSON.stringify(value) ?? String(value)
-const MODES = { fixed: 'Fixed', default: 'Default', agent: 'Agent decides' } as const
+const MODES = { fixed: 'Fixed', default: 'Default', person: 'Per person', agent: 'Agent decides' } as const
 
 /** One side of a line as text; null where there is nothing (an add's before, a removal's after). */
 const sideOf = (kind: Line['kind'], value: unknown): string | null => {

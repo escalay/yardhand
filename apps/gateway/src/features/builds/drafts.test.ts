@@ -18,6 +18,7 @@ const held = (wording: string | null): DraftTool => ({
   live: greet,
   fixed: {},
   defaults: {},
+  person: {},
   wording,
 })
 const pack = (tools: DraftTool[], variables: Draft['variables'] = []): Draft => ({

@@ -7,6 +7,8 @@
  * A name a shared pack used to have keeps leading to it (`pack_names`) until the owner frees it or the pack goes.
  * A pack's own playbooks and its skill are Markdown kept here (`pack_docs`), every text they had as a version
  * (`pack_doc_versions`), each with the tool versions it was written against.
+ * A person's own values for the variables its Per person inputs read are kept by pack and client
+ * (`pack_person_values`), never exported.
  */
 import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -44,6 +46,8 @@ export const packTools = sqliteTable(
     fixed: text('fixed'),
     /** Inputs the pack fills when the agent sends nothing (JSON), shown with that value as their default; null when none. */
     defaults: text('defaults'),
+    /** Inputs filled per person (JSON), each `{{variable}}`, hidden from its keys; null when none. */
+    person: text('person'),
   },
   (table) => [primaryKey({ columns: [table.packId, table.name] })],
 )
@@ -54,7 +58,7 @@ export const packVariables = sqliteTable(
     packId: text('pack_id').notNull(),
     /** Written `{{name}}` in the pack's fixed and default values. */
     name: text('name').notNull(),
-    /** A string, number or boolean (JSON). */
+    /** A string, number or boolean (JSON); null when only Per person inputs read it and the pack has no value of it. */
     value: text('value'),
     description: text('description'),
     position: integer('position').notNull(),
@@ -81,6 +85,20 @@ export const packNames = sqliteTable('pack_names', {
   /** When it stopped being the pack's name. */
   until: text('until').notNull(),
 })
+
+/** One person's own value of one variable of a pack: a Per person input reads it before the pack's. */
+export const packPersonValues = sqliteTable(
+  'pack_person_values',
+  {
+    packId: text('pack_id').notNull(),
+    clientId: text('client_id').notNull(),
+    name: text('name').notNull(),
+    /** A string, number or boolean (JSON). */
+    value: text('value').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.packId, table.clientId, table.name] })],
+)
 
 export const PACK_DOC_KINDS = ['playbook', 'skill'] as const
 export type PackDocKind = (typeof PACK_DOC_KINDS)[number]
@@ -147,6 +165,9 @@ export const PACKS_MIGRATIONS = [
   `create table if not exists pack_doc_versions (id text primary key, pack_id text not null, kind text not null,
     name text not null, body text not null, based_on text not null, source text not null, created_at text not null)`,
   'create index if not exists pack_doc_versions_doc on pack_doc_versions (pack_id, kind, name, created_at)',
+  'alter table pack_tools add column person text',
+  `create table if not exists pack_person_values (pack_id text not null, client_id text not null, name text not null,
+    value text not null, updated_at text not null, primary key (pack_id, client_id, name))`,
 ] as const
 
 export type PackRow = typeof packs.$inferSelect

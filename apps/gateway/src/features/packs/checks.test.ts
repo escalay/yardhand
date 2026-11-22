@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { ProblemError } from '../../kit/index.js'
-import { checkPack, type Finding, judge, throwOnRefused, usesOf } from './checks.js'
+import {
+  checkPack,
+  type Finding,
+  judge,
+  perPersonOf,
+  personValueProblems,
+  throwOnRefused,
+  usesOf,
+  variableKindOf,
+} from './checks.js'
 import { SKILL_SECTIONS } from './skill.js'
 import { type PackState, withDoc, withEntry, withTools, withVariables } from './state.js'
 
@@ -19,6 +28,7 @@ const entry = (name: string, values: Partial<PackState['tools'][number]> = {}): 
   live: greet,
   fixed: {},
   defaults: {},
+  person: {},
   ...values,
 })
 const desk = (over: Partial<PackState> = {}): PackState => ({
@@ -180,6 +190,189 @@ describe('judge', () => {
     ])
     const free = withEntry(before, 'greet_from_desk', { fixed: { from: 'the desk' } })
     expect(judge(free, withVariables(free, []), ['variables']).refused).toEqual([])
+  })
+})
+
+describe('checkPack on a Per person input', () => {
+  const open = (over: Partial<PackState> = {}) =>
+    desk({
+      tools: [entry('greet_by_city', { person: { from: '{{city}}' } })],
+      variables: [{ name: 'city', value: null, description: null }],
+      ...over,
+    })
+
+  it('finds nothing in an input that reads one declared variable, with or without a value of the pack’s', () => {
+    expect(checkPack(open())).toEqual([])
+    expect(checkPack(open({ variables: [{ name: 'city', value: 'the desk', description: null }] }))).toEqual([])
+    expect(perPersonOf(open(), 'city')).toBe(true)
+    expect(perPersonOf(open({ tools: [] }), 'city')).toBe(false)
+  })
+
+  it('says a variable’s kind as the Per person inputs that read it take it, whether or not the pack has a value', () => {
+    const counted = {
+      name: 'fixture.count',
+      inputSchema: { type: 'object', properties: { times: { type: 'integer' }, loud: { type: 'boolean' } } },
+    }
+    const tally = open({
+      tools: [
+        entry('greet_by_city', { person: { from: '{{city}}' } }),
+        entry('count', { tool: 'fixture.count', live: counted, person: { times: '{{times}}', loud: '{{loud}}' } }),
+      ],
+      variables: [
+        { name: 'city', value: null, description: null },
+        { name: 'times', value: null, description: null },
+        { name: 'loud', value: null, description: null },
+      ],
+    })
+    expect(tally.variables.map((variable) => variableKindOf(tally, variable))).toEqual(['text', 'number', 'boolean'])
+  })
+
+  it('says a number for an input that takes a number or null, with no value of the pack’s', () => {
+    const nullable = open({
+      tools: [
+        entry('count', {
+          live: {
+            name: 'fixture.count',
+            inputSchema: { type: 'object', properties: { times: { anyOf: [{ type: 'integer' }, { type: 'null' }] } } },
+          },
+          person: { times: '{{times}}' },
+        }),
+      ],
+      variables: [{ name: 'times', value: null, description: null }],
+    })
+    expect(nullable.variables.map((variable) => variableKindOf(nullable, variable))).toEqual(['number'])
+  })
+
+  it('falls back to the kind of the pack’s value, then text, where the inputs that read it don’t say one kind', () => {
+    const mixed = open({
+      tools: [
+        entry('greet_by_city', { person: { from: '{{city}}' } }),
+        entry('greet_gone', { live: null, person: { to: '{{gone}}' } }),
+        entry('count', {
+          live: { name: 'fixture.count', inputSchema: { type: 'object', properties: { times: { type: 'integer' } } } },
+          person: { times: '{{city}}' },
+        }),
+      ],
+      variables: [
+        { name: 'city', value: 7, description: null },
+        { name: 'gone', value: null, description: null },
+        { name: 'loud', value: true, description: null },
+      ],
+    })
+    // city is read as text and as a number, gone by a tool that is not live, loud by no input per person
+    expect(mixed.variables.map((variable) => variableKindOf(mixed, variable))).toEqual(['number', 'text', 'boolean'])
+  })
+
+  it('errors on an input that is not one declared variable, and on one in two modes', () => {
+    const found = checkPack(
+      open({
+        tools: [
+          entry('greet_twice', { fixed: { from: 'the desk' }, person: { from: '{{city}}' } }),
+          entry('greet_town', { person: { from: '{{town}}', to: 'Sam in {{city}}' } }),
+        ],
+      }),
+    )
+    expect(codes(found)).toEqual([
+      ['error', 'two_modes', 'tools.greet_twice.person.from'],
+      ['error', 'person_variable', 'tools.greet_town.person.from'],
+      ['error', 'person_variable', 'tools.greet_town.person.to'],
+    ])
+  })
+
+  it('checks the pack’s own value of it as the input’s fallback', () => {
+    expect(codes(checkPack(open({ variables: [{ name: 'city', value: 'Porto', description: null }] })))).toEqual([
+      ['error', 'bad_value', 'tools.greet_by_city.person.from'],
+    ])
+  })
+
+  it('errors on a fixed value or a text that writes a variable with no value of the pack’s', () => {
+    const found = checkPack(
+      open({
+        tools: [
+          entry('greet_by_city', { person: { from: '{{city}}' } }),
+          entry('greet', { fixed: { to: '{{city}}' } }),
+        ],
+        playbooks: [{ name: 'say-hello', markdown: 'Greet {{city}} with `greet`.', wrote: [] }],
+      }),
+    )
+    expect(codes(found)).toEqual([
+      ['error', 'no_value', 'tools.greet.fixed.to'],
+      ['error', 'no_value', 'playbooks.say-hello'],
+    ])
+    expect(found[1]?.message).toBe(
+      '{{city}} has no value of Front desk, so only an input filled per person can read it: give it a value under Variables.',
+    )
+  })
+
+  it('refuses taking the pack’s value away while a playbook or the skill writes the variable', () => {
+    const before = open({
+      variables: [{ name: 'city', value: 'the desk', description: null }],
+      skill: { markdown: 'Greeting people from {{city}}.', wrote: [] },
+    })
+    const emptied = withVariables(before, [{ name: 'city', value: null, description: null }])
+    expect(judge(before, emptied, ['variables']).refused).toEqual([
+      expect.objectContaining({
+        code: 'no_value',
+        path: 'variables.city',
+        message:
+          '{{city}} is still written by the skill, which only the pack’s value can fill: keep a value, or change that first.',
+      }),
+    ])
+    // Read by the Per person input alone, it can go
+    const read = open({ variables: [{ name: 'city', value: 'the desk', description: null }] })
+    expect(
+      judge(read, withVariables(read, [{ name: 'city', value: null, description: null }]), ['variables']).refused,
+    ).toEqual([])
+  })
+
+  it('refuses removing a variable a Per person input reads', () => {
+    const before = open()
+    expect(codes(judge(before, withVariables(before, []), ['variables']).refused)).toEqual([
+      ['error', 'variable_in_use', 'variables.city'],
+    ])
+  })
+})
+
+describe('personValueProblems', () => {
+  const state = desk({
+    tools: [
+      entry('greet_by_city', { person: { from: '{{city}}' } }),
+      entry('greet_to_city', { person: { to: '{{city}}' } }),
+      entry('greet_from_desk', { fixed: { from: '{{desk}}' } }),
+    ],
+    variables: [
+      { name: 'city', value: null, description: null },
+      { name: 'desk', value: 'the desk', description: null },
+    ],
+  })
+
+  it('finds nothing in a value every input that reads it takes, and in a value taken away', () => {
+    expect(personValueProblems(state, { city: 'the boss' })).toEqual([])
+    expect(personValueProblems(state, { city: null })).toEqual([])
+  })
+
+  it('names the variable for a value an input that reads it refuses', () => {
+    expect(personValueProblems(state, { city: 7 })).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        code: 'bad_value',
+        path: 'values.city',
+        message: 'city doesn’t fit greet_by_city: from must be string',
+      }),
+      expect.objectContaining({ path: 'values.city', message: 'city doesn’t fit greet_to_city: to must be string' }),
+    ])
+  })
+
+  it('takes a value only for a variable a Per person input reads', () => {
+    expect(personValueProblems(state, { desk: 'the boss', town: 'Porto' })).toEqual([
+      expect.objectContaining({
+        code: 'not_per_person',
+        path: 'values.desk',
+        message:
+          'desk is not filled per person in Front desk: only a variable a Per person input reads takes a person’s value.',
+      }),
+      expect.objectContaining({ code: 'not_per_person', path: 'values.town' }),
+    ])
   })
 })
 
@@ -407,6 +600,31 @@ describe('checkPack on a pack’s own playbooks', () => {
     ])
   })
 
+  it('reads a {{word}} inside a code block too: an argument or a variable passes, any other is an error', () => {
+    const markdown = [
+      '---',
+      'arguments:',
+      '  - name: guest',
+      '---',
+      '```json',
+      '{"text": "{{guest}} at {{desk}}, by {{nope}}"}',
+      '```',
+      '~~~',
+      '{{door}}',
+      '~~~',
+    ].join('\n')
+    expect(found(markdown).map((finding) => [finding.code, finding.message])).toEqual([
+      [
+        'unresolved',
+        '{{nope}} is neither an argument of this playbook nor a variable of Front desk: declare one, or take it out.',
+      ],
+      [
+        'unresolved',
+        '{{door}} is neither an argument of this playbook nor a variable of Front desk: declare one, or take it out.',
+      ],
+    ])
+  })
+
   it('warns about a {{…}} that is not written as a name: nothing fills it in', () => {
     expect(
       found('Greet {{Guest}} and {{guest-name}} from {{ desk }}, never {{}}.').map((finding) => [
@@ -563,6 +781,15 @@ describe('checkPack on a pack’s skill', () => {
       ['error', 'unresolved', '{{guest}} is no variable of Front desk: declare it, or take it out.'],
       ['error', 'not_in_pack', '`fixture.echo` is not in Front desk: add it to the pack, or take it out of the text.'],
     ])
+  })
+
+  it('reads a {{word}} inside a code block too: one that is no variable is an error', () => {
+    expect(
+      checkPack(withSkill(`${sections}\n\n\`\`\`\nfrom: {{desk}}, as {{guest}}\n\`\`\``)).map((finding) => [
+        finding.code,
+        finding.message,
+      ]),
+    ).toEqual([['unresolved', '{{guest}} is no variable of Front desk: declare it, or take it out.']])
   })
 
   it('warns when a manual the pack holds sits at the skill’s own address', () => {

@@ -1,16 +1,18 @@
 /**
  * A pack's variables: values with a name, written `{{name}}` in what the pack fixes or gives as a default, so one
- * change here reaches every tool that writes it. Every save sends the whole set (`PUT …/variables`), and a refusal
- * is said beside the variable it is about.
+ * change here reaches every tool that writes it. A variable a Per person input reads is each person's own, and the
+ * pack's value, which may be none, is what someone without one gets. Every save sends the whole set
+ * (`PUT …/variables`), and a refusal is said beside the variable it is about.
  */
 import { IconPencil, IconPlus, IconX } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { ApiError, api, type Schemas, unwrap } from '@/api/client'
 import { Mono } from '@/ui/Code'
 import { Field } from '@/ui/Field'
 import { Section } from '@/ui/Page'
 import { Button } from '@/ui/shadcn/button'
+import { Checkbox } from '@/ui/shadcn/checkbox'
 import { Input } from '@/ui/shadcn/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shadcn/select'
 import { Switch } from '@/ui/shadcn/switch'
@@ -56,10 +58,12 @@ const VariableForm = ({
 }) => {
   const [name, setName] = useState(start?.name ?? '')
   const [kind, setKind] = useState<VariableKind>(start ? kindOfValue(start.value) : 'text')
-  const [text, setText] = useState(start ? String(start.value) : '')
+  const [text, setText] = useState(start?.value === null || !start ? '' : String(start.value))
+  const [none, setNone] = useState(start?.value === null)
+  const noneId = useId()
   const [description, setDescription] = useState(start?.description ?? '')
   const nameProblem = start ? null : variableProblem(name.trim(), taken)
-  const read = variableValueOf(kind, text)
+  const read = none ? ({ value: null, error: null } as const) : variableValueOf(kind, text)
   return (
     <form
       className="flex flex-col gap-3"
@@ -110,6 +114,7 @@ const VariableForm = ({
               <span className="flex h-9 items-center">
                 <Switch
                   id={id}
+                  disabled={none}
                   checked={text === 'true'}
                   onCheckedChange={(checked) => setText(checked ? 'true' : '')}
                 />
@@ -118,6 +123,7 @@ const VariableForm = ({
               <Input
                 id={id}
                 autoFocus={Boolean(start)}
+                disabled={none}
                 inputMode={kind === 'number' ? 'decimal' : undefined}
                 value={text}
                 onChange={(event) => setText(event.target.value)}
@@ -125,6 +131,16 @@ const VariableForm = ({
             )
           }
         </Field>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <label className="flex items-center gap-3 text-sm">
+          <Checkbox checked={none} onCheckedChange={(on) => setNone(on === true)} aria-describedby={`${noneId}-hint`} />
+          Leave it to each person
+        </label>
+        <span id={`${noneId}-hint`} className="pl-7 text-xs text-muted-foreground">
+          The pack keeps no value of it: only an input filled per person can read it, with each person’s own, set under
+          People.
+        </span>
       </div>
       <Field label="What it is for" hint="For whoever edits the pack; agents never read it.">
         {(id) => (
@@ -236,10 +252,20 @@ export const PackVariables = ({ pack }: { pack: Pack }) => {
                         <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-sm">
                           <Mono className="text-[13px]">{`{{${variable.name}}}`}</Mono>
                           <span className="text-muted-foreground">=</span>
-                          <Mono className="text-[13px] break-all">{String(variable.value)}</Mono>
+                          {variable.value === null ? (
+                            <span className="text-muted-foreground">each person’s own</span>
+                          ) : (
+                            <Mono className="text-[13px] break-all">{String(variable.value)}</Mono>
+                          )}
                         </span>
                         {variable.description ? (
                           <span className="text-sm text-muted-foreground">{variable.description}</span>
+                        ) : null}
+                        {variable.perPerson ? (
+                          <span className="text-xs text-muted-foreground">
+                            Each person gives their own; {variable.value === null ? 'nothing' : String(variable.value)}{' '}
+                            for someone who hasn’t.
+                          </span>
                         ) : null}
                         <span className="text-xs text-muted-foreground">{usedLine(variable.usedBy)}</span>
                       </span>

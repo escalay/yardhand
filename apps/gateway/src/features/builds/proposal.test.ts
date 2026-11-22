@@ -16,6 +16,7 @@ const tool = (name: string, inputs: string[], extra: Partial<DraftTool> = {}, re
   live: live(name, inputs, readOnly),
   fixed: {},
   defaults: {},
+  person: {},
   wording: null,
   ...extra,
 })

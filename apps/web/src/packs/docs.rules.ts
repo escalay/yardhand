@@ -192,7 +192,7 @@ export const argumentsLine = (playbook: Pick<OwnPlaybook, 'steps' | 'arguments'>
 /** "All 6 sections", or how many of them and which are missing. */
 export const sectionsLine = (sections: string[]) => {
   const missing = SKILL_SECTIONS.filter((section) => !sections.includes(section)).map((section) =>
-    section.replace("'", '’'),
+    section.replaceAll("'", '’'),
   )
   return missing.length
     ? `${SKILL_SECTIONS.length - missing.length} of ${SKILL_SECTIONS.length} sections · no ${missing.join(', ')}`

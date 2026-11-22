@@ -5,6 +5,7 @@
 import type { Adapters, Asked, Credential, Progress, Resume, ToolResult } from '../../adapters/index.js'
 import { ProblemError } from '../../kit/index.js'
 import { allows, entryOf, type Principal } from '../clients/principals.js'
+import { shownSchema, valueProblem } from '../packs/entries.js'
 import { effectOf } from '../tools/groups.js'
 import { isOff, needsWrite, type ToolsRepo } from '../tools/repo.js'
 import type { UpstreamsRepo } from '../upstreams/repo.js'
@@ -30,6 +31,24 @@ export type CallOutcome = {
 const MAX_ROUNDS = 3
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+/** The arguments checked as the caller sees the tool: these inputs left out of them and of its schema. */
+const checkWithout = (
+  tool: { name: string; versionId: string; inputSchema: Record<string, unknown> },
+  args: Record<string, unknown>,
+  inputs: string[],
+) =>
+  checkArguments(
+    {
+      name: tool.name,
+      versionId: `${tool.versionId} without ${inputs.join(',')}`,
+      inputSchema: shownSchema(tool.inputSchema, {
+        fixed: Object.fromEntries(inputs.map((input) => [input, null])),
+        defaults: {},
+      }),
+    },
+    Object.fromEntries(Object.entries(args).filter(([key]) => !inputs.includes(key))),
+  )
 
 export const createPipeline =
   ({
@@ -107,7 +126,8 @@ export const createPipeline =
         tool.upstreamId,
       )
     base = { ...base, tool: tool.name }
-    const overridden = Object.keys(entry.fixed).filter((key) => Object.hasOwn(args, key))
+    // A Per person input with no value for this caller is the pack's too: hidden, and never the caller's to send
+    const overridden = [...Object.keys(entry.fixed), ...entry.unset].filter((key) => Object.hasOwn(args, key))
     if (overridden.length)
       return refuse(
         new ProblemError('bad_request', {
@@ -146,12 +166,47 @@ export const createPipeline =
         }),
         tool.upstreamId,
       )
+    // Said by the variable, never the input: the caller can't see an input filled per person
+    const title = principal.pack?.title ?? 'the pack'
+    const required = Array.isArray(tool.inputSchema.required) ? (tool.inputSchema.required as string[]) : []
+    const properties = (tool.inputSchema.properties ?? {}) as Record<string, Record<string, unknown> | undefined>
+    // An input the tool gives a default is filled with it, as the order goes: theirs, the pack's, the tool's
+    const missing = entry.unset.find(
+      (input) => required.includes(input) && !Object.hasOwn(properties[input] ?? {}, 'default'),
+    )
+    if (missing)
+      return refuse(
+        new ProblemError('conflict', {
+          detail: `${toolName} needs ${entry.person[missing]}, which has no value for you in ${title}: ask the owner to set yours.`,
+        }),
+        tool.upstreamId,
+      )
+    const filledPerPerson = Object.keys(entry.person).filter((input) => Object.hasOwn(entry.fixed, input))
+    const unfitFor = (inputs: string[]) => {
+      const names = [...new Set(inputs.map((input) => entry.person[input]))]
+      return refuse(
+        new ProblemError('conflict', {
+          detail: `${toolName} can’t run: ${title}’s ${names.length === 1 ? 'value' : 'values'} of ${names.join(' and ')} for you no longer ${names.length === 1 ? 'fits' : 'fit'} it. Ask the owner to change ${names.length === 1 ? 'it' : 'them'}.`,
+        }),
+        tool.upstreamId,
+      )
+    }
+    const unfit = filledPerPerson.find((input) => valueProblem(tool, input, entry.fixed[input]))
+    if (unfit) return unfitFor([unfit])
     let sent: Record<string, unknown>
+    // The caller's value wins over the pack's default, a fixed value over both
+    const filled = { ...entry.defaults, ...args, ...entry.fixed }
     try {
-      // The caller's value wins over the pack's default, a fixed value over both
-      sent = checkArguments(tool, { ...entry.defaults, ...args, ...entry.fixed })
+      sent = checkArguments(tool, filled)
     } catch (problem) {
-      return refuse(problem as ProblemError, tool.upstreamId)
+      if (!filledPerPerson.length) return refuse(problem as ProblemError, tool.upstreamId)
+      // Refused with this caller's values in: said as the tool they see, else by the variables, never the inputs
+      try {
+        checkWithout(tool, filled, filledPerPerson)
+      } catch (own) {
+        return refuse(own as ProblemError, tool.upstreamId)
+      }
+      return unfitFor(filledPerPerson)
     }
 
     try {

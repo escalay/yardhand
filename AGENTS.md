@@ -143,8 +143,14 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   working, run through `call_tool`.
 - **Input mode**: who fills one input of a pack tool (`features/packs/entries.ts`). **Fixed**: the pack, on every
   call, hidden from its keys; a call that sends it is a 400. **Default**: shown to its keys with the pack's value as
-  the schema's `default` and filled when a call leaves it out; the caller's own value wins. **Agent decides**: the
-  input as the tool has it. Stored per pack tool as `fixed` and `defaults`; an input in neither is the agent's.
+  the schema's `default` and filled when a call leaves it out; the caller's own value wins. **Per person**: hidden
+  like Fixed, and filled with one variable as it is for the caller: their own value (`pack_person_values`, set by the
+  owner under People and in Share), else the pack's, else nothing is sent and the tool's own default applies; a
+  required input with no value at all and no default is a 409 naming the variable, never the input. A person's value
+  fills Per person inputs only and goes with its variable, and a lock built for no person (`packScopeFrom` without
+  their values: the owner inside a pack) reads the pack's.
+  **Agent decides**: the input as the tool has it. Stored per pack tool as `fixed`, `defaults` and `person`; an input
+  in none is the agent's.
 - **Variable**: a named value of a pack (`PUT /api/packs/{name}/variables`), written `{{name}}` in a fixed or default
   value and filled in when the pack lock is built (`packScopeFrom`). A value that is one variable and nothing else
   takes its type. Only a name the pack declares is a variable: any other `{{word}}` is sent as written.
@@ -155,9 +161,10 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   ever read by its pack's id. Its pack's keys get it wherever they get a playbook, first and under the name the pack
   gave it: `GET /api/playbooks` (`upstream: null`, `pack` set; left out with `?upstream=`), as an MCP prompt, through
   `get_playbook`, in search hints and in the pack's guide. Filled in by the gateway: the arguments given, then the
-  pack's variables. Every `{{word}}` in a playbook or the skill is read and filled in, inside fenced code blocks too,
-  and there is no escape to keep one as written. It belongs to no connection, so none counts it and its reads are
-  logged with no upstream.
+  pack's variables. Every `{{word}}` in a playbook's text or the skill is read and filled in, inside fenced code
+  blocks too, and there is no escape to keep one as written. A playbook's front matter (title, description, an
+  argument's description) is not read for them: it is served as written. It belongs to no connection, so none
+  counts it and its reads are logged with no upstream.
 - **Pack skill**: the one `SKILL.md` of a pack (`PUT /api/packs/{name}/skill`), "Working with <Title>", in six
   sections. The pack stores the text only; the front matter and the heading are written from the pack
   (`skillFile`), at `skill://<pack>/SKILL.md` (`packSkillPathOf`), by the name the pack has now. Its keys read it

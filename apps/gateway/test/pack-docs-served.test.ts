@@ -899,3 +899,80 @@ describe('a person a pack is shared with', () => {
     expect((await owner(`/api/clients/${shared.json.id}`, { method: 'DELETE' })).status).toBe(204)
   })
 })
+
+describe('a pack whose inputs each person fills', () => {
+  const GREET_FROM_CITY = `---
+title: Greet from the city
+description: Greets a guest from where you are.
+---
+
+1. Run \`greet_city\` with \`to\` set to the guest, from {{city}}.
+`
+  let lena: Made
+  let ola: Made
+  beforeAll(async () => {
+    await packWith('attic', 'Attic', [{ name: 'fixture.greet', alias: 'greet_city' }])
+    // A Per person input reads a declared variable: declare it first, then point the input at it
+    await variables('attic', { city: 'the desk' })
+    const set = await owner('/api/packs/attic/tools/greet_city', {
+      method: 'PATCH',
+      body: { person: { from: '{{city}}' } },
+    })
+    expect([set.status, set.json?.detail]).toEqual([200, undefined])
+    await write('attic', 'greet-from-city', GREET_FROM_CITY)
+    await skillOf('attic', skillText('Greeting people from {{city}}.', '`greet_city` greets.'))
+    const shared = await owner('/api/packs/attic/people', {
+      method: 'POST',
+      body: { name: 'Lena', values: { city: 'the boss' } },
+    })
+    expect([shared.status, shared.json?.detail]).toEqual([201, undefined])
+    lena = shared.json
+    ola = (await owner('/api/packs/attic/people', { method: 'POST', body: { name: 'Ola' } })).json
+  })
+
+  it('fills each person’s own value into the playbooks and the skill, else the pack’s', async () => {
+    expect((await filled(lena.key, '/p/attic/api/playbooks/greet-from-city')).text).toContain('from the boss.')
+    expect((await filled(ola.key, '/p/attic/api/playbooks/greet-from-city')).text).toContain('from the desk.')
+    expect((await skillAt(lena.key, '/p/attic/api', 'attic')).json.contents[0].text).toContain(
+      'Greeting people from the boss.',
+    )
+    expect((await skillAt(ola.key, '/p/attic/api', 'attic')).json.contents[0].text).toContain(
+      'Greeting people from the desk.',
+    )
+    expect((await at(lena.key, '/p/attic/llms.txt')).text).toContain('Greeting people from the boss.')
+    expect((await at(ola.key, '/p/attic/llms.txt')).text).not.toContain('the boss')
+  })
+
+  it('never serves one person’s skill to another over MCP', async () => {
+    const theirs = await mcp(lena.key, '/p/attic/mcp')
+    const mine = await mcp(ola.key, '/p/attic/mcp')
+    const [lenas] = (await new SkillsClient(theirs).list()).skills
+    const [olas] = (await new SkillsClient(mine).list()).skills
+    if (!lenas || !olas) throw new Error('no skill listed')
+    expect((await new SkillsClient(theirs).read(lenas)).text).toContain('from the boss.')
+    expect((await new SkillsClient(mine).read(olas)).text).toContain('from the desk.')
+    expect(JSON.stringify(olas)).not.toBe(JSON.stringify(lenas))
+    expect(await prompted(mine, 'greet-from-city')).toContain('from the desk.')
+    expect(await prompted(theirs, 'greet-from-city')).toContain('from the boss.')
+    await theirs.close()
+    await mine.close()
+  })
+
+  it('reads only a value a Per person input reads now', async () => {
+    // Moved to Fixed: Lena's value stays stored, and nothing reads it
+    await owner('/api/packs/attic/tools/greet_city', {
+      method: 'PATCH',
+      body: { person: null, fixed: { from: '{{city}}' } },
+    })
+    expect((await skillAt(lena.key, '/p/attic/api', 'attic')).json.contents[0].text).toContain(
+      'Greeting people from the desk.',
+    )
+    await owner('/api/packs/attic/tools/greet_city', {
+      method: 'PATCH',
+      body: { fixed: null, person: { from: '{{city}}' } },
+    })
+    expect((await skillAt(lena.key, '/p/attic/api', 'attic')).json.contents[0].text).toContain(
+      'Greeting people from the boss.',
+    )
+  })
+})

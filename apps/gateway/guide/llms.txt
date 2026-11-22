@@ -100,9 +100,15 @@ starts `Not saved:`, with one entry per problem under `errors`. Nothing is half 
   `{"variables": [{"name": "city", "value": "Lisbon"}]}` replaces the whole set. A name is lowercase letters, digits
   and `_`; a value is text, a number or true/false.
 - **Inputs**: `PATCH /api/packs/{name}/tools/{tool}` with `fixed` (the pack fills the input on every call, and its
-  keys never see it) and `defaults` (shown with the pack's value, which the agent may replace). An input in neither
+  keys never see it), `defaults` (shown with the pack's value, which the agent may replace) and `person` (hidden, and
+  filled with one variable, written `{{open}}city}}` and nothing else, as it is for whoever calls). An input in none
   is the agent's. A value writes a variable as `{{open}}city}}`; a value that is one variable and nothing else keeps
   the variable's type. `{tool}` is the name the pack calls the tool: its alias, else `<upstream>.<tool>`.
+- **Per person**: an input in `person` takes the person's own value, else the pack's, else nothing is sent and the
+  tool's own default applies. A variable only such inputs read may have `"value": null`. Set a person's values when
+  sharing (`values` on `POST /api/packs/{name}/people`) or later with `PUT /api/packs/{name}/people/{client}/values`;
+  each is checked against every input that reads it. A person's value is theirs to know, so an input that limits
+  what they reach (an account) belongs in `fixed`.
 - **A playbook**: `POST /api/packs/{name}/playbooks` with `{"name": "find-roles", "markdown": "…"}`;
   `PUT` and `DELETE /api/packs/{name}/playbooks/{playbook}` replace and remove one. The Markdown opens with front
   matter (`title`, `description`, `arguments`), then the steps:
@@ -132,14 +138,15 @@ starts `Not saved:`, with one entry per problem under `errors`. Nothing is half 
 What the checks say:
 
 - Refused, as an `error`: a tool in backticks that is not in the pack, or written by its own name where the pack
-  gives it another; a `{{open}}word}}` in a playbook or the skill that is neither an argument nor a variable; front
-  matter that can't be read; a fixed or default value the tool's input schema does not take.
+  gives it another; a `{{open}}word}}` in a playbook's text or the skill that is neither an argument nor a
+  variable; front matter that can't be read; a fixed or default value the tool's input schema does not take.
 - Saved, with a `warning` in `findings`: a tool a read-only key can't run, a name shaped like a tool that is none,
   a playbook past 12 steps, a section the skill leaves out.
 - In a fixed or default value, a `{{open}}word}}` the pack has no variable for is sent as written, with a warning:
-  a tool whose own input is a template keeps working. In a playbook or the skill nothing is sent as written, so
-  there it is an error. That holds inside fenced code blocks too: there is no escape to keep a `{{open}}word}}` as
-  written.
+  a tool whose own input is a template keeps working. In a playbook's text or the skill nothing is sent as written,
+  so there it is an error. That holds inside fenced code blocks too: there is no escape to keep a `{{open}}word}}` as
+  written. A playbook's front matter (its title, description and arguments' descriptions) is not read for them: it is
+  served as written.
 
 `GET /api/packs/{name}` shows the pack as it stands: `findings`, `ownPlaybooks`, `skill`, and `flags` once a tool
 changed under a text. A text is never blocked by a tool that moves: it is flagged, and saving it again clears the

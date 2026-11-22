@@ -3,15 +3,18 @@
  * version of a tool and the live description has moved on (the pack keeps its text for agents; the owner keeps or
  * rewrites it), or a value the pack fixes or gives as a default no longer fits the live tool: the input is gone, or
  * it no longer takes the value. Until the owner changes it, a fixed value the tool refuses fails every call, a default
- * it refuses fails the calls that leave the input out, and a value for a dropped input is still sent.
+ * it refuses fails the calls that leave the input out, and a value for a dropped input is still sent. A person's own
+ * value of a Per person input that the tool no longer takes fails that person's calls, and is flagged the same way.
  * One of the pack's own playbooks, or its skill, is flagged when a tool it was written for has left the pack under
  * that name, is no longer live, or reads differently now: agents keep the text until the owner saves it again.
  */
+import type { ClientsRepo } from '../clients/repo.js'
 import type { ToolsRepo } from '../tools/repo.js'
-import { defaultsOf, fixedOf, type InputProblem, inputProblems } from './entries.js'
+import { defaultsOf, type Fixed, fixedOf, type InputProblem, inputProblems, personOf, valueProblem } from './entries.js'
+import { listedOf } from './people.js'
 import type { BasedOn, PackDoc, PacksRepo } from './repo.js'
 import type { PackDocKind, PackRow, PackToolRow } from './schema.js'
-import { type Variables, variablesFrom } from './values.js'
+import { type Variables, variablesFrom, wholeNameOf } from './values.js'
 
 export type Flag = { was: string; now: string }
 
@@ -34,16 +37,64 @@ export const inputFlagOf = (toolName: string, problems: InputProblem[]): Flag | 
   ]
   const fixes = inputsOf('fixed')
   const defaults = inputsOf('default')
+  const person = inputsOf('person')
   const lost = [
     ...new Set(errors.filter((problem) => problem.code === 'unknown_input').map((problem) => problem.input)),
   ]
   return {
-    was: [fixes.length ? `fixes ${fixes.join(', ')}` : '', defaults.length ? `defaults ${defaults.join(', ')}` : '']
+    was: [
+      fixes.length ? `fixes ${fixes.join(', ')}` : '',
+      defaults.length ? `defaults ${defaults.join(', ')}` : '',
+      person.length ? `fills ${person.join(', ')} per person` : '',
+    ]
       .filter(Boolean)
       .join(' and '),
     now: lost.length ? `${toolName} no longer takes ${lost.join(', ')}` : first.message,
   }
 }
+
+/** Someone a pack is shared with, by name, with their own values. */
+export type PersonValues = { name: string; values: Variables }
+
+/** The people People lists (`listedOf`) who have values of their own, by name: for the owner, never for a key. */
+export const peopleValuesOf = async (
+  { packs, clients }: { packs: Pick<PacksRepo, 'personValuesIn'>; clients: Pick<ClientsRepo, 'ofPack'> },
+  packId: string,
+  now = new Date(),
+): Promise<PersonValues[]> => {
+  const values = await packs.personValuesIn(packId)
+  if (!values.size) return []
+  return listedOf(await clients.ofPack(packId), now).flatMap((row) => {
+    const own = values.get(row.id)
+    return own ? [{ name: row.name, values: own }] : []
+  })
+}
+
+/** Each person's own value an input filled per person no longer takes: `Sam’s city no longer fits: …`. */
+export const personalProblems = (
+  tool: { inputSchema: Record<string, unknown> },
+  person: Fixed,
+  people: PersonValues[],
+): InputProblem[] =>
+  Object.entries(person).flatMap(([input, written]) => {
+    const variable = wholeNameOf(written)
+    return variable
+      ? people.flatMap(({ name, values }): InputProblem[] => {
+          const problem = Object.hasOwn(values, variable) ? valueProblem(tool, input, values[variable]) : null
+          return problem
+            ? [
+                {
+                  input,
+                  mode: 'person',
+                  level: 'error',
+                  code: 'bad_value',
+                  message: `${name}’s ${variable} no longer fits: ${problem}`,
+                },
+              ]
+            : []
+        })
+      : []
+  })
 
 /** A document's flag: `name` is the first name it was written for that moved, `tool` the tool that name runs now. */
 export type DocFlag = Flag & { name: string; tool: string | null }
@@ -100,7 +151,15 @@ export type Flagged =
  * Every flag across packs: rewritten tools first, then tools with a value that no longer fits, then the packs' own
  * playbooks and skills written for a tool that has changed or left.
  */
-export const packFlags = async ({ packs, tools }: { packs: PacksRepo; tools: ToolsRepo }): Promise<Flagged[]> => {
+export const packFlags = async ({
+  packs,
+  tools,
+  clients,
+}: {
+  packs: PacksRepo
+  tools: ToolsRepo
+  clients: Pick<ClientsRepo, 'ofPack'>
+}): Promise<Flagged[]> => {
   const wording = await Promise.all(
     (await packs.reworded()).map(async ({ pack, tool }) => {
       const flag = flagOf(await tools.live(tool.toolName), tool.basedOn ? await tools.version(tool.basedOn) : undefined)
@@ -108,17 +167,31 @@ export const packFlags = async ({ packs, tools }: { packs: PacksRepo; tools: Too
     }),
   )
   const setting = await packs.fixing()
-  const variables = new Map<string, Variables>()
+  const variables = new Map<string, { values: Variables; unset: string[] }>()
+  const people = new Map<string, PersonValues[]>()
   for (const { pack } of setting)
-    if (!variables.has(pack.id)) variables.set(pack.id, variablesFrom(await packs.variablesOf(pack.id)))
+    if (!variables.has(pack.id)) {
+      const rows = await packs.variablesOf(pack.id)
+      variables.set(pack.id, {
+        values: variablesFrom(rows),
+        unset: rows.filter((row) => row.value === null).map((row) => row.name),
+      })
+      people.set(pack.id, await peopleValuesOf({ packs, clients }, pack.id))
+    }
   const inputs = await Promise.all(
     setting.map(async ({ pack, tool }) => {
       const live = await tools.live(tool.toolName)
+      const set = { fixed: fixedOf(tool), defaults: defaultsOf(tool), person: personOf(tool) }
+      const known = variables.get(pack.id) ?? { values: {}, unset: [] }
+      const problems = live ? inputProblems(live, set, known.values, known.unset) : []
       const flag = live
-        ? inputFlagOf(
-            tool.toolName,
-            inputProblems(live, { fixed: fixedOf(tool), defaults: defaultsOf(tool) }, variables.get(pack.id) ?? {}),
-          )
+        ? inputFlagOf(tool.toolName, [
+            ...problems,
+            // A person's value is said only while the pack's own values fit
+            ...(problems.some((problem) => problem.level === 'error')
+              ? []
+              : personalProblems(live, set.person, people.get(pack.id) ?? [])),
+          ])
         : null
       return flag ? [{ kind: 'input' as const, pack, tool, flag }] : []
     }),

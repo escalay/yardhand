@@ -7,14 +7,14 @@
 import { ProblemError } from '../../kit/index.js'
 import { OWN_NAMES } from '../../mcp/tools.js'
 import { needsWrite } from '../tools/repo.js'
-import { inputProblems } from './entries.js'
+import { inputKindOf, inputProblems, readersOf, type ValueKind, valueProblem } from './entries.js'
 import { withoutFrontMatter } from './frontmatter.js'
 import { MAX_STEPS, PLAYBOOK_NAME, parsePlaybook, stepsIn, toolRefsIn } from './playbook.js'
 import type { BasedOn } from './repo.js'
 import type { PackDocKind } from './schema.js'
 import { packSkillPathOf, packSkillUriOf, SKILL_SECTIONS, sectionsOf } from './skill.js'
-import type { PackState, PackStateDoc } from './state.js'
-import { namesIn, notNamesIn, placeholdersIn, VARIABLE, type Variables } from './values.js'
+import type { PackState, PackStateDoc, PackStateVariable } from './state.js'
+import { namesIn, notNamesIn, placeholdersIn, type Scalar, VARIABLE, type Variables } from './values.js'
 
 export type Finding = {
   level: 'error' | 'warning'
@@ -38,16 +38,44 @@ export type Finding = {
 export const sentenceOf = ({ tool, message }: Finding) =>
   !tool || (tool.name === tool.runs && message.startsWith(`${tool.runs} `)) ? message : `${tool.name}: ${message}`
 
+/** The variables with a value of the pack's, by name. */
 const variablesIn = (state: PackState): Variables =>
-  Object.fromEntries(state.variables.map((variable) => [variable.name, variable.value]))
+  Object.fromEntries(
+    state.variables.flatMap((variable) => (variable.value === null ? [] : [[variable.name, variable.value]])),
+  )
+/** The variables declared with no value of the pack's: only a Per person input reads one. */
+const unsetIn = (state: PackState) =>
+  state.variables.filter((variable) => variable.value === null).map((variable) => variable.name)
 
-/** Every value a pack sets that writes `{{name}}`, as the tool and input it sits in. */
+/** Every value a pack sets that writes `{{name}}`, as the tool and input it sits in; Per person inputs too. */
 export const writersOf = (state: PackState, name: string) =>
   state.tools.flatMap((tool) =>
-    Object.entries({ ...tool.fixed, ...tool.defaults })
-      .filter(([, value]) => namesIn(value).includes(name))
-      .map(([input]) => ({ tool: tool.name, input })),
+    [tool.fixed, tool.defaults, tool.person].flatMap((values) =>
+      Object.entries(values)
+        .filter(([, value]) => namesIn(value).includes(name))
+        .map(([input]) => ({ tool: tool.name, input })),
+    ),
   )
+
+/** Does a Per person input of the pack read this variable? */
+export const perPersonOf = (state: PackState, name: string) =>
+  state.tools.some((tool) => readersOf(tool.person, name).length > 0)
+
+/**
+ * The kind of value a variable holds: what the live Per person inputs that read it take, when they say one kind,
+ * else the kind of the pack's value, else text. A person's value is asked as this kind whether or not the pack has one.
+ */
+export const variableKindOf = (state: PackState, variable: PackStateVariable): ValueKind => {
+  const kinds = new Set(
+    state.tools.flatMap(({ live, person }) =>
+      live ? readersOf(person, variable.name).map((input) => inputKindOf(live.inputSchema, input)) : [],
+    ),
+  )
+  kinds.delete(null)
+  const [kind] = kinds
+  if (kinds.size === 1 && kind) return kind
+  return typeof variable.value === 'number' ? 'number' : typeof variable.value === 'boolean' ? 'boolean' : 'text'
+}
 
 /** Where a document's findings are filed: `playbooks.<name>` for one of the pack's own playbooks, `skill`. */
 export const docPathOf = (kind: PackDocKind, name: string) => (kind === 'skill' ? 'skill' : `playbooks.${name}`)
@@ -91,17 +119,25 @@ const readText = (
   given: string[],
 ): DocRead => {
   const at = { path, key: path }
+  const unset = unsetIn(state)
   const unresolved = placeholdersIn(body)
     .filter((word) => !given.includes(word) && !Object.hasOwn(variables, word))
     .map(
       (word): Finding => ({
         level: 'error',
-        code: 'unresolved',
         ...at,
-        message:
-          path === 'skill'
-            ? `{{${word}}} is no variable of ${state.title}: declare it, or take it out.`
-            : `{{${word}}} is neither an argument of this playbook nor a variable of ${state.title}: declare one, or take it out.`,
+        ...(unset.includes(word)
+          ? {
+              code: 'no_value',
+              message: `{{${word}}} has no value of ${state.title}, so only an input filled per person can read it: give it a value under Variables.`,
+            }
+          : {
+              code: 'unresolved',
+              message:
+                path === 'skill'
+                  ? `{{${word}}} is no variable of ${state.title}: declare it, or take it out.`
+                  : `{{${word}}} is neither an argument of this playbook nor a variable of ${state.title}: declare one, or take it out.`,
+            }),
       }),
     )
   const notNames = notNamesIn(body).map(
@@ -115,7 +151,7 @@ const readText = (
   const known = new Set([
     ...OWN_NAMES,
     ...given,
-    ...Object.keys(variables),
+    ...state.variables.map((variable) => variable.name),
     ...state.playbooks.map((playbook) => playbook.name),
     ...state.heldPlaybooks,
     ...state.tools.flatMap((tool) => Object.keys((tool.live?.inputSchema.properties ?? {}) as object)),
@@ -233,7 +269,7 @@ const readPlaybook = (state: PackState, variables: Variables, doc: PackState['pl
       ),
     )
   const clashes = given
-    .filter((argument) => Object.hasOwn(variables, argument))
+    .filter((argument) => state.variables.some((variable) => variable.name === argument))
     .map((argument) =>
       error(
         'name_clash',
@@ -285,7 +321,7 @@ const readSkill = (state: PackState, variables: Variables, doc: PackStateDoc): D
   const text = readText(state, variables, path, doc, doc.markdown, [])
   const have = sectionsOf(doc.markdown)
   const missing = SKILL_SECTIONS.filter((section) => !have.includes(section)).map((section) =>
-    section.replace("'", '’'),
+    section.replaceAll("'", '’'),
   )
   const warning = (code: string, message: string): Finding => ({ level: 'warning', code, path, key: path, message })
   return {
@@ -322,6 +358,9 @@ const readDocs = (state: PackState, variables: Variables): Record<string, DocRea
 export const usesOf = (state: PackState): Record<string, string[]> =>
   Object.fromEntries(Object.entries(readDocs(state, variablesIn(state))).map(([path, read]) => [path, read.uses]))
 
+/** Where an input's value sits in a pack tool, by its mode. */
+const MAP_OF = { fixed: 'fixed', default: 'defaults', person: 'person' } as const
+
 /** Everything wrong with a pack as it stands: errors (a call would fail, or a name is no name) and warnings. */
 export const checkPack = (state: PackState): Finding[] => {
   const variables = variablesIn(state)
@@ -346,7 +385,7 @@ export const checkPack = (state: PackState): Finding[] => {
     const { live } = tool
     const of = { name: tool.name, runs: tool.tool }
     if (!live)
-      return Object.keys(tool.fixed).length || Object.keys(tool.defaults).length
+      return Object.keys(tool.fixed).length || Object.keys(tool.defaults).length || Object.keys(tool.person).length
         ? [
             {
               level: 'warning',
@@ -358,8 +397,8 @@ export const checkPack = (state: PackState): Finding[] => {
             },
           ]
         : []
-    return inputProblems(live, tool, variables).map((problem) => {
-      const where = `${problem.mode === 'fixed' ? 'fixed' : 'defaults'}.${problem.input}`
+    return inputProblems(live, tool, variables, unsetIn(state)).map((problem) => {
+      const where = `${MAP_OF[problem.mode]}.${problem.input}`
       return {
         level: problem.level,
         code: problem.code,
@@ -386,6 +425,40 @@ export const checkPack = (state: PackState): Finding[] => {
 }
 
 /**
+ * What is wrong with one person's values for a pack, by variable (`values.<name>`): a variable no Per person input
+ * reads, and a value an input that reads it refuses. A null value is no value: the pack's own is used.
+ */
+export const personValueProblems = (state: PackState, values: Record<string, Scalar | null>): Finding[] =>
+  Object.entries(values).flatMap(([name, value]): Finding[] => {
+    const at = { path: `values.${name}`, key: `values.${name}` }
+    if (!perPersonOf(state, name))
+      return [
+        {
+          level: 'error',
+          code: 'not_per_person',
+          ...at,
+          message: `${name} is not filled per person in ${state.title}: only a variable a Per person input reads takes a person’s value.`,
+        },
+      ]
+    if (value === null) return []
+    return state.tools.flatMap((tool) =>
+      readersOf(tool.person, name).flatMap((input): Finding[] => {
+        const problem = tool.live && valueProblem(tool.live, input, value)
+        return problem
+          ? [
+              {
+                level: 'error',
+                code: 'bad_value',
+                ...at,
+                message: `${name} doesn’t fit ${tool.name}: ${problem}`,
+              },
+            ]
+          : []
+      }),
+    )
+  })
+
+/**
  * The tool versions a document stands on once saved: every tool of the pack it names, by the pack's name, with the
  * version live now (null for one that is not live).
  */
@@ -407,8 +480,9 @@ const touchedBy = (touched: string[], key: string) =>
 /**
  * A change, judged: `findings` is everything wrong with the pack after it; `refused` is what the change itself
  * breaks: an error the pack didn't have before, an error under a place the request sends (`touched`, by stored
- * names), and a variable removed while a value or a text still writes it. An error in a playbook or the skill is
- * refused only when that document is touched: a change elsewhere that breaks it leaves it flagged.
+ * names), a variable removed while a value or a text still writes it, and a variable's value taken away while a text
+ * writes it. An error in a playbook or the skill is refused only when that document is touched: a change elsewhere
+ * that breaks it leaves it flagged.
  */
 export const judge = (before: PackState, after: PackState, touched: string[]) => {
   const had = checkPack(before)
@@ -432,6 +506,23 @@ export const judge = (before: PackState, after: PackState, touched: string[]) =>
       ].join(', ')}: change that first, or keep the variable.`,
     }),
   )
+  // A text is refused only when it is saved, so the value it reads is kept while it still writes the variable
+  const emptied = before.variables
+    .filter(
+      (variable) =>
+        variable.value !== null &&
+        after.variables.some((kept) => kept.name === variable.name && kept.value === null) &&
+        docWritersOf(after, variable.name).length,
+    )
+    .map(
+      ({ name }): Finding => ({
+        level: 'error',
+        code: 'no_value',
+        path: `variables.${name}`,
+        key: `variables.${name}`,
+        message: `{{${name}}} is still written by ${docWritersOf(after, name).join(', ')}, which only the pack’s value can fill: keep a value, or change that first.`,
+      }),
+    )
   // A value left without its variable is that removal's doing: it is said once, as the variable still in use
   const broken = stillWritten.length
     ? checkPack({ ...after, variables: [...after.variables, ...stillWritten] })
@@ -445,6 +536,7 @@ export const judge = (before: PackState, after: PackState, touched: string[]) =>
             !had.some((old) => old.level === 'error' && old.code === finding.code && old.key === finding.key))),
     ),
     ...inUse,
+    ...emptied,
   ]
   return { refused, findings }
 }

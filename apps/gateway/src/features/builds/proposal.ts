@@ -22,7 +22,7 @@ export type DraftTool = PackStateTool & { wording: string | null }
 export type Draft = Omit<PackState, 'tools'> & { tools: DraftTool[] }
 
 export type LineKind = 'tool' | 'wording' | 'variable' | 'input' | 'playbook' | 'skill'
-type InputValue = { mode: 'fixed' | 'default' | 'agent'; value: unknown }
+type InputValue = { mode: 'fixed' | 'default' | 'person' | 'agent'; value: unknown }
 export type Line = {
   /** `tool:<name>`, `wording:<name>`, `input:<name>.<input>`, `variable:<name>`, `playbook:<name>`, `skill`. */
   id: string
@@ -47,7 +47,8 @@ const changeOf = (before: unknown, after: unknown): Line['change'] =>
 const inputOf = (tool: DraftTool | undefined, input: string): InputValue => {
   if (!tool) return { mode: 'agent', value: null }
   const mode = modeOf(tool, input)
-  return { mode, value: mode === 'fixed' ? tool.fixed[input] : mode === 'default' ? tool.defaults[input] : null }
+  const set = { fixed: tool.fixed, default: tool.defaults, person: tool.person, agent: {} as Record<string, unknown> }
+  return { mode, value: mode === 'agent' ? null : set[mode][input] }
 }
 
 /** Every line that tells the draft from the pack as it is, in the order the proposal shows them. */
@@ -193,7 +194,7 @@ export const applyLines = (before: Draft, after: Draft, lines: Line[]): Draft =>
     const tool = drafted.get(line.target)
     if (line.change === 'remove') state = { ...state, tools: state.tools.filter((entry) => entry.name !== line.target) }
     else if (tool && !state.tools.some((entry) => entry.name === tool.name))
-      state = { ...state, tools: [...state.tools, { ...tool, fixed: {}, defaults: {}, wording: null }] }
+      state = { ...state, tools: [...state.tools, { ...tool, fixed: {}, defaults: {}, person: {}, wording: null }] }
   }
   for (const line of lines) {
     if (line.kind === 'wording') update(line.target, (tool) => ({ ...tool, wording: line.after as string | null }))
@@ -212,7 +213,7 @@ export const applyLines = (before: Draft, after: Draft, lines: Line[]): Draft =>
       })
     }
     if (line.kind === 'variable') {
-      const now = line.after as { value: Scalar; description: string | null } | null
+      const now = line.after as { value: Scalar | null; description: string | null } | null
       const kept = state.variables.filter((entry) => entry.name !== line.target)
       const at = state.variables.findIndex((entry) => entry.name === line.target)
       const entry = now ? [{ name: line.target, ...now }] : []

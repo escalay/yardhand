@@ -41,6 +41,7 @@ const toolOf = (over: Partial<PackTool> = {}): PackTool => ({
   alias: null,
   fixed: {},
   defaults: { limit: '{{page_size}}' },
+  person: {},
   inputs: [
     {
       name: 'id',
@@ -87,7 +88,16 @@ const toolOf = (over: Partial<PackTool> = {}): PackTool => ({
   ...over,
 })
 
-const variables = [{ name: 'page_size', value: 5, description: null, usedBy: ['items.get_item'] }]
+const variables = [
+  {
+    name: 'page_size',
+    value: 5,
+    description: null,
+    perPerson: false,
+    kind: 'number' as const,
+    usedBy: ['items.get_item'],
+  },
+]
 
 const GET = vi.mocked(api.GET) as unknown as ReturnType<typeof vi.fn>
 const PATCH = vi.mocked(api.PATCH) as unknown as ReturnType<typeof vi.fn>
@@ -152,8 +162,30 @@ describe('the inputs of a pack tool', () => {
     expect(screen.getByText('Shown with this value; the agent may send another.')).toBeTruthy()
     expect(screen.queryByLabelText('Value of id')).toBeNull()
     expect(screen.getByText('✓ Every value fits the tool’s current schema')).toBeTruthy()
-    // Per person comes with its own pull request: no control for it here
-    expect(screen.queryByRole('radio', { name: /per person/i })).toBeNull()
+    // Each input has the fourth mode too
+    expect(within(await modesOf('id')).getByRole('radio', { name: 'Per person' })).toBeTruthy()
+  })
+
+  it('fills an input per person from a variable picked from the pack’s, and saves which', async () => {
+    const user = userEvent.setup()
+    PATCH.mockResolvedValue(answer(toolOf()))
+    const { onDone } = show()
+    await user.click(within(await modesOf('id')).getByRole('radio', { name: 'Per person' }))
+    expect(screen.getByText(/^Hidden from the agent and filled with each person’s own value/)).toBeTruthy()
+    expect(screen.getByText('Which variable each person fills')).toBeTruthy()
+    // Nothing picked yet: the form says so and doesn't send
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Save' }).disabled).toBe(true)
+    await user.click(screen.getByRole('button', { name: 'Use a variable for id' }))
+    await user.click(await screen.findByRole('menuitem', { name: /\{\{page_size\}\}/ }))
+    expect(screen.getByText('Someone with no value of their own gets the pack’s: 5.')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onDone).toHaveBeenCalled())
+    expect(PATCH.mock.calls[0]?.[1].body).toEqual({
+      alias: null,
+      fixed: {},
+      defaults: { limit: '{{page_size}}' },
+      person: { id: '{{page_size}}' },
+    })
   })
 
   it('marks a value the tool no longer takes, and an input it dropped', async () => {
@@ -231,7 +263,7 @@ describe('the inputs of a pack tool', () => {
     await waitFor(() => expect(onDone).toHaveBeenCalled())
     expect(PATCH).toHaveBeenCalledWith('/api/packs/{name}/tools/{tool}', {
       params: { path: { name: 'loud', tool: 'items.get_item' } },
-      body: { alias: null, fixed: { id: '42' }, defaults: { verbose: false, limit: '{{page_size}}' } },
+      body: { alias: null, fixed: { id: '42' }, defaults: { verbose: false, limit: '{{page_size}}' }, person: {} },
     })
   })
 

@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { inputProblems, lostInputs, modeOf, presented, resolveEntry, shownSchema } from './entries.js'
+import {
+  inputKindOf,
+  inputProblems,
+  lostInputs,
+  modeOf,
+  presented,
+  readersOf,
+  resolveEntry,
+  shownSchema,
+  valueProblem,
+} from './entries.js'
 
 const schema = {
   type: 'object',
@@ -51,6 +61,8 @@ describe('resolveEntry', () => {
       wording: 'Greets for the desk.',
       fixed: { from: 'the desk' },
       defaults: { within: 7 },
+      person: {},
+      unset: [],
     })
     expect(resolveEntry({ ...row, fixed: null, defaults: null }, {})).toMatchObject({ fixed: {}, defaults: {} })
   })
@@ -178,6 +190,161 @@ describe('inputProblems', () => {
         message: 'no variable first_name: sent as written',
       },
     ])
+  })
+})
+
+describe('a Per person input', () => {
+  const row = {
+    toolName: 'fixture.greet',
+    description: null,
+    fixed: JSON.stringify({ to: '{{city}}' }),
+    defaults: null,
+    person: JSON.stringify({ from: '{{city}}' }),
+  }
+
+  it('is filled with the person’s value, else the pack’s, and hidden like a fixed input', () => {
+    const sams = resolveEntry(row, { city: 'Lisbon' }, { city: 'Porto' })
+    expect(sams).toMatchObject({ fixed: { to: 'Lisbon', from: 'Porto' }, person: { from: 'city' }, unset: [] })
+    expect(resolveEntry(row, { city: 'Lisbon' })).toMatchObject({ fixed: { to: 'Lisbon', from: 'Lisbon' } })
+    expect(Object.keys(shownSchema(schema, sams).properties as object)).toEqual(['within'])
+  })
+
+  it('is hidden and left out when it has no value at any level', () => {
+    const none = resolveEntry({ ...row, fixed: null }, {})
+    expect(none).toMatchObject({ fixed: {}, person: { from: 'city' }, unset: ['from'] })
+    const shown = shownSchema(schema, none)
+    expect(Object.keys(shown.properties as object)).toEqual(['to', 'within'])
+    expect(shown.required).toEqual(['to', 'within'])
+  })
+
+  it('never takes a person’s value into a fixed or default input that writes the same variable', () => {
+    expect(resolveEntry({ ...row, person: null }, { city: 'Lisbon' }, { city: 'Porto' })).toMatchObject({
+      fixed: { to: 'Lisbon' },
+    })
+  })
+
+  it('is its own mode', () => {
+    expect(modeOf({ fixed: {}, defaults: {}, person: { from: '{{city}}' } }, 'from')).toBe('person')
+  })
+
+  it('reads one variable and nothing else, and the pack’s value of it must fit', () => {
+    expect(inputProblems(greet, { fixed: {}, defaults: {}, person: { from: '{{city}}' } }, { city: 'Lisbon' })).toEqual(
+      [],
+    )
+    expect(inputProblems(greet, { fixed: {}, defaults: {}, person: { from: '{{city}}' } }, {}, ['city'])).toEqual([])
+    expect(
+      inputProblems(greet, { fixed: {}, defaults: {}, person: { from: 'Hello {{city}}', to: '{{town}}' } }, {}, [
+        'city',
+      ]),
+    ).toEqual([
+      {
+        input: 'from',
+        mode: 'person',
+        level: 'error',
+        code: 'person_variable',
+        message: 'from is filled per person from one variable, written {{name}} and nothing else',
+      },
+      {
+        input: 'to',
+        mode: 'person',
+        level: 'error',
+        code: 'person_variable',
+        message: 'no variable town: declare it before an input reads it per person',
+      },
+    ])
+    expect(
+      inputProblems(greet, { fixed: {}, defaults: {}, person: { within: '{{city}}' } }, { city: 'Lisbon' }),
+    ).toEqual([
+      { input: 'within', mode: 'person', level: 'error', code: 'bad_value', message: 'within must be integer' },
+    ])
+  })
+
+  it('is in one mode only', () => {
+    expect(
+      inputProblems(greet, { fixed: { from: 'the desk' }, defaults: {}, person: { from: '{{city}}' } }, {}, ['city']),
+    ).toEqual([
+      {
+        input: 'from',
+        mode: 'person',
+        level: 'error',
+        code: 'two_modes',
+        message: 'from is both fixed and per person: keep it in one',
+      },
+    ])
+  })
+
+  it('leaves a variable with no value of the pack’s to Per person inputs: a fixed or default value can’t write it', () => {
+    expect(inputProblems(greet, { fixed: { from: 'from {{city}}' }, defaults: {} }, {}, ['city'])).toEqual([
+      {
+        input: 'from',
+        mode: 'fixed',
+        level: 'error',
+        code: 'no_value',
+        message:
+          '{{city}} has no value of the pack, so only an input filled per person can read it: give it a value, or make from Per person',
+      },
+    ])
+  })
+
+  it('says which inputs read a variable per person', () => {
+    expect(readersOf({ from: '{{city}}', to: '{{ city }}', within: '{{days}}' }, 'city')).toEqual(['from', 'to'])
+  })
+
+  it('checks a person’s value against the input it fills', () => {
+    expect(valueProblem(greet, 'from', 'Porto')).toBeNull()
+    expect(valueProblem(greet, 'within', 'Porto')).toBe('within must be integer')
+    expect(valueProblem(greet, 'colour', 'red')).toBeNull()
+  })
+})
+
+describe('inputKindOf', () => {
+  const kindsOf = (properties: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    Object.fromEntries(
+      Object.keys(properties).map((input) => [input, inputKindOf({ type: 'object', properties, ...extra }, input)]),
+    )
+
+  it('reads the kind of value an input takes from its type', () => {
+    expect(
+      kindsOf({
+        city: { type: 'string' },
+        days: { type: 'integer' },
+        ratio: { type: 'number' },
+        loud: { type: 'boolean' },
+        maybe: { type: ['integer', 'null'] },
+      }),
+    ).toEqual({ city: 'text', days: 'number', ratio: 'number', loud: 'boolean', maybe: 'number' })
+  })
+
+  it('reads it from the choices when there is no type, also kept beside the inputs', () => {
+    expect(
+      kindsOf(
+        { from: { enum: ['the desk', 'the boss'] }, size: { const: 3 }, greeter: { $ref: '#/$defs/Greeter' } },
+        { $defs: { Greeter: { type: 'string', enum: ['the desk'] } } },
+      ),
+    ).toEqual({ from: 'text', size: 'number', greeter: 'text' })
+  })
+
+  it('reads it from the branches an input may take when they agree, a null branch aside', () => {
+    expect(
+      kindsOf({
+        days: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
+        loud: { oneOf: [{ type: 'boolean' }, { type: 'null' }] },
+        size: { anyOf: [{ const: 3 }, { enum: [5, 7] }] },
+        anything: { anyOf: [{ type: 'integer' }, {}] },
+        shared: { anyOf: [{ $ref: '#/$defs/Days' }, { type: 'null' }] },
+      }),
+    ).toEqual({ days: 'number', loud: 'boolean', size: 'number', anything: null, shared: null })
+  })
+
+  it('can’t tell for an input of several kinds, a list or an object, or none the tool takes', () => {
+    expect(
+      kindsOf({
+        either: { type: ['string', 'number'] },
+        tags: { type: 'array' },
+        any: { anyOf: [{ type: 'string' }, { type: 'number' }] },
+      }),
+    ).toEqual({ either: null, tags: null, any: null })
+    expect(inputKindOf(schema, 'colour')).toBeNull()
   })
 })
 

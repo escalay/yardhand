@@ -806,7 +806,7 @@ export interface paths {
         get?: never;
         /**
          * Set a pack’s variables
-         * @description Replaces the pack’s variables. A fixed or default value writes one as `{{name}}`, and so do the pack’s own playbooks and its skill; in a value, a `{{word}}` that is no variable of the pack is sent as written. Refused (400) when a name is bad or repeated, when a new value no longer fits an input that uses it, or when a variable left out is still written by a value, a playbook or the skill.
+         * @description Replaces the pack’s variables. A fixed or default value writes one as `{{name}}`, and so do the pack’s own playbooks and its skill; in a value, a `{{word}}` that is no variable of the pack is sent as written. A variable a Per person input reads may have a null value: each person then gives their own. Refused (400) when a name is bad or repeated, when a new value no longer fits an input that uses it, when a variable with no value is written by anything but a Per person input, or when a variable left out is still written by a value, a playbook or the skill.
          */
         put: operations["setPackVariables"];
         post?: never;
@@ -899,9 +899,33 @@ export interface paths {
         put?: never;
         /**
          * Share a pack with a person
-         * @description Makes one person’s key for this pack alone, read only and for 30 days unless said, and answers with a message ready to send them: what the pack is, what they can do, until when, and the setup for their app with the key in it, at the address set in `PUBLIC_HOST` (unset, or naming only this machine as `localhost` does, the address this request came by). The key and the message are shown this once. Sent with an `Idempotency-Key`, the same request sent again within a day is answered the same key and message, not a second person: that answer is kept sealed with the master key. Extend and Revoke are the client’s own routes (`PATCH` and `DELETE /api/clients/{id}`). A pack that holds no tools is a 409.
+         * @description Makes one person’s key for this pack alone, read only and for 30 days unless said, with their own `values` for the pack’s Per person inputs (each checked against every input that reads it, before the key is made), and answers with a message ready to send them: what the pack is, what they can do, until when, and the setup for their app with the key in it, at the address set in `PUBLIC_HOST` (unset, or naming only this machine as `localhost` does, the address this request came by). The key and the message are shown this once. Sent with an `Idempotency-Key`, the same request sent again within a day is answered the same key and message, not a second person: that answer is kept sealed with the master key. Extend and Revoke are the client’s own routes (`PATCH` and `DELETE /api/clients/{id}`). A pack that holds no tools is a 409.
          */
         post: operations["sharePack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/packs/{name}/people/{client}/values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One person’s values
+         * @description Every variable a Per person input of the pack reads, with this person’s own value (null: they get the pack’s) and the pack’s. A client that doesn’t open the pack, or was revoked, is a 404.
+         */
+        get: operations["getPersonValues"];
+        /**
+         * Set one person’s values
+         * @description Replaces this person’s own values of the pack’s Per person variables. Each is checked against every input that reads it, and the whole change is refused (400) for a value one of them doesn’t take or a variable no Per person input reads. Their next call uses them.
+         */
+        put: operations["setPersonValues"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -943,7 +967,7 @@ export interface paths {
         head?: never;
         /**
          * Rename a pack tool or set its inputs
-         * @description Gives one of the pack’s tools its own name (an alias) and sets its inputs: `fixed` are filled on every call and never shown to the pack’s keys, `defaults` are shown with the pack’s value and filled when a call leaves them out, and every other input is the agent’s. A value may write a variable of the pack as `{{name}}`. Only the maps sent are checked, against the live tool’s input schema with the variables filled in. A new name never fails on a playbook or the skill that writes the old one: the text is flagged, and the pack’s `findings` say where.
+         * @description Gives one of the pack’s tools its own name (an alias) and sets its inputs: `fixed` are filled on every call and never shown to the pack’s keys, `defaults` are shown with the pack’s value and filled when a call leaves them out, `person` are hidden and filled with each person’s own value of a variable, else the pack’s, and every other input is the agent’s. A value may write a variable of the pack as `{{name}}`. Only the maps sent are checked, against the live tool’s input schema with the variables filled in. A new name never fails on a playbook or the skill that writes the old one: the text is flagged, and the pack’s `findings` say where.
          */
         patch: operations["updatePackTool"];
         trace?: never;
@@ -1167,7 +1191,7 @@ export interface paths {
         put?: never;
         /**
          * Run a tool
-         * @description Runs a tool through the gateway with its stored credentials. Read the tool first (GET /api/tools/{name}) for its input schema. Tools that change things need write scope.
+         * @description Runs a tool through the gateway with its stored credentials. Read the tool first (GET /api/tools/{name}) for its input schema. Tools that change things need write scope. Inside a pack, a 409 says a value the pack fills for you per person is missing or no longer fits, and names its variable: ask the owner.
          */
         post: operations["callTool"];
         delete?: never;
@@ -1509,7 +1533,7 @@ export interface paths {
         };
         /**
          * Export the settings
-         * @description Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs and defaults, as written), variables, playbooks and manuals, as one JSON document (owner only). The playbooks and the skill written for a pack are under its `files`, by path: `playbooks/<name>.md` as written and `SKILL.md` as it is read, with its `{{name}}` left as written. Each is a plain Markdown file to keep in git; their older versions are not exported.
+         * @description Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs, defaults and inputs filled per person, as written), variables (one only Per person inputs read has a null value), playbooks and manuals, as one JSON document (owner only). The values each person gives a pack’s Per person inputs are not in it. The playbooks and the skill written for a pack are under its `files`, by path: `playbooks/<name>.md` as written and `SKILL.md` as it is read, with its `{{name}}` left as written. Each is a plain Markdown file to keep in git; their older versions are not exported.
          */
         get: operations["exportConfig"];
         put?: never;
@@ -2836,7 +2860,7 @@ export interface components {
         /** @description Something in a pack to recheck because a tool changed under it. `_links.tool` is left out for a `playbook` or `skill` whose name no longer leads to a tool. */
         PackFlag: {
             /**
-             * @description `wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack fixes or defaults, or no longer takes its value. `playbook`, `skill`: one of the pack’s own playbooks, or its skill, was written for a tool that has since changed or left the pack.
+             * @description `wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack sets, or no longer takes its value or a person’s own value of it. `playbook`, `skill`: one of the pack’s own playbooks, or its skill, was written for a tool that has since changed or left the pack.
              * @enum {string}
              */
             kind: "wording" | "input" | "playbook" | "skill";
@@ -2848,7 +2872,7 @@ export interface components {
             item: string | null;
             /** @description The pack’s wording of the tool; empty for `playbook` and `skill`. */
             wording: string;
-            /** @description `wording`: the upstream’s description when the wording was written. `input`: what the pack sets, e.g. `fixes from` or `defaults from`. `playbook`, `skill`: the names it was written for that have moved, e.g. `written for greet_from_desk`. */
+            /** @description `wording`: the upstream’s description when the wording was written. `input`: what the pack sets, e.g. `fixes from`, `defaults from` or `fills from per person`. `playbook`, `skill`: the names it was written for that have moved, e.g. `written for greet_from_desk`. */
             was: string;
             /** @description `wording`: the upstream’s description now. `input`: what is wrong with it now. `playbook`, `skill`: what happened to each name. */
             now: string;
@@ -2946,9 +2970,18 @@ export interface components {
             defaults: {
                 [key: string]: unknown;
             };
+            /**
+             * @description Inputs the gateway fills per person, by input name, each with one variable written `{{name}}` and nothing else. Hidden from the pack’s keys like a fixed input, and filled with the caller’s own value of the variable, else the pack’s, else nothing is sent and the tool’s own default applies. The person’s value is theirs to change, so an input that limits what they reach (an account) belongs in `fixed`.
+             * @example {
+             *       "location": "{{city}}"
+             *     }
+             */
+            person: {
+                [key: string]: unknown;
+            };
             /** @description Every input of the live tool, in its order, with who fills it. Empty when the tool is not live. */
             inputs: components["schemas"]["PackToolInput"][];
-            /** @description Inputs the pack fixes or defaults that the live tool no longer takes: the upstream dropped or renamed them. Set them again or drop them. */
+            /** @description Inputs the pack sets (fixed, default or per person) that the live tool no longer takes: the upstream dropped or renamed them. Set them again or drop them. */
             lostInputs: string[];
             upstream: string;
             title: string | null;
@@ -2974,17 +3007,17 @@ export interface components {
         PackToolInput: {
             name: string;
             /**
-             * @description `fixed`: the pack fills it on every call and hides it. `default`: shown with the pack’s value, which a call may replace. `agent`: the agent fills it.
+             * @description `fixed`: the pack fills it on every call and hides it. `default`: shown with the pack’s value, which a call may replace. `person`: hidden, and filled with each person’s own value of one variable, else the pack’s. `agent`: the agent fills it.
              * @enum {string}
              */
-            mode: "fixed" | "default" | "agent";
+            mode: "fixed" | "default" | "person" | "agent";
             /** @description The pack’s value as written (`{{name}}` kept), or null. */
             value?: unknown;
-            /** @description The value with the pack’s variables filled in, or null. */
+            /** @description The value with the pack’s variables filled in, or null. For `person`: the pack’s value of the variable, which a person’s own replaces. */
             resolved?: unknown;
             /** @description The tool itself requires it. */
             required: boolean;
-            /** @description Why the value no longer fits the live tool, or null. Until it is changed, a fixed value fails every call and a default fails the calls that leave the input out. */
+            /** @description Why the value no longer fits the live tool, or null. Until it is changed, a fixed value fails every call and a default fails the calls that leave the input out. For `person`: also a person’s own value the tool no longer takes, which fails that person’s calls. */
             problem: string | null;
             /** @description Worth a look, or null: a `{{word}}` that is no variable of the pack is sent as written. */
             note: string | null;
@@ -3006,12 +3039,20 @@ export interface components {
              */
             name: string;
             /**
-             * @description A string, a number or true/false. A value that is `{{name}}` and nothing else takes it with its type.
+             * @description The pack’s value, or null for none: then only Per person inputs read it, and a person with no value of their own gets nothing.
              * @example 7
              */
-            value: string | number | boolean;
+            value: string | number | boolean | null;
             /** @description What it is for, for whoever edits the pack. */
             description: string | null;
+            /** @description A Per person input reads it: each person can have their own value (`PUT /api/packs/{name}/people/{client}/values`), and the pack’s is the fallback. */
+            perPerson: boolean;
+            /**
+             * @description The kind of value it holds: what the Per person inputs that read it take, when they say one kind, else the kind of the pack’s value, else `text`. A person’s value of it is sent as this kind.
+             * @example number
+             * @enum {string}
+             */
+            kind: "text" | "number" | "boolean";
             /** @description The pack’s tools whose values write it, by the pack’s names. */
             usedBy: string[];
         };
@@ -3023,12 +3064,12 @@ export interface components {
              */
             level: "error" | "warning";
             /**
-             * @description In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `name_clash`, `bad_name`, `bad_front_matter`, `bad_argument_name`, `empty`, `too_big`, or a warning: `unknown_name`, `not_a_name`, `needs_write`, `split`, `missing_section`, `skill_path`.
+             * @description In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `person_variable`, `no_value`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `no_value`, `name_clash`, `bad_name`, `bad_front_matter`, `bad_argument_name`, `empty`, `too_big`, or a warning: `unknown_name`, `not_a_name`, `needs_write`, `split`, `missing_section`, `skill_path`.
              * @example bad_value
              */
             code: string;
             /**
-             * @description Where: `tools.<name>.fixed.<input>`, `tools.<name>.defaults.<input>`, `variables.<name>`, `playbooks.<name>` (one of the pack’s own) or `skill`.
+             * @description Where: `tools.<name>.fixed.<input>`, `tools.<name>.defaults.<input>`, `tools.<name>.person.<input>`, `variables.<name>`, `playbooks.<name>` (one of the pack’s own) or `skill`.
              * @example tools.greet_from_desk.fixed.from
              */
             path: string;
@@ -3135,10 +3176,10 @@ export interface components {
                  */
                 name: string;
                 /**
-                 * @description A string, a number or true/false. A value that is `{{name}}` and nothing else takes it with its type.
+                 * @description Its value, or null for none of the pack’s: only an input filled per person can then read it, with each person’s own value.
                  * @example 7
                  */
-                value: string | number | boolean;
+                value: string | number | boolean | null;
                 description?: string | null;
             }[];
         };
@@ -3204,6 +3245,15 @@ export interface components {
                     defaults?: {
                         [key: string]: unknown;
                     };
+                    /**
+                     * @description Inputs the gateway fills per person, by input name, each with one variable written `{{name}}` and nothing else. Hidden from the pack’s keys like a fixed input, and filled with the caller’s own value of the variable, else the pack’s, else nothing is sent and the tool’s own default applies. The person’s value is theirs to change, so an input that limits what they reach (an account) belongs in `fixed`.
+                     * @example {
+                     *       "location": "{{city}}"
+                     *     }
+                     */
+                    person?: {
+                        [key: string]: unknown;
+                    };
                 }[];
                 playbooks?: string[];
                 manuals?: string[];
@@ -3257,6 +3307,15 @@ export interface components {
                 /** @description When it was last noted there (noted at most hourly). */
                 lastAt: string;
             } | null;
+            /**
+             * @description Their own values of the pack’s Per person variables, by name; a variable left out reads the pack’s value. `PUT /api/packs/{name}/people/{client}/values` sets them.
+             * @example {
+             *       "city": "Lisbon"
+             *     }
+             */
+            values: {
+                [key: string]: string | number | boolean;
+            };
             _links: components["schemas"]["Links"];
         };
         /** @description The new person, with their key and the message to send them, this once. */
@@ -3290,6 +3349,57 @@ export interface components {
              * @enum {string}
              */
             expiresIn: "8h" | "1d" | "7d" | "30d" | "never";
+            /**
+             * @description Their own values of the pack’s Per person variables, by name, each checked against every input that reads it; one left out reads the pack’s value.
+             * @example {
+             *       "city": "Lisbon"
+             *     }
+             */
+            values?: {
+                [key: string]: string | number | boolean;
+            };
+        };
+        /** @description One person’s values of a pack’s Per person variables: every such variable, with theirs or null. */
+        PersonValues: {
+            /** @description The client’s id. */
+            client: string;
+            name: string;
+            values: {
+                /** @description The variable, written `{{name}}`. */
+                name: string;
+                description: string | null;
+                /**
+                 * @description Their own value, or null: then they get the pack’s.
+                 * @example 7
+                 */
+                value: string | number | boolean | null;
+                /**
+                 * @description The pack’s value, or null for none.
+                 * @example 7
+                 */
+                packValue: string | number | boolean | null;
+                /**
+                 * @description The kind of value it holds: what the Per person inputs that read it take, when they say one kind, else the kind of the pack’s value, else `text`. A person’s value of it is sent as this kind.
+                 * @example number
+                 * @enum {string}
+                 */
+                kind: "text" | "number" | "boolean";
+                /** @description The pack’s tools that read it per person. */
+                usedBy: string[];
+            }[];
+            _links: components["schemas"]["Links"];
+        };
+        /** @description One person’s own values of a pack’s Per person variables. */
+        PersonValuesInput: {
+            /**
+             * @description Their values from now on, by variable: this replaces the ones they had. A variable left out, or null, reads the pack’s value.
+             * @example {
+             *       "city": "Lisbon"
+             *     }
+             */
+            values: {
+                [key: string]: string | number | boolean | null;
+            };
         };
         /** @description A tool’s wording in one pack. */
         WordingInput: {
@@ -3313,12 +3423,21 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /**
-             * @description What it gives a default from now on (replaces its defaults); null or {} gives none. An input is fixed or has a default, never both.
+             * @description What it gives a default from now on (replaces its defaults); null or {} gives none. An input is in one mode only: fixed, a default or per person.
              * @example {
              *       "posted_since": "{{since_days}}"
              *     }
              */
             defaults?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * @description What it fills per person from now on (replaces what it did), each input with one variable written `{{name}}`; null or {} fills none.
+             * @example {
+             *       "location": "{{city}}"
+             *     }
+             */
+            person?: {
                 [key: string]: unknown;
             } | null;
         };
@@ -4287,11 +4406,15 @@ export interface components {
                     defaults: {
                         [key: string]: unknown;
                     } | null;
+                    /** @default null */
+                    person: {
+                        [key: string]: unknown;
+                    } | null;
                 }[];
                 /** @default [] */
                 variables: {
                     name: string;
-                    value: string | number | boolean;
+                    value: string | number | boolean | null;
                     /** @default null */
                     description: string | null;
                 }[];
@@ -7667,6 +7790,129 @@ export interface operations {
             };
         };
     };
+    getPersonValues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+                /** @description The client’s id, as People lists it. */
+                client: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Their values. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PersonValues"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setPersonValues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+                /** @description The client’s id, as People lists it. */
+                client: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonValuesInput"];
+            };
+        };
+        responses: {
+            /** @description Their values. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PersonValues"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     setPackWording: {
         parameters: {
             query?: never;
@@ -8953,6 +9199,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description `too_many_requests`: Slow down: wait the seconds in `Retry-After`, then retry. `spend_cap`: This operation costs money and its budget is used up. Free operations still work. */
             429: {
                 headers: {
@@ -9032,6 +9287,15 @@ export interface operations {
             };
             /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

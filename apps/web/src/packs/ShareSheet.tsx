@@ -1,7 +1,7 @@
 /**
  * Sharing a pack with one person: who, which app they use, what they can do (asked only when the pack holds tools
- * that change things) and for how long. It ends on the message to send them, their key in it and shown this once,
- * and waits there for their first call.
+ * that change things), for how long, and their own values when the pack fills inputs per person. It ends on the
+ * message to send them, their key in it and shown this once, and waits there for their first call.
  */
 import { IconAlertTriangle } from '@tabler/icons-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -16,11 +16,14 @@ import { Button } from '@/ui/shadcn/button'
 import { Input } from '@/ui/shadcn/input'
 import { RadioGroup, RadioGroupItem } from '@/ui/shadcn/radio-group'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/ui/shadcn/sheet'
+import { refusedValues, ValueFields } from './PersonValues'
 import {
   accessOf,
   changesLine,
   changingTools,
   endsOf,
+  personalFields,
+  personValuesOf,
   SHARE_APPS,
   SHARE_DEFAULT,
   SHARE_LIFETIMES,
@@ -85,6 +88,9 @@ const Share = ({ pack, onMade, onDone }: { pack: Pack; onMade: () => void; onDon
   const [where, setWhere] = useState(SHARE_APPS[0]?.value ?? 'unsure')
   const [scope, setScope] = useState<'read' | 'write'>('read')
   const [lifetime, setLifetime] = useState<ShareLifetime>(SHARE_DEFAULT)
+  const [texts, setTexts] = useState<Record<string, string>>({})
+  const fields = personalFields(pack)
+  const read = personValuesOf(fields, texts)
   const changing = changingTools(pack)
   const share = useMutation({
     mutationFn: () =>
@@ -96,6 +102,7 @@ const Share = ({ pack, onMade, onDone }: { pack: Pack; onMade: () => void; onDon
             app: SHARE_APPS.find((choice) => choice.value === where)?.app ?? null,
             scope,
             expiresIn: lifetime,
+            ...(Object.keys(read.values).length ? { values: read.values } : {}),
           },
         }),
       ),
@@ -106,6 +113,7 @@ const Share = ({ pack, onMade, onDone }: { pack: Pack; onMade: () => void; onDon
     },
   })
   const made = share.data
+  const refused = refusedValues(share.error)
 
   if (made)
     return (
@@ -175,10 +183,23 @@ const Share = ({ pack, onMade, onDone }: { pack: Pack; onMade: () => void; onDon
           />
         ) : null}
         <Question label="How long" value={lifetime} onChange={setLifetime} choices={SHARE_LIFETIMES} columns={3} />
-        {/* A person's own values for the pack's inputs go here */}
-        {share.error ? (
+        {fields.length ? (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium">{name.trim() ? `${name.trim()}’s values` : 'Their values'}</span>
+            <span className="text-sm text-muted-foreground">
+              {pack.title} fills these inputs with each person’s own value. You can change theirs later under People.
+            </span>
+            <ValueFields
+              fields={fields}
+              texts={texts}
+              errors={{ ...refused.byVariable, ...read.errors }}
+              onChange={setTexts}
+            />
+          </div>
+        ) : null}
+        {share.error && (refused.rest.length || !fields.length) ? (
           <p role="alert" className="text-sm text-error">
-            {share.error.message}
+            {refused.rest.join(' ') || share.error.message}
           </p>
         ) : null}
       </div>
@@ -186,7 +207,11 @@ const Share = ({ pack, onMade, onDone }: { pack: Pack; onMade: () => void; onDon
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" variant="primary" disabled={!name.trim() || share.isPending}>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={!name.trim() || Object.keys(read.errors).length > 0 || share.isPending}
+        >
           {share.isPending ? 'Sharing…' : 'Share'}
         </Button>
       </div>

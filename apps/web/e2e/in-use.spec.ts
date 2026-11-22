@@ -6,6 +6,7 @@ import { expect, request, test } from '@playwright/test'
 import { demoOf, signIn } from './demo'
 
 const demo = () => demoOf(4472)
+type Made = { id: string; key: string }
 
 test.describe.configure({ mode: 'serial' })
 
@@ -459,6 +460,107 @@ test('a pack sets its tools’ inputs: a fixed value, a default and a variable, 
   expect(inputSchema.properties.verbose.default).toBe(true)
   expect(inputSchema.properties.limit.default).toBe(7)
   expect(inputSchema.required ?? []).toEqual([])
+})
+
+test('an input each person fills: the mode in the editor, one person’s value under People, used for their key only', async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page, demo())
+  const owner = await request.newContext({
+    baseURL,
+    extraHTTPHeaders: { authorization: `Bearer ${demo().ownerKey}` },
+  })
+  // A second echo, so the calls the tests after this one make keep their text as the agent's
+  const added = await owner.patch('/api/packs/loud', {
+    data: { add: { tools: [{ name: 'echo.echo', alias: 'echo_city' }] } },
+  })
+  expect(added.status()).toBe(200)
+  await page.goto('/app/packs/loud')
+
+  // A variable with no value of the pack's: only an input filled per person reads it
+  const variables = page.locator('section', { has: page.getByRole('heading', { name: /^Variables/ }) })
+  await variables.getByRole('button', { name: 'Add a variable' }).click()
+  await variables.getByLabel('Name').fill('city')
+  await variables.getByRole('checkbox', { name: 'Leave it to each person' }).click()
+  await variables.getByRole('button', { name: 'Save variable' }).click()
+  await expect(variables.getByText('each person’s own')).toBeVisible()
+
+  // The fourth mode, reading that variable
+  await page.getByRole('button', { name: 'Name and inputs of echo_city' }).click()
+  await page.getByRole('radiogroup', { name: 'Who fills text' }).getByRole('radio', { name: 'Per person' }).click()
+  await expect(page.getByText(/^Hidden from the agent and filled with each person’s own value/)).toBeVisible()
+  await page.getByRole('button', { name: 'Use a variable for text' }).click()
+  await page.getByRole('menuitem', { name: /\{\{city\}\}/ }).click()
+  await expect(
+    page.getByText('Someone with no value of their own gets nothing: a call that needs it is refused.'),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByText('Per person text = {{city}}')).toBeVisible()
+  await expect(variables.getByText('Each person gives their own; nothing for someone who hasn’t.')).toBeVisible()
+
+  // One person shared with their value in the Share sheet, one with none; the owner changes hers under People
+  await page.getByRole('button', { name: 'Share', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Share Loud' })
+  await sheet.getByLabel('Who').fill('Lena')
+  await expect(sheet.getByText('Lena’s values')).toBeVisible()
+  await expect(sheet.getByText('Left empty, they get nothing, and a call that needs it is refused.')).toBeVisible()
+  await sheet.getByLabel('city').fill('Lisbon')
+  await sheet.getByRole('button', { name: 'Share', exact: true }).click()
+  const message = sheet.locator('pre')
+  await expect(message).toContainText("Hi Lena, I'm sharing Loud with you.")
+  const lena = {
+    key: /Bearer (gw_[\w-]+)/.exec((await message.textContent()) ?? '')?.[1] ?? '',
+  }
+  expect(lena.key).toMatch(/^gw_/)
+  await sheet.getByRole('button', { name: 'Done' }).click()
+  const ola = (await (await owner.post('/api/packs/loud/people', { data: { name: 'Ola' } })).json()) as Made
+  await page
+    .getByRole('navigation', { name: 'Parts' })
+    .getByRole('button', { name: /^People/ })
+    .click()
+  const row = page.getByRole('row', { name: /Lena/ })
+  await expect(row).toContainText('city: Lisbon')
+  await row.getByRole('button', { name: 'Lena’s values' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Lena’s values' })
+  await dialog.getByLabel('city').fill('Porto')
+  await dialog.getByRole('button', { name: 'Save values' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(row).toContainText('city: Porto')
+  await expect(page.getByRole('row', { name: /Ola/ })).toContainText('The pack’s values')
+  const people = await (await owner.get('/api/packs/loud/people')).json()
+  const lenaId = people._embedded.people.find((person: { name: string }) => person.name === 'Lena').id as string
+
+  // Lena's key is sent her value, hidden from what it reads; Ola's has none, and is told by the variable
+  const asKey = (key: string) => request.newContext({ baseURL, extraHTTPHeaders: { authorization: `Bearer ${key}` } })
+  const hers = await asKey(lena.key)
+  const theirs = await asKey(ola.key)
+  const shown = await (await hers.get('/p/loud/api/tools/echo_city?view=full')).json()
+  expect(shown.inputSchema.properties.text).toBeUndefined()
+  const said = await hers.post('/p/loud/api/calls', { data: { tool: 'echo_city', arguments: {} } })
+  expect(said.status()).toBe(200)
+  expect((await said.json()).result.content[0].text).toBe('Porto')
+  const refused = await theirs.post('/p/loud/api/calls', { data: { tool: 'echo_city', arguments: {} } })
+  expect(refused.status()).toBe(409)
+  expect((await refused.json()).detail).toBe(
+    'echo_city needs city, which has no value for you in Loud: ask the owner to set yours.',
+  )
+  await hers.dispose()
+  await theirs.dispose()
+
+  // Back as it was
+  for (const id of [lenaId, ola.id]) expect((await owner.delete(`/api/clients/${id}`)).status()).toBe(204)
+  expect((await owner.patch('/api/packs/loud', { data: { remove: { tools: ['echo_city'] } } })).status()).toBe(200)
+  const pack = await (await owner.get('/api/packs/loud')).json()
+  const kept = pack.variables
+    .filter((variable: { name: string }) => variable.name !== 'city')
+    .map(({ name, value, description }: { name: string; value: unknown; description: string | null }) => ({
+      name,
+      value,
+      description,
+    }))
+  expect((await owner.put('/api/packs/loud/variables', { data: { variables: kept } })).status()).toBe(200)
+  await owner.dispose()
 })
 
 test('a pack’s own playbook and its skill are written in the app, checked as they are typed, and read by its keys', async ({

@@ -18,7 +18,10 @@ import { z } from 'zod'
  * `asking` adds tools that ask mid-call (`delete_menus`, `summarize`) and one that reports progress (`count_slowly`);
  * `greeting` adds `greet` (`to` and `from`; `state.greetFrom = false` drops `from`, as an upstream renaming an input,
  * and `'enum'` keeps it but takes only `the desk` or `the boss`, as an upstream narrowing one; `'ref'` is the same
- * with the two choices kept beside the inputs under `$defs`, as generated schemas do).
+ * with the two choices kept beside the inputs under `$defs`, as generated schemas do; `'optional'` no longer requires
+ * it and greets from `the house` when it is left out; `'defaulted'` still requires it and gives `the house` as its
+ * schema's `default`; `'strict'` drops `from` and refuses any input it doesn't take). `counting` adds `repeat`, whose
+ * inputs take a number and a yes or no.
  */
 const Greeter = z.enum(['the desk', 'the boss']).meta({ id: 'Greeter' })
 
@@ -26,16 +29,18 @@ export const startUpstream = async ({
   token,
   asking = false,
   greeting = false,
+  counting = false,
 }: {
   token: string
   asking?: boolean
   greeting?: boolean
+  counting?: boolean
 }) => {
   const state = {
     echoDescription: 'Echoes the text back.',
     echoRoute: 'GET /api/v1/echo',
     whisper: false,
-    greetFrom: true as true | false | 'enum' | 'ref',
+    greetFrom: true as true | false | 'enum' | 'ref' | 'optional' | 'defaulted' | 'strict',
     calls: 0,
     manual: 'Start with echo for anything you want said back.',
     playbookDescription: 'Says a topic back, loudly.',
@@ -86,8 +91,26 @@ export const startUpstream = async ({
         { ...greetMeta, inputSchema: z.object({ to: z.string(), from: z.enum(['the desk', 'the boss']) }) },
         greet,
       )
+    else if (greeting && state.greetFrom === 'optional')
+      server.registerTool(
+        'greet',
+        { ...greetMeta, inputSchema: z.object({ to: z.string(), from: z.string().default('the house') }) },
+        greet,
+      )
+    else if (greeting && state.greetFrom === 'defaulted')
+      server.registerTool(
+        'greet',
+        { ...greetMeta, inputSchema: z.object({ to: z.string(), from: z.string().meta({ default: 'the house' }) }) },
+        greet,
+      )
     else if (greeting && state.greetFrom === 'ref')
       server.registerTool('greet', { ...greetMeta, inputSchema: z.object({ to: z.string(), from: Greeter }) }, greet)
+    else if (greeting && state.greetFrom === 'strict')
+      server.registerTool(
+        'greet',
+        { ...greetMeta, inputSchema: z.strictObject({ to: z.string(), sender: z.string() }) },
+        greet,
+      )
     else if (greeting && state.greetFrom)
       server.registerTool('greet', { ...greetMeta, inputSchema: z.object({ to: z.string(), from: z.string() }) }, greet)
     else if (greeting)
@@ -95,6 +118,25 @@ export const startUpstream = async ({
         'greet',
         { ...greetMeta, inputSchema: z.object({ to: z.string(), sender: z.string() }) },
         greet,
+      )
+    if (counting)
+      server.registerTool(
+        'repeat',
+        {
+          description: 'Says the text a number of times, loudly or not.',
+          inputSchema: z.object({ text: z.string(), times: z.number().int(), loud: z.boolean() }),
+          annotations: { readOnlyHint: true },
+        },
+        async ({ text, times, loud }) => ({
+          content: [
+            {
+              type: 'text',
+              text: Array(times)
+                .fill(loud ? text.toUpperCase() : text)
+                .join(' '),
+            },
+          ],
+        }),
       )
     if (state.whisper)
       server.registerTool(

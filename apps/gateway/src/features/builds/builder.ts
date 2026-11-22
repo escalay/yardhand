@@ -170,7 +170,8 @@ export const createBuilder = ({
       )
       const flags =
         mode === 'refresh'
-          ? (await packFlags({ packs, tools }))
+          ? // With no one's values: a person's flag names them and their value, and neither goes to the model
+            (await packFlags({ packs, tools, clients: { ofPack: async () => [] } }))
               .filter((flagged) => flagged.pack.id === pack.id)
               .map((flagged) => ({ kind: flagged.kind, was: flagged.flag.was, now: flagged.flag.now }))
           : []

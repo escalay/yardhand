@@ -100,11 +100,12 @@ export const contentsOfDraft = (
     via: null,
     fixed: Object.keys(tool.fixed).length ? JSON.stringify(tool.fixed) : null,
     defaults: Object.keys(tool.defaults).length ? JSON.stringify(tool.defaults) : null,
+    person: Object.keys(tool.person).length ? JSON.stringify(tool.person) : null,
   })),
   variables: draft.variables.map((variable, position) => ({
     packId: pack.id,
     name: variable.name,
-    value: JSON.stringify(variable.value),
+    value: variable.value === null ? null : JSON.stringify(variable.value),
     description: variable.description,
     position,
   })),
@@ -259,6 +260,7 @@ export const applyKit = (before: Draft, json: unknown, candidates: LiveTool[]) =
       live,
       fixed: {},
       defaults: {},
+      person: {},
       wording: proposed.wording || null,
     })
   }
