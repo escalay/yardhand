@@ -17,8 +17,18 @@ const client = (id: string, name: string, packId: string | null, made: number, e
   expiresAt: ends === null ? null : at(ends),
   revokedAt: null as string | null,
 })
-const ending = (rows: ReturnType<typeof client>[]) =>
-  endingAccess({ clients: { list: async () => rows }, packs: { list: async () => packs } } as never, now)
+const ending = (rows: ReturnType<typeof client>[], opens: Record<string, string[]> = {}) =>
+  endingAccess(
+    {
+      clients: {
+        list: async () => rows,
+        packsOf: async (row: { id: string; packId: string | null }) =>
+          opens[row.id] ?? (row.packId ? [row.packId] : []),
+      },
+      packs: { list: async () => packs },
+    } as never,
+    now,
+  )
 
 describe('whose access is ending', () => {
   it('names each person in their last three days with their pack, soonest first', async () => {
@@ -45,8 +55,15 @@ describe('whose access is ending', () => {
     expect(await ending(rows)).toEqual([])
   })
 
-  it('skips a key whose pack was removed, so one such key breaks nothing', async () => {
+  it('skips a key whose packs were all removed, so one such key breaks nothing', async () => {
     const rows = [client('cl_lost', 'Lost', 'pk_removed', -27, 2), client('cl_sam', 'Sam', 'pk_loud', -27, 2)]
     expect((await ending(rows)).map((entry) => entry.id)).toEqual(['cl_sam'])
+  })
+
+  it('names a key whose default pack was removed by the first pack it still opens', async () => {
+    const rows = [client('cl_ada', 'Ada', 'pk_removed', -27, 2)]
+    expect(await ending(rows, { cl_ada: ['pk_removed', 'pk_desk', 'pk_loud'] })).toEqual([
+      { id: 'cl_ada', name: 'Ada', pack: { name: 'desk', title: 'Desk' }, expiresAt: at(2) },
+    ])
   })
 })
