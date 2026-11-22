@@ -27,10 +27,10 @@ const LiveContext = createContext<{ connected: boolean; listen: (listener: Liste
 
 /** Which cached queries each kind of event makes stale. */
 export const STALE_BY_EVENT: Record<string, string[][]> = {
-  call: [['calls'], ['overview'], ['clients'], ['client'], ['tools']],
+  call: [['calls'], ['overview'], ['clients'], ['client'], ['tools'], ['people']],
   sync: [['upstreams'], ['upstream'], ['tools'], ['tool'], ['reviews'], ['overview'], ['packs'], ['pack']],
   upstream: [['upstreams'], ['upstream'], ['overview']],
-  lists: [['upstreams'], ['upstream'], ['tools'], ['catalog'], ['me'], ['packs'], ['pack']],
+  lists: [['upstreams'], ['upstream'], ['tools'], ['catalog'], ['me'], ['packs'], ['pack'], ['people']],
   progress: [],
 }
 

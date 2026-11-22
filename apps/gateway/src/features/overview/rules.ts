@@ -1,4 +1,6 @@
 /** Pure rules behind Home: where setup stands, and what needs the owner. No queries here. */
+import type { EndingAccess } from '../clients/ending.js'
+import { dayOf } from '../clients/lifetimes.js'
 
 export type SetupFacts = {
   liveUpstreams: number
@@ -45,6 +47,8 @@ export type NudgeFacts = {
     createdAt: string
     calls30d: number
   }[]
+  /** Whose access to a pack is in its last three days. */
+  endingAccess?: EndingAccess[]
   pendingReviews: number
   /** Smart grouping: whether it is set up, and connections whose groups still come from the rules, by size. */
   grouping?: { ready: boolean; byRules: { id: string; title: string; tools: number }[] }
@@ -53,7 +57,14 @@ export type NudgeFacts = {
 }
 
 export type Nudge = {
-  kind: 'reviews' | 'pack_wording' | 'failing_upstream' | 'quiet_key' | 'unused_upstream' | 'smart_grouping'
+  kind:
+    | 'reviews'
+    | 'pack_wording'
+    | 'failing_upstream'
+    | 'access_ending'
+    | 'quiet_key'
+    | 'unused_upstream'
+    | 'smart_grouping'
   /** One sentence the owner can act on. */
   message: string
   action: string
@@ -64,7 +75,13 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const ageDays = (now: Date, at: string) => (now.getTime() - new Date(at).getTime()) / DAY_MS
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
 
-/** What needs the owner, most urgent first: reviews, failing servers, keys never used, servers nobody calls. */
+/** How far off an end is in UTC days, as `dayOf` writes the UTC day: `today`, `tomorrow`, `in 3 days`. */
+const dayAway = (now: Date, at: string) => {
+  const days = Math.floor(Date.parse(at) / DAY_MS) - Math.floor(now.getTime() / DAY_MS)
+  return days <= 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`
+}
+
+/** What needs the owner, most urgent first: reviews, failing servers, access about to end, keys never used, servers nobody calls. */
 /** Connections big enough that model-made groups are worth it. */
 const GROUPING_WORTH = 15
 
@@ -98,6 +115,7 @@ export const nudgesOf = ({
   pendingReviews,
   packFlags = 0,
   grouping,
+  endingAccess = [],
 }: NudgeFacts): Nudge[] => [
   ...(pendingReviews
     ? [
@@ -127,6 +145,12 @@ export const nudgesOf = ({
       action: 'Open',
       href: `/app/connections/${upstream.id}`,
     })),
+  ...endingAccess.map(({ name, pack, expiresAt }) => ({
+    kind: 'access_ending' as const,
+    message: `${name}'s access to ${pack.title} ends ${dayAway(now, expiresAt)} (${dayOf(expiresAt)}). Extend it, or let it end.`,
+    action: 'Extend',
+    href: `/app/packs/${pack.name}?tab=people`,
+  })),
   ...keyClients
     .filter((client) => !client.lastCallAt && ageDays(now, client.createdAt) >= 1)
     .map((client) => ({

@@ -94,3 +94,42 @@ describe('chart buckets', () => {
     expect(nudgesOf({ ...base, grouping: { ready: true, byRules: [byRules[0] as never] } })).toEqual([])
   })
 })
+
+describe('the nudge before access ends', () => {
+  const sam = { id: 'cl_sam', name: 'Sam', pack: { name: 'loud', title: 'Loud' } }
+  const facts = {
+    now,
+    pendingReviews: 0,
+    keyClients: [{ id: 'cl_sam', name: 'Sam', createdAt: '2026-10-13T10:00:00.000Z', lastCallAt: null }],
+    upstreams: [
+      { id: 'home', title: 'Home', status: 'failing', lastError: null, createdAt: '2026-10-01T00:00:00Z', calls30d: 4 },
+    ],
+  }
+
+  it('says whose access to which pack ends on which day, after failing servers and before quiet keys', () => {
+    const nudges = nudgesOf({ ...facts, endingAccess: [{ ...sam, expiresAt: '2026-11-10T10:00:00.000Z' }] })
+    expect(nudges.map((nudge) => nudge.kind)).toEqual(['failing_upstream', 'access_ending', 'quiet_key'])
+    expect(nudges[1]).toEqual({
+      kind: 'access_ending',
+      message: "Sam's access to Loud ends in 2 days (10 Nov 2026). Extend it, or let it end.",
+      action: 'Extend',
+      href: '/app/packs/loud?tab=people',
+    })
+    expect(nudgesOf(facts).map((nudge) => nudge.kind)).toEqual(['failing_upstream', 'quiet_key'])
+  })
+
+  it('counts UTC days, as the day beside the word is the UTC day', () => {
+    const messageFor = (expiresAt: string) =>
+      nudgesOf({ ...facts, keyClients: [], upstreams: [], endingAccess: [{ ...sam, expiresAt }] })[0]?.message
+    // 11 hours from now, then 12 hours from now but past midnight
+    expect(messageFor('2026-11-08T23:30:00.000Z')).toBe(
+      "Sam's access to Loud ends today (8 Nov 2026). Extend it, or let it end.",
+    )
+    expect(messageFor('2026-11-09T00:30:00.000Z')).toBe(
+      "Sam's access to Loud ends tomorrow (9 Nov 2026). Extend it, or let it end.",
+    )
+    expect(messageFor('2026-11-11T12:00:00.000Z')).toBe(
+      "Sam's access to Loud ends in 3 days (11 Nov 2026). Extend it, or let it end.",
+    )
+  })
+})

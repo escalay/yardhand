@@ -1,6 +1,7 @@
 /** Packs: curated kits of tools, playbooks and manuals, each with its own wording, that a key can be locked to. */
 import type { Feature } from '../index.js'
 import { packsHandlers } from './handlers.js'
+import { peopleHandlers } from './people.js'
 import { routes, TAG } from './routes.js'
 import { PACKS_MIGRATIONS } from './schema.js'
 
@@ -10,6 +11,7 @@ export const feature: Feature = {
   migrations: PACKS_MIGRATIONS,
   register: (app, services) => {
     const handlers = packsHandlers(services)
+    const people = peopleHandlers(services)
     // Before `/api/packs/{name}`, which would take `flags` as a name
     app.openapi(routes.flags, handlers.flags)
     app.openapi(routes.list, handlers.list)
@@ -20,6 +22,8 @@ export const feature: Feature = {
     app.openapi(routes.update, handlers.update)
     app.openapi(routes.remove, handlers.remove)
     app.openapi(routes.freeName, handlers.freeName)
+    app.openapi(routes.people, people.people)
+    app.openapi(routes.share, people.share)
     app.openapi(routes.wording, handlers.wording)
     app.openapi(routes.entry, handlers.entry)
     app.openapi(routes.uses, handlers.uses)

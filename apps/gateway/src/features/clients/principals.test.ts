@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { endedNote, refusalOf } from './principals.js'
+import { hashApiKey } from '../../kit/index.js'
+import { createPrincipals, endedNote, refusalOf } from './principals.js'
+import type { ClientDraft } from './repo.js'
 
 const now = new Date('2026-12-22T09:00:00.000Z')
 const loud = { title: 'Loud' }
@@ -51,5 +53,27 @@ describe('what the owner is told, looking as an ended client', () => {
 
   it('is nothing while the key works', () => {
     expect(endedNote(live, loud, now)).toBeNull()
+  })
+})
+
+describe('a key that is issued', () => {
+  it('is let in at once, and only its hash is kept', async () => {
+    const keys = new Map<string, string>()
+    const drafts: ClientDraft[] = []
+    const clients = {
+      create: async (draft: ClientDraft) => {
+        drafts.push(draft)
+        return 'cl_1'
+      },
+    }
+    const principals = createPrincipals({ clients, packs: {}, catalog: {}, keys } as never)
+    const issued = await principals.issue({ name: 'Sam', scope: 'read', upstreams: [], packIds: ['pk_1'] })
+    expect(issued.id).toBe('cl_1')
+    expect(issued.key).toMatch(/^gw_/)
+    expect(keys.get(hashApiKey(issued.key))).toBe('client:cl_1')
+    expect(drafts).toEqual([
+      { name: 'Sam', scope: 'read', upstreams: [], packIds: ['pk_1'], kind: 'key', keyHash: hashApiKey(issued.key) },
+    ])
+    expect(JSON.stringify(drafts)).not.toContain(issued.key)
   })
 })

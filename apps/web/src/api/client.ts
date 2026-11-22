@@ -24,6 +24,7 @@ export type Surface = Schemas['SetupSurface']
 export type Playbook = Schemas['Playbook']
 export type UpstreamLink = Schemas['UpstreamLink']
 export type Pack = Schemas['Pack']
+export type Person = Schemas['Person']
 
 /** A problem answer (RFC 9457) as an Error: `detail` is what to show, `errors` which fields. */
 export class ApiError extends Error {

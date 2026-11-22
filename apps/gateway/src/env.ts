@@ -82,7 +82,13 @@ export const SECTIONS: Section[] = [
     title: 'Optional parts. Settings in the app shows which are on',
     settings: [
       { name: 'OPENROUTER_API_KEY', about: ['Tool search by meaning, not only by words (an OpenRouter key).'] },
-      { name: 'DISCORD_WEBHOOK_URL', about: ['Posts a note when a third-party tool change waits for your review.'] },
+      {
+        name: 'DISCORD_WEBHOOK_URL',
+        about: [
+          'Posts a note when a third-party tool change waits for your review, and three days before someone’s access',
+          'to a pack ends.',
+        ],
+      },
       {
         name: 'COMPOSIO_API_KEY',
         about: ['A Composio CLI user key: a personal Composio connection reads its tool list with it.'],

@@ -49,7 +49,20 @@ const UpstreamHealthSchema = z
   .openapi('UpstreamHealth', { description: 'An upstream, how it is and how much it was used today.' })
 const NudgeSchema = z
   .object({
-    kind: z.enum(['reviews', 'pack_wording', 'failing_upstream', 'quiet_key', 'unused_upstream', 'smart_grouping']),
+    kind: z
+      .enum([
+        'reviews',
+        'pack_wording',
+        'failing_upstream',
+        'access_ending',
+        'quiet_key',
+        'unused_upstream',
+        'smart_grouping',
+      ])
+      .openapi({
+        description:
+          '`access_ending`: someone’s access to a pack ends within three days; its `href` is the pack’s People, where Extend is.',
+      }),
     message: z.string(),
     action: z.string(),
     href: z.string(),
@@ -149,7 +162,7 @@ const SystemSchema = z
       traces: z.boolean().openapi({ description: 'Call metadata goes to Langfuse.' }),
       access: z.boolean().openapi({ description: 'Cloudflare Access signs the owner in.' }),
       oauth: z.boolean().openapi({ description: 'Agents can get tokens with OAuth (claude.ai connectors).' }),
-      alerts: z.boolean().openapi({ description: 'Review notices go to a Discord webhook.' }),
+      alerts: z.boolean().openapi({ description: 'Review notices and access-ending notices go to a Discord webhook.' }),
     }),
     publicOrigin: z.string(),
     serverName: z.string().openapi({

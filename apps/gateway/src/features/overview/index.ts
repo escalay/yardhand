@@ -6,6 +6,7 @@ import { sql } from 'drizzle-orm'
 import type { Context } from 'hono'
 import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import { VERSION } from '../../version.js'
+import { endingAccess } from '../clients/ending.js'
 import { requireOwner } from '../clients/principals.js'
 import { SERVER_NAME } from '../clients/setup.js'
 import type { Feature } from '../index.js'
@@ -133,6 +134,7 @@ export const feature: Feature = {
             now,
             pendingReviews: pending.length,
             packFlags: (await packFlags({ packs, tools })).length,
+            endingAccess: await endingAccess({ clients, packs }, now),
             grouping: {
               ready: Boolean(await services.grouping.ready()),
               byRules: (

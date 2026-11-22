@@ -108,8 +108,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   own pages answer 308 to the new address. A key that does not open the pack is refused by the name it asked for
   (`packFor`), so an old name tells it nothing of the name now; only the owner is told where a pack went (`noPack`).
   No pack can take an old name until the owner frees it (`DELETE /api/packs/{name}/names/{former}`) or removes the
-  pack. Each key's link to the pack notes the old name it last came by (`client_packs.came_by`), which a pack's
-  `formerNames` count.
+  pack. Each key's link to the pack notes the old name it was last let in by (`client_packs.came_by`), which a pack's
+  `formerNames` count over the people it lists (`listedOf`), ended ones too.
 - **Extend**: sets a key's end anew, counted from today (`PATCH /api/clients/{id}` with `expiresIn`: 7 days, 30 days
   or never), also for a key that has ended: it works again with the same key. A revoked key does not come back, and
   a pack key none of whose packs is left is refused (409) unless the same change gives it one.
@@ -122,6 +122,16 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   still answer it. Over MCP it still connects, to read the refusal as the instructions and from every tool
   (`principals.ended` at the `/mcp` door): safe only while every route resolves its caller through `principals` or
   `requireOwner`. The owner looking as an ended client reads `endedNote` instead.
+- **Person**: a client that opens a pack, as its People list has it (`GET /api/packs/{name}/people`); the
+  `client_packs` row is that person in that pack. `standingOf` (`features/clients/lifetimes.ts`) is the one rule for
+  where their access stands: `ending` in its last three days, `ended` and still listed for 30 days after its end,
+  then gone, as a revoked key is at once. A pack's `keys + ended` is the number People lists (`listedOf`).
+  `endingAccess` (`features/clients/ending.ts`) is everyone `ending`, each by their default pack (else the first
+  pack they still open): Home's `access_ending` nudge and the hourly webhook notice (`accessNotifier` in `jobs.ts`,
+  once per end) both read it.
+- **Share**: making one person's key for one pack (`POST /api/packs/{name}/people`): read only and 30 days unless
+  said, answered with a message ready to send (`features/packs/share.ts`), the key in it and shown once. Every key
+  client is made by `principals.issue`.
 - **Alias**: a pack's own name for one of its tools (`team_inbox_search`); the same tool can be in a pack under
   several aliases. A pack tool is keyed by that name; `entryOf` resolves it to the tool. A new alias can't be a name
   a connection's own tools hold (`OWN_NAMES`: the meta-tools and `call_tool`); one stored before that rule keeps
@@ -150,7 +160,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 1. Every call, MCP or REST, goes through the one pipeline: authenticate → allowlist → scope → resolve → credential →
    adapter → cap → audit. No route calls an adapter directly.
 2. Secrets are AES-GCM encrypted in SQLite with the master key from env (`GATEWAY_MASTER_KEY`); they never appear in
-   logs, exports, call payloads sent to Langfuse, or errors.
+   logs, exports, call payloads sent to Langfuse, or errors. An answer the kit keeps for an `Idempotency-Key` can
+   hold a key shown once, so the store it is given seals every answer (`features/vault/answers.ts`).
 3. Third-party upstreams (`trust = review`) never change a live tool by themselves: a changed description or schema is
    a `pending` version until the owner approves it.
 4. `src/kit/` is vendored from agent-api-kit. Its behaviour is never edited in place; its examples, comments and the

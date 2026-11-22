@@ -1,9 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { PackPage, parsePackTab } from '@/packs/PackPage'
+import { PackPage } from '@/packs/PackPage'
+import { parsePackTab } from '@/packs/packs.rules'
 
 const Pack = () => {
-  const { tab, add } = Route.useSearch()
-  return <PackPage name={Route.useParams().name} tab={tab} add={add} />
+  const { tab, add, share } = Route.useSearch()
+  return <PackPage name={Route.useParams().name} tab={tab} add={add} share={share} />
 }
 
 export const Route = createFileRoute('/packs/$name')({ validateSearch: parsePackTab, component: Pack })

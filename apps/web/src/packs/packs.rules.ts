@@ -1,12 +1,13 @@
 /**
  * Pure rules for packs: names from titles, what a pack holds in words, why a tool is in, how long a key lasts, the
- * steps of setting one up, what a try of it says, who fills each input of its tools, its variables, and where a
- * refused save went wrong.
+ * steps of setting one up, what a try of it says, who fills each input of its tools, its variables, where a refused
+ * save went wrong, what sharing it asks and what its People list says of each person.
  */
 import type { Schemas } from '@/api/client'
 import { argumentsOf, type FormField } from '@/tools/schema-form.rules'
 
 type Pack = Schemas['Pack']
+type Person = Schemas['Person']
 type PackTool = Schemas['PackTool']
 type ToolCard = Schemas['ToolCard']
 type Use = Schemas['PlaybookUse']
@@ -428,3 +429,115 @@ export const hiddenLine = (count: number) =>
 
 /** An address as people read it, without its scheme: `https://gw.example.com/p/loud` → `gw.example.com/p/loud`. */
 export const shortAddress = (url: string) => url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+
+export type PackTab = 'overview' | 'tools' | 'playbooks' | 'people' | 'activity'
+const PACK_TABS: PackTab[] = ['overview', 'tools', 'playbooks', 'people', 'activity']
+
+/**
+ * `?tab=` for every part but Tools, the default; `?add=true` there opens the dialog that adds tools, and `?share=true`
+ * on any part the Share sheet. People was Keys: a link kept from then still opens it.
+ */
+export const parsePackTab = (raw: Record<string, unknown>): { tab?: PackTab; add?: true; share?: true } => {
+  const asked = raw.tab === 'keys' ? 'people' : (raw.tab as PackTab)
+  const part = PACK_TABS.includes(asked) && asked !== 'tools' ? { tab: asked } : {}
+  if (raw.share === true) return { ...part, share: true }
+  return part.tab || raw.add !== true ? part : { add: true }
+}
+
+/** How long a shared pack works for its person. A day or less is a key for an agent of your own: made under Agents. */
+export const SHARE_LIFETIMES = [
+  { value: '7d', label: '7 days' },
+  { value: '30d', label: '30 days' },
+  { value: 'never', label: 'Until revoked' },
+] as const
+
+export type ShareLifetime = (typeof SHARE_LIFETIMES)[number]['value']
+export const SHARE_DEFAULT: ShareLifetime = '30d'
+
+/** What Extend sets a person's end to, counted from today. */
+export const EXTEND_CHOICES = [
+  { value: '7d', label: '7 days from today' },
+  { value: '30d', label: '30 days from today' },
+  { value: 'never', label: 'Until revoked' },
+] as const satisfies { value: ShareLifetime; label: string }[]
+
+const APP_LABEL: Record<NonNullable<Person['app']>, string> = {
+  'claude-code': 'Claude Code',
+  cursor: 'Cursor',
+  codex: 'Codex',
+  'claude-ai': 'claude.ai',
+  curl: 'A script',
+  typescript: 'TypeScript',
+}
+
+/** Where a person will paste their key: the apps the message has setup for, and not being sure. */
+export const SHARE_APPS: { value: string; app: NonNullable<Schemas['PackShare']['app']> | null; label: string }[] = [
+  ...(['claude-code', 'cursor', 'codex', 'curl'] as const).map((app) => ({ value: app, app, label: APP_LABEL[app] })),
+  { value: 'unsure', app: null, label: 'Not sure' },
+]
+
+/** How many of a pack's live tools change things: with none, a key that can change is no different from one that reads. */
+export const changingTools = (pack: { tools: Pick<PackTool, 'needsWrite' | 'live'>[] }) =>
+  pack.tools.filter((tool) => tool.live && tool.needsWrite).length
+
+/** "3 tools here change things". */
+export const changesLine = (count: number) =>
+  `${count} ${count === 1 ? 'tool here changes' : 'tools here change'} things`
+
+/** "Claude Code · key": the app a person was given setup for, when it was said, and how they get in. */
+export const connectsVia = ({ app, kind }: Pick<Person, 'app' | 'kind'>) =>
+  [...(app ? [APP_LABEL[app]] : []), kind === 'oauth' ? 'sign-in' : 'key'].join(' · ')
+
+export const accessOf = (scope: Person['scope']) => (scope === 'write' ? 'can change' : 'read only')
+
+const HOUR_MS = 3_600_000
+const DAY_MS = 24 * HOUR_MS
+/** As the API's `ending`: the last three days of someone's access. */
+const SOON_MS = 3 * DAY_MS
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** The UTC day of a time as `21 Dec`: the day the message a person was sent names, wherever it is read. */
+export const dayOf = (iso: string) => {
+  const at = new Date(iso)
+  return `${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]}`
+}
+
+/**
+ * When someone's access ends: "never", "21 Dec", "in 3 d" within three days, "ended 2 Dec". Days are UTC days, as
+ * Home's nudge counts them and as `dayOf` names the day; under a day it is hours, then minutes. `warn` is the API's
+ * `ending`, which a key made for a day or less never is: that one ends soon because it was meant to.
+ */
+export const endsOf = (
+  person: Pick<Person, 'expiresAt'> & Partial<Pick<Person, 'ending' | 'ended'>>,
+  now = Date.now(),
+) => {
+  if (!person.expiresAt) return { text: 'never', warn: false }
+  const end = Date.parse(person.expiresAt)
+  const left = end - now
+  if (person.ended || left <= 0) return { text: `ended ${dayOf(person.expiresAt)}`, warn: false }
+  if (left > SOON_MS) return { text: dayOf(person.expiresAt), warn: false }
+  const warn = Boolean(person.ending)
+  if (left >= DAY_MS) return { text: `in ${Math.floor(end / DAY_MS) - Math.floor(now / DAY_MS)} d`, warn }
+  if (left >= HOUR_MS) return { text: `in ${Math.round(left / HOUR_MS)} h`, warn }
+  return { text: `in ${Math.max(1, Math.round(left / 60_000))} min`, warn }
+}
+
+/** The same beside a name, where no column says what it is: "ends 21 Dec", "until revoked", "ended 2 Dec". */
+export const endLine = (person: Parameters<typeof endsOf>[0], now = Date.now()) => {
+  const { text } = endsOf(person, now)
+  return text === 'never' ? 'until revoked' : text.startsWith('ended') ? text : `ends ${text}`
+}
+
+/** What Extend and Revoke say of a key that opens other packs too: its end and its revoking are theirs as well. */
+export const alsoOpens = (otherPacks: string[]) => {
+  if (!otherPacks.length) return ''
+  const names =
+    otherPacks.length === 1 ? otherPacks[0] : `${otherPacks.slice(0, -1).join(', ')} and ${otherPacks.at(-1)}`
+  return `This key also opens ${names}: that changes too.`
+}
+
+/** How many of a pack's people last connected at a name it used to have. */
+export const stillThere = (people: number) =>
+  people
+    ? `${people} ${people === 1 ? 'person still connects' : 'people still connect'} there`
+    : 'nobody has connected there since the rename'

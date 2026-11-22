@@ -1,6 +1,6 @@
-/** Client handlers: keys are minted here and shown once; only their hashes are kept. */
+/** Client handlers: a new key is shown once; only its hash is kept (`principals.issue`). */
 import type { RouteHandler } from '@hono/zod-openapi'
-import { linksOf, mintApiKey, originOf, ProblemError } from '../../kit/index.js'
+import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { noPack } from '../packs/names.js'
 import { findability } from '../searches/demand.js'
@@ -224,17 +224,13 @@ export const clientsHandlers = ({
         detail: 'Say which upstreams it reaches (`all` or ids), or give a pack.',
       })
     await (chosen ? checkPackPins(input.pins, chosen.ids) : checkTools(input.pins))
-    const { key, hash } = mintApiKey('gw')
-    const id = await clients.create({
+    const { id, key } = await principals.issue({
       ...input,
       upstreams: chosen ? [] : (input.upstreams ?? []),
-      kind: 'key',
-      keyHash: hash,
       packIds: chosen?.ids ?? [],
       packId: chosen?.defaultId ?? null,
       expiresAt: expiryOf(expiresIn),
     })
-    principals.addKey(hash, id)
     return c.json({ ...(await cardOf(originOf(c), await rowOf(id))), key }, 201, { location: `${PATH}/${id}` })
   }
   const update: RouteHandler<Routes['update']> = async (c) => {

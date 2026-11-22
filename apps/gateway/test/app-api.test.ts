@@ -8,6 +8,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { serve } from '@hono/node-server'
+import { sql } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
@@ -594,6 +595,89 @@ describe('what the pack page stands on', () => {
     expect((await api(key.key, '/p/draft/api/me')).status).toBe(403)
     expect((await owner(`/api/clients/${key.id}`, { method: 'DELETE' })).status).toBe(204)
     expect((await owner('/api/packs/drafts', { method: 'DELETE' })).status).toBe(204)
+  })
+
+  it('shares a pack and tends its people, as the Share sheet and the People tab do', async () => {
+    const made = await owner('/api/packs', { method: 'POST', body: { name: 'plot', title: 'Plot' } })
+    expect(made.json).toMatchObject({ keys: 0, ending: 0, ended: 0 })
+    await owner('/api/packs/plot', { method: 'PATCH', body: { add: { tools: [{ name: 'fixture.echo' }] } } })
+    // The sheet sends who, where, what they can do and how long; the message it shows holds the key, this once
+    const shared = await owner('/api/packs/plot/people', {
+      method: 'POST',
+      body: { name: 'Sam', app: 'claude-code', scope: 'read', expiresIn: '30d' },
+    })
+    expect(shared.status).toBe(201)
+    expect(shared.json).toMatchObject({ name: 'Sam', app: 'claude-code', scope: 'read', ending: false, ended: false })
+    expect(shared.json.message).toContain("Hi Sam, I'm sharing Plot with you.")
+    expect(shared.json.message).toContain(`gw-plot http://localhost/p/plot/mcp`)
+    expect(shared.json.message).toContain(`Bearer ${shared.json.key}`)
+    const { id, key } = shared.json as { id: string; key: string }
+    expect((await api(key, '/p/plot/api/me')).json.pack.name).toBe('plot')
+    // The tab lists them, and the pack counts what the tab lists
+    const people = await owner('/api/packs/plot/people')
+    expect(people.status).toBe(200)
+    expect(people.json.count).toBe(1)
+    expect(people.json._embedded.people[0]).toMatchObject({
+      id,
+      name: 'Sam',
+      kind: 'key',
+      calls7d: 0,
+      lastCallAt: null,
+      otherPacks: [],
+      oldAddress: null,
+    })
+    expect(JSON.stringify(people.json)).not.toContain(key)
+    expect((await owner('/api/packs/plot')).json).toMatchObject({ keys: 1, ending: 0, ended: 0 })
+    // Extend and Revoke are the client's own routes
+    const extended = await owner(`/api/clients/${id}`, { method: 'PATCH', body: { expiresIn: 'never' } })
+    expect([extended.status, extended.json.expiresAt]).toEqual([200, null])
+    expect((await owner('/api/packs/plot/people')).json._embedded.people[0].expiresAt).toBeNull()
+    expect((await owner(`/api/clients/${id}`, { method: 'DELETE' })).status).toBe(204)
+    expect((await owner('/api/packs/plot/people')).json).toMatchObject({ count: 0, _embedded: { people: [] } })
+    expect((await api(agentKey, '/api/packs/plot/people')).status).toBe(403)
+    expect((await owner('/api/packs/plot', { method: 'DELETE' })).status).toBe(204)
+  })
+})
+
+describe('access about to end', () => {
+  it('is on Home three days before, with where to extend it, and gone once extended', async () => {
+    const DAY_MS = 24 * 60 * 60 * 1000
+    const ending = async () =>
+      ((await owner('/api/overview')).json.nudges as { kind: string; message: string; href: string }[]).filter(
+        (nudge) => nudge.kind === 'access_ending',
+      )
+    await owner('/api/packs', { method: 'POST', body: { name: 'garden', title: 'Garden' } })
+    await owner('/api/packs/garden', { method: 'PATCH', body: { add: { tools: [{ name: 'fixture.echo' }] } } })
+    const sam = (await owner('/api/packs/garden/people', { method: 'POST', body: { name: 'Sam' } })).json
+    expect(sam.id).toBeTruthy()
+    expect(await ending()).toEqual([])
+    // As 27 days would have left a 30-day key
+    await db.run(
+      sql`update clients set created_at = ${new Date(Date.now() - 27 * DAY_MS).toISOString()}, expires_at = ${new Date(Date.now() + 2 * DAY_MS).toISOString()} where id = ${sam.id}`,
+    )
+    // A key made for a session is never announced: it was ending the moment it was made
+    const session = await owner('/api/clients', {
+      method: 'POST',
+      body: { name: 'a session', scope: 'read', pack: 'garden', expiresIn: '8h' },
+    })
+    expect(session.status).toBe(201)
+    const nudges = await ending()
+    expect(nudges).toHaveLength(1)
+    expect(nudges[0]).toMatchObject({ kind: 'access_ending', action: 'Extend', href: '/app/packs/garden?tab=people' })
+    // The words for the day are held in the rules' own test, against a fixed clock
+    expect(nudges[0]?.message).toMatch(
+      /^Sam's access to Garden ends .+ \(\d+ \w+ \d{4}\)\. Extend it, or let it end\.$/,
+    )
+    expect((await owner('/api/packs/garden/people')).json._embedded.people[0]).toMatchObject({
+      id: sam.id,
+      ending: true,
+    })
+    const extended = await owner(`/api/clients/${sam.id}`, { method: 'PATCH', body: { expiresIn: '7d' } })
+    expect(extended.status).toBe(200)
+    expect(await ending()).toEqual([])
+    for (const id of [sam.id, session.json.id])
+      expect((await owner(`/api/clients/${id}`, { method: 'DELETE' })).status).toBe(204)
+    expect((await owner('/api/packs/garden', { method: 'DELETE' })).status).toBe(204)
   })
 })
 

@@ -1,4 +1,4 @@
-/** Pure rules for agents: the key put into a snippet, and an agent's reach in words. */
+/** Pure rules for agents: the key put into a snippet, an agent's reach in words, and what to do while a key waits. */
 import type { Client } from '@/api/client'
 
 /** A snippet with the key in place of the placeholder, when the key is known (right after making it). */
@@ -41,3 +41,9 @@ export const foundOf = ({ searches7d, found7d }: { searches7d: number; found7d: 
   searches7d
     ? { text: `${found7d} of ${searches7d}`, struggling: searches7d >= 3 && found7d / searches7d < 0.5 }
     : { text: '–', struggling: false }
+
+/** What to do while a new key waits for its first call: an agent is asked to run a tool, a pack's person is sent the message. */
+export const waitingHint = (name: string, pack?: { title: string }) =>
+  pack
+    ? `Send ${name} the message. Their first call to ${pack.title} shows up here the moment it happens.`
+    : 'Paste the setup, then ask the agent to find and run one of your tools, say “find a tool in gw and run it”. It shows up here the moment it happens.'

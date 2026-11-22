@@ -1,8 +1,9 @@
 /**
  * The gateway's own schedule: resync every enabled upstream each hour (so third-party changes reach review on their
- * own), and once a day drop calls older than 90 days and snapshot the database into `<state>/backups`, keeping 7,
- * send the usage report unless it is switched off (features/telemetry), and ask for the newest version unless that
- * is switched off (features/updates).
+ * own), then tell the webhook what newly waits for review and whose access to a pack is about to end, whether or not
+ * the sync failed; and once a day drop calls older than 90 days and snapshot the database into `<state>/backups`,
+ * keeping 7, send the usage report unless it is switched off (features/telemetry), and ask for the newest version
+ * unless that is switched off (features/updates).
  * Each run is remembered across restarts (what it did, how long it took), so a job is due by when it last ran, not by
  * when the server started: a deploy syncs once, and never makes another backup the same day. A failing job logs and
  * tries again within the hour; it never stops the server.
@@ -10,6 +11,8 @@
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { sql } from 'drizzle-orm'
+import { endingAccess } from './features/clients/ending.js'
+import { dayOf } from './features/clients/lifetimes.js'
 import type { Telemetry } from './features/telemetry/index.js'
 import type { Updates } from './features/updates/index.js'
 import type { Services } from './services.js'
@@ -81,14 +84,68 @@ export const reviewNotifier = (
   }
 }
 
-/** A Discord webhook as a `post` for `reviewNotifier`. */
+/** Discord refuses a message over 2000 characters; a notice keeps under this and says the rest on its next run. */
+const MESSAGE_ROOM = 1800
+
+/** A name on one line: what an owner or, later, a person named cannot start a line of its own in a notice. */
+const oneLine = (text: string) => text.replace(/\s*[\r\n\u2028\u2029]+\s*/g, ' ').trim()
+
+/**
+ * Tells the owner once when someone's access to a pack is in its last three days (`endingAccess`), each with where to
+ * extend it. An end is announced once: a key extended and ending anew is said again. `post` and `kept` as for
+ * `reviewNotifier`.
+ */
+export const accessNotifier = (
+  post: ((text: string) => Promise<void>) | null,
+  kept?: { load: () => Promise<string[] | undefined>; save: (keys: string[]) => Promise<unknown> },
+) => {
+  let announced: Set<string> | null = null
+  return async (services: Pick<Services, 'clients' | 'packs'>, origin: string, now = new Date()) => {
+    if (!post) return
+    announced ??= new Set((await kept?.load().catch(() => undefined)) ?? [])
+    const told = announced
+    const ending = (await endingAccess(services, now)).map(({ id, name, pack, expiresAt }) => ({
+      key: `${id}:${expiresAt}`,
+      line: `• ${oneLine(name)}'s access to ${oneLine(pack.title)} ends on ${dayOf(expiresAt)}. Extend it: ${origin}/app/packs/${pack.name}?tab=people (or PATCH ${origin}/api/clients/${id} with {"expiresIn":"30d"})`,
+    }))
+    const fresh = ending.filter(({ key }) => !told.has(key))
+    const fits = (count: number) =>
+      fresh
+        .slice(0, count)
+        .map(({ line }) => line)
+        .join('\n').length <= MESSAGE_ROOM
+    const said = fresh.filter((_, index) => index === 0 || fits(index + 1))
+    if (said.length) {
+      await post(['**Yardhand:** access ending soon', ...said.map(({ line }) => line)].join('\n'))
+      for (const { key } of said) told.add(key)
+    }
+    // Only what is still ending is worth remembering
+    await kept?.save(ending.map(({ key }) => key).filter((key) => told.has(key)))
+  }
+}
+
+/**
+ * The hourly job's body: the sync, then every notice, each on its own, so a connection that fails to sync never holds
+ * back a notice and a webhook that fails never fails the sync. Says what the sync said, or throws what it threw.
+ */
+export const afterSync = async (sync: () => Promise<string>, notices: Record<string, () => Promise<unknown>>) => {
+  const outcome = await sync().then(
+    (said) => ({ said }),
+    (error: unknown) => ({ error }),
+  )
+  for (const [name, notice] of Object.entries(notices)) await notice().catch((error) => log(name, error))
+  if ('error' in outcome) throw outcome.error
+  return outcome.said
+}
+
+/** A Discord webhook as a `post` for the notifiers. Nothing in a notice pings: a name may hold `@everyone`. */
 export const discordPost = (webhookUrl: string | undefined) =>
   webhookUrl
     ? async (content: string) => {
         const response = await fetch(webhookUrl, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
         })
         if (!response.ok) throw new Error(`Discord webhook answered ${response.status}`)
       }
@@ -207,17 +264,20 @@ export const startJobs = (
     updates,
   }: { stateDir: string; webhookUrl?: string; telemetry: Telemetry; updates: Updates },
 ) => {
-  const notify = reviewNotifier(discordPost(webhookUrl), {
-    load: () => services.vault.get<string[]>('notices:reviews'),
-    save: (ids) => services.vault.put('notices:reviews', ids),
+  const post = discordPost(webhookUrl)
+  const keptAs = (name: string) => ({
+    load: () => services.vault.get<string[]>(name),
+    save: (ids: string[]) => services.vault.put(name, ids),
   })
+  const reviews = reviewNotifier(post, keptAs('notices:reviews'))
+  const access = accessNotifier(post, keptAs('notices:access'))
   const jobs = createJobs(
     {
-      sync: async () => {
-        const said = await syncAll(services)
-        await notify(services, services.publicOrigin).catch((error) => log('review notice', error))
-        return said
-      },
+      sync: () =>
+        afterSync(() => syncAll(services), {
+          'review notice': () => reviews(services, services.publicOrigin),
+          'access notice': () => access(services, services.publicOrigin),
+        }),
       backup: () => daily(services, stateDir),
       usage: () => telemetry.send(),
       updates: () => updates.daily(),

@@ -1,6 +1,6 @@
 /** The vault: JSON values sealed at rest; the only place secrets are read or written. */
-import { eq } from 'drizzle-orm'
-import type { Db } from '../../kit/index.js'
+import { and, eq, ne } from 'drizzle-orm'
+import { type Db, kitGuards } from '../../kit/index.js'
 import { seal, unseal } from './crypto.js'
 import { secrets } from './schema.js'
 
@@ -29,3 +29,16 @@ export const vaultRepo = (db: Db, key: Buffer) => ({
 })
 
 export type Vault = ReturnType<typeof vaultRepo>
+
+/** The answers the kit keeps for an `Idempotency-Key` (`kit_guards`), to seal the ones kept before they were. */
+export const keptAnswersRepo = (db: Db) => {
+  const answer = (id: string) => and(eq(kitGuards.kind, 'key'), eq(kitGuards.id, id))
+  return {
+    list: () =>
+      db
+        .select({ id: kitGuards.id, value: kitGuards.value })
+        .from(kitGuards)
+        .where(and(eq(kitGuards.kind, 'key'), ne(kitGuards.value, ''))),
+    replace: (id: string, value: string) => db.update(kitGuards).set({ value }).where(answer(id)),
+  }
+}
