@@ -864,6 +864,35 @@ describe('checkPack on the playbooks a skill names', () => {
   it('never takes a tool, a variable or a meta-tool in that section for a playbook', () => {
     expect(findingsOf(sections('Run `greet_from_desk` with `desk`, or find one with `get_playbook`.'))).toEqual([])
   })
+
+  it('never takes a playbook’s argument or a tool’s input in that section for a playbook', () => {
+    const withGuest = {
+      name: 'say-hello',
+      markdown: '---\narguments:\n  - name: guest\n---\nRun `greet_from_desk` for {{guest}}.',
+      wrote: [],
+    }
+    expect(
+      findingsOf(sections('- `say-hello`: greets `guest`, sent `from` the desk.\n- guest: who to greet.'), {
+        playbooks: [withGuest],
+      }),
+    ).toEqual([])
+  })
+
+  it('reads `<upstream>-` as a playbook only for a connection the pack’s tools or playbooks come from', () => {
+    const markdown = `${sections('None yet.')}\n\nSee \`quiet-hours\` and \`loud-mode\`, then follow \`fixture-say-nothing\`.`
+    expect(findingsOf(markdown, { upstreams: ['fixture', 'quiet', 'loud'], heldPlaybooks: ['loud-warm-up'] })).toEqual([
+      [
+        'warning',
+        'unknown_playbook',
+        '`loud-mode` is no playbook of Front desk: write it, or take it out of the skill.',
+      ],
+      [
+        'warning',
+        'unknown_playbook',
+        '`fixture-say-nothing` is no playbook of Front desk: write it, or take it out of the skill.',
+      ],
+    ])
+  })
 })
 
 describe('checkPack on file names in a text', () => {

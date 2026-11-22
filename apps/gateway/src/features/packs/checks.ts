@@ -312,25 +312,39 @@ const readPlaybook = (state: PackState, variables: Variables, doc: PackState['pl
 
 /**
  * The playbooks a skill names that the pack lacks: a backticked name or a list item's leading name in its Playbooks
- * section, and anywhere a backticked name shaped like a connection's playbook (`<upstream>-<prompt>`). A tool, a
- * variable or any other name the pack knows is never taken for one.
+ * section, and anywhere a backticked name shaped like a playbook of a connection the pack's tools or playbooks come
+ * from (`<upstream>-<prompt>`). A tool, an input, an argument, a variable or any other name the pack knows is never
+ * taken for one.
  */
 const unknownPlaybooksIn = (state: PackState, markdown: string): string[] => {
   const known = new Set([
     ...OWN_NAMES,
     ...state.playbooks.map((playbook) => playbook.name),
+    ...state.playbooks.flatMap((doc) => {
+      const read = parsePlaybook(doc.name, doc.markdown)
+      return 'playbook' in read ? read.playbook.arguments.map((argument) => argument.name) : []
+    }),
     ...state.heldPlaybooks,
     ...state.variables.map((variable) => variable.name),
     ...state.upstreams,
-    ...state.tools.flatMap((tool) => [tool.name, tool.tool]),
+    ...state.tools.flatMap((tool) => [
+      tool.name,
+      tool.tool,
+      ...Object.keys((tool.live?.inputSchema.properties ?? {}) as object),
+    ]),
   ])
+  const connections = state.upstreams.filter(
+    (upstream) =>
+      state.tools.some((tool) => tool.tool.startsWith(`${upstream}.`)) ||
+      state.heldPlaybooks.some((playbook) => playbook.startsWith(`${upstream}-`)),
+  )
   const section = sectionLinesOf(markdown, 'Playbooks')
   const listed = section.flatMap((line) => {
     const name = /^\s*[-*+]\s+(?:\*\*)?([a-z][a-z0-9-]*-[a-z0-9-]+)(?:\*\*)?\s*(?::|\s[-–—]\s)/.exec(line)?.[1]
     return name ? [name] : []
   })
   const ofConnection = toolRefsIn(markdown).filter((word) =>
-    state.upstreams.some((upstream) => word.startsWith(`${upstream}-`)),
+    connections.some((upstream) => word.startsWith(`${upstream}-`)),
   )
   return [...new Set([...toolRefsIn(section.join('\n')), ...listed, ...ofConnection])].filter(
     (word) => PLAYBOOK_NAME.test(word) && !known.has(word),
