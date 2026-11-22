@@ -1,2 +1,2 @@
 /** The running version, written by release-please at each release. */
-export const VERSION = '0.6.0' // x-release-please-version
+export const VERSION = '0.6.1' // x-release-please-version
