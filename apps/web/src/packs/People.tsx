@@ -1,11 +1,13 @@
 /**
  * The people a pack is shared with, one row each: how they connect, what they can do, when it ends, their last call
- * and their calls in 7 days, with Extend, Revoke and their Activity. Someone whose access ended stays for 30 days, to
- * be extended. Under them, the addresses the pack used to have that still answer, and stopping one.
+ * and their calls in 7 days, their own values when the pack fills inputs per person, with Extend, Revoke, Values and
+ * their Activity. Someone whose access ended stays for 30 days, to be extended. Under them, the addresses the pack
+ * used to have that still answer, and stopping one.
  */
 import { IconAlertTriangle, IconChevronDown, IconUserPlus } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { api, type Pack, type Person, unwrap } from '@/api/client'
 import { Mono } from '@/ui/Code'
@@ -33,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from '@/ui/shadcn/dropdown-menu'
 import { Skeleton } from '@/ui/shadcn/skeleton'
+import { ValuesDialog } from './PersonValues'
 import {
   accessOf,
   alsoOpens,
@@ -40,8 +43,11 @@ import {
   dayOf,
   EXTEND_CHOICES,
   endsOf,
+  type PersonalField,
+  personalFields,
   type ShareLifetime,
   stillThere,
+  valuesLine,
 } from './packs.rules'
 import { packPeopleQuery } from './queries'
 
@@ -56,18 +62,25 @@ const CELL =
 const NOTE = 'text-xs font-normal text-pretty text-muted-foreground'
 
 const Row = ({
+  pack,
   person,
+  fields,
   busy,
   onExtend,
   onRevoke,
 }: {
+  pack: string
   person: Person
+  /** The pack's Per person variables: none, and there is nothing of theirs to set. */
+  fields: PersonalField[]
   busy: boolean
   onExtend: (expiresIn: ShareLifetime) => void
   onRevoke: () => void
 }) => {
   const ends = endsOf(person)
   const others = alsoOpens(person.otherPacks)
+  const [editing, setEditing] = useState(false)
+  const values = valuesLine(person.values)
   return (
     <tr className={cn(ROW, person.ended && 'text-muted-foreground')}>
       <td className="@max-4xl:col-span-full @4xl:px-4 @4xl:py-3">
@@ -83,7 +96,13 @@ const Row = ({
           {person.otherPacks.length ? (
             <span className="text-xs text-muted-foreground">Also opens {person.otherPacks.join(', ')}</span>
           ) : null}
+          {fields.length ? (
+            <span className="text-xs text-muted-foreground">{values || 'The pack’s values'}</span>
+          ) : null}
         </span>
+        {editing ? (
+          <ValuesDialog pack={pack} person={person} fields={fields} open={editing} onOpenChange={setEditing} />
+        ) : null}
       </td>
       <td data-label="Connects via" className={CELL}>
         {connectsVia(person)}
@@ -121,6 +140,17 @@ const Row = ({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          {fields.length ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={busy}
+              aria-label={`${person.name}'s values`}
+              onClick={() => setEditing(true)}
+            >
+              Values
+            </Button>
+          ) : null}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button
@@ -216,6 +246,7 @@ export const People = ({ pack, onShare }: { pack: Pack; onShare: () => void }) =
     )
 
   const rows = people.data._embedded.people
+  const fields = personalFields(pack)
   const busy = extend.isPending || revoke.isPending
   return (
     <div className="flex flex-col gap-8">
@@ -235,7 +266,7 @@ export const People = ({ pack, onShare }: { pack: Pack; onShare: () => void }) =
                   <span className="sr-only">Calls in 7 days</span>
                 </th>
                 <th className="px-4 py-3 font-normal">
-                  <span className="sr-only">Extend, revoke, activity</span>
+                  <span className="sr-only">Extend, values, revoke, activity</span>
                 </th>
               </tr>
             </thead>
@@ -243,7 +274,9 @@ export const People = ({ pack, onShare }: { pack: Pack; onShare: () => void }) =
               {rows.map((person) => (
                 <Row
                   key={person.id}
+                  pack={pack.name}
                   person={person}
+                  fields={fields}
                   busy={busy}
                   onExtend={(expiresIn) => extend.mutate({ id: person.id, expiresIn })}
                   onRevoke={() => revoke.mutate(person.id)}

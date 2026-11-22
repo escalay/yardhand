@@ -37,6 +37,7 @@ const pageSize = {
   name: 'page_size',
   value: 5,
   description: 'How many items a look-up returns.',
+  perPerson: false,
   usedBy: ['items.get_item'],
 }
 
@@ -62,7 +63,7 @@ describe('a pack’s variables', () => {
   })
 
   it('lists each variable as it is written, with its value and the tools that write it', () => {
-    show([pageSize, { name: 'desk', value: 'the desk', description: null, usedBy: [] }])
+    show([pageSize, { name: 'desk', value: 'the desk', description: null, perPerson: false, usedBy: [] }])
     expect(screen.getByText('{{page_size}}')).toBeTruthy()
     expect(screen.getByText('How many items a look-up returns.')).toBeTruthy()
     expect(screen.getByText('Used by items.get_item')).toBeTruthy()
@@ -142,8 +143,33 @@ describe('a pack’s variables', () => {
   it('says under the card what went wrong when the answer names no place', async () => {
     const user = userEvent.setup()
     PUT.mockResolvedValue(problem(503, { detail: 'The gateway is restarting: try again in a moment.' }))
-    show([{ ...pageSize, usedBy: [] }])
+    show([{ ...pageSize, perPerson: false, usedBy: [] }])
     await user.click(screen.getByRole('button', { name: 'Remove page_size' }))
     expect(await screen.findByText('The gateway is restarting: try again in a moment.')).toBeTruthy()
+  })
+
+  it('lets a variable each person fills have no value of the pack’s', async () => {
+    const user = userEvent.setup()
+    PUT.mockReturnValue(new Promise(() => {}))
+    const city = {
+      name: 'city',
+      value: 'Lisbon',
+      description: null,
+      perPerson: true,
+      usedBy: ['items.get_item'],
+    }
+    show([city])
+    expect(screen.getByText('Each person gives their own; Lisbon for someone who hasn’t.')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Change city' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Leave it to each person' }))
+    expect(screen.getByLabelText<HTMLInputElement>('Value').disabled).toBe(true)
+    await user.click(screen.getByRole('button', { name: 'Save variable' }))
+    expect(PUT.mock.calls[0]?.[1].body).toEqual({ variables: [{ name: 'city', value: null, description: null }] })
+  })
+
+  it('shows a variable with no value as each person’s own', () => {
+    show([{ name: 'city', value: null, description: null, perPerson: true, usedBy: ['items.get_item'] }])
+    expect(screen.getByText('each person’s own')).toBeTruthy()
+    expect(screen.getByText('Each person gives their own; nothing for someone who hasn’t.')).toBeTruthy()
   })
 })

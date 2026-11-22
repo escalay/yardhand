@@ -13,6 +13,7 @@ type PackTool = Schemas['PackTool']
 type ToolCard = Schemas['ToolCard']
 type Use = Schemas['PlaybookUse']
 type PackFlag = Schemas['PackFlag']
+type Variable = Schemas['PackVariable']
 
 /**
  * What Reviews says under a flag: what the tool's server says now, what is wrong with a value, or for a playbook or
@@ -203,25 +204,37 @@ export const fixedLine = (fixed: Record<string, unknown>) =>
 
 export type InputMode = Schemas['PackToolInput']['mode']
 
-/** The three ways an input of a pack tool is filled, as the editor words them. */
+/** The four ways an input of a pack tool is filled, as the editor words them. */
 export const INPUT_MODES: { id: InputMode; label: string; hint: string }[] = [
   { id: 'fixed', label: 'Fixed', hint: 'Filled on every call and hidden from the pack’s keys.' },
   { id: 'default', label: 'Default', hint: 'Shown with this value; the agent may send another.' },
   { id: 'agent', label: 'Agent decides', hint: 'The agent fills it.' },
+  {
+    id: 'person',
+    label: 'Per person',
+    hint: 'Hidden from the agent and filled with each person’s own value, set under People; else the pack’s. Use Fixed for anything that limits what they reach.',
+  },
 ]
 
-type Sets = Pick<PackTool, 'fixed' | 'defaults'>
+type Sets = Pick<PackTool, 'fixed' | 'defaults'> & Partial<Pick<PackTool, 'person'>>
 
-/** Who fills an input, from what the pack stores: an input in neither map is the agent's. */
+/** Who fills an input, from what the pack stores: an input in none of the maps is the agent's. */
 export const modeOf = (tool: Sets, input: string): InputMode =>
-  Object.hasOwn(tool.fixed, input) ? 'fixed' : Object.hasOwn(tool.defaults, input) ? 'default' : 'agent'
+  Object.hasOwn(tool.fixed, input)
+    ? 'fixed'
+    : Object.hasOwn(tool.defaults, input)
+      ? 'default'
+      : tool.person && Object.hasOwn(tool.person, input)
+        ? 'person'
+        : 'agent'
 
-/** "Fixed account = {{account}} · Default posted_since = 7", or empty when the pack sets nothing. */
+/** "Fixed account = {{account}} · Default posted_since = 7 · Per person location = {{city}}", or empty. */
 export const inputsLine = (tool: Sets) =>
   (
     [
       ['Fixed', tool.fixed],
       ['Default', tool.defaults],
+      ['Per person', tool.person ?? {}],
     ] as const
   )
     .filter(([, values]) => Object.keys(values).length)
@@ -236,7 +249,11 @@ export const setsAccount = (tool: Sets) =>
 export const withAccountLabels = (tool: Sets, labelOf: (account: string) => string | undefined): Sets => {
   const labelled = (values: Record<string, unknown>) =>
     typeof values.account === 'string' ? { ...values, account: labelOf(values.account) ?? values.account } : values
-  return { fixed: labelled(tool.fixed), defaults: labelled(tool.defaults) }
+  return {
+    fixed: labelled(tool.fixed),
+    defaults: labelled(tool.defaults),
+    ...(tool.person ? { person: tool.person } : {}),
+  }
 }
 
 /** `{{name}}` as the gateway reads it (`features/packs/values.ts`): anything else between braces is plain text. */
@@ -248,12 +265,18 @@ const namesIn = (text: string) => [...new Set([...text.matchAll(PLACEHOLDER)].ma
 /** Does a value write a `{{name}}`? */
 export const writesVariable = (text: string) => namesIn(text).length > 0
 
-/** A value as it is sent, the pack's variables filled in; `undeclared` are the words no variable has, left as written. */
-export const filledIn = (text: string, variables: { name: string; value: string | number | boolean }[]) => {
-  const values = new Map(variables.map((variable) => [variable.name, String(variable.value)]))
+/**
+ * A value as it is sent, the pack's variables filled in; `undeclared` are the words no variable has, left as written.
+ * A variable with no value of the pack's is declared, and left as written.
+ */
+export const filledIn = (text: string, variables: { name: string; value: string | number | boolean | null }[]) => {
+  const values = new Map(
+    variables.flatMap((variable) => (variable.value === null ? [] : [[variable.name, String(variable.value)]])),
+  )
+  const declared = new Set(variables.map((variable) => variable.name))
   return {
     text: text.replace(PLACEHOLDER, (whole, name: string) => values.get(name) ?? whole),
-    undeclared: namesIn(text).filter((name) => !values.has(name)),
+    undeclared: namesIn(text).filter((name) => !declared.has(name)),
   }
 }
 
@@ -261,19 +284,25 @@ export const filledIn = (text: string, variables: { name: string; value: string 
 const isTyped = (field: FormField) => field.kind !== 'text' && field.kind !== 'long-text'
 
 /**
- * The editor's form as what the pack fixes and defaults. A value that writes a variable goes as written whatever
- * the input takes (the gateway fills it in, then checks it), a switch that is off is `false`, and a fixed or default
- * input needs a value.
+ * The editor's form as what the pack fixes, defaults and fills per person. A value that writes a variable goes as
+ * written whatever the input takes (the gateway fills it in, then checks it), a switch that is off is `false`, a
+ * fixed or default input needs a value, and one filled per person one variable and nothing else.
  */
 export const inputValuesOf = (fields: FormField[], modes: Record<string, InputMode>, texts: Record<string, string>) => {
   const fixed: Record<string, unknown> = {}
   const defaults: Record<string, unknown> = {}
+  const person: Record<string, unknown> = {}
   const errors: Record<string, string> = {}
   for (const field of fields) {
     const mode = modes[field.name] ?? 'agent'
     if (mode === 'agent') continue
-    const into = mode === 'fixed' ? fixed : defaults
     const raw = texts[field.name] ?? ''
+    if (mode === 'person') {
+      if (WHOLE.test(raw)) person[field.name] = raw.trim()
+      else errors[field.name] = 'Pick the variable each person fills.'
+      continue
+    }
+    const into = mode === 'fixed' ? fixed : defaults
     if (field.kind === 'json' ? WHOLE.test(raw) : isTyped(field) && writesVariable(raw)) into[field.name] = raw.trim()
     else if (field.kind === 'boolean') into[field.name] = raw === 'true'
     else if (raw.trim() === '') errors[field.name] = 'Give it a value, or let the agent decide.'
@@ -284,7 +313,7 @@ export const inputValuesOf = (fields: FormField[], modes: Record<string, InputMo
       else into[field.name] = read.args[field.name]
     }
   }
-  return { fixed, defaults, errors }
+  return { fixed, defaults, person, errors }
 }
 
 /** A value with a picked variable written in: over a typed value, at the end of text. */
@@ -338,7 +367,7 @@ export const VARIABLE_KINDS: { id: VariableKind; label: string }[] = [
   { id: 'boolean', label: 'Yes or no' },
 ]
 
-export const kindOfValue = (value: string | number | boolean): VariableKind =>
+export const kindOfValue = (value: string | number | boolean | null): VariableKind =>
   typeof value === 'number' ? 'number' : typeof value === 'boolean' ? 'boolean' : 'text'
 
 /** A variable's value as the kind the owner picked: `7` the number is not `7` the text to an input's schema. */
@@ -354,14 +383,65 @@ export const variableValueOf = (
     : { value: number, error: null }
 }
 
+/** A field for one person's value of a variable the pack's Per person inputs read. */
+export type PersonalField = {
+  name: string
+  kind: VariableKind
+  hint: string
+  fallback: string | number | boolean | null
+}
+
+/** The fields the Share sheet and People ask a person's values in: one per variable each person fills. */
+export const personalFields = (pack: { variables: Pick<Variable, 'name' | 'value' | 'description' | 'perPerson'>[] }) =>
+  pack.variables
+    .filter((variable) => variable.perPerson)
+    .map(
+      (variable): PersonalField => ({
+        name: variable.name,
+        kind: kindOfValue(variable.value),
+        hint: [
+          variable.description ? stop(variable.description) : '',
+          variable.value === null
+            ? 'Left empty, they get nothing, and a call that needs it is refused.'
+            : `Left empty, they get the pack’s: ${String(variable.value)}.`,
+        ]
+          .filter(Boolean)
+          .join(' '),
+        fallback: variable.value,
+      }),
+    )
+
+/** What a person's fields say, by variable: each read as its kind, an empty one left out (they get the pack's). */
+export const personValuesOf = (fields: PersonalField[], texts: Record<string, string>) => {
+  const values: Record<string, string | number | boolean> = {}
+  const errors: Record<string, string> = {}
+  for (const field of fields) {
+    const text = (texts[field.name] ?? '').trim()
+    if (text === '') continue
+    const read = variableValueOf(field.kind, text)
+    if (read.error === null) values[field.name] = read.value
+    else errors[field.name] = read.error
+  }
+  return { values, errors }
+}
+
+/** "city: Lisbon · days: 3", or empty when a person has no values of their own. */
+export const valuesLine = (values: Record<string, string | number | boolean>) =>
+  Object.entries(values)
+    .map(([name, value]) => `${name}: ${String(value)}`)
+    .join(' · ')
+
 /** "Used by items.get_item, work_inbox", or that nothing writes it yet. */
 export const usedLine = (usedBy: string[]) => (usedBy.length ? `Used by ${usedBy.join(', ')}` : 'Not used yet')
 
-/** Where a refused save went wrong: a tool's input (`tools.<name>.fixed.<input>`), or a variable. */
+/**
+ * Where a refused save went wrong: a tool's input (`tools.<name>.fixed.<input>`), or a variable (of the pack, or a
+ * person's value of it).
+ */
 export const placeOf = (path: string): { tool: string; input: string } | { variable: string } | null => {
-  const input = /^tools\.(.+)\.(?:fixed|defaults)\.([^.]+)$/.exec(path)
+  const input = /^tools\.(.+)\.(?:fixed|defaults|person)\.([^.]+)$/.exec(path)
   if (input?.[1] && input[2]) return { tool: input[1], input: input[2] }
-  const variable = /^variables\.(.+)$/.exec(path)
+  const variable = /^(?:variables|values)\.(.+)$/.exec(path)
   return variable?.[1] ? { variable: variable[1] } : null
 }
 
@@ -402,7 +482,9 @@ export const refusedVariables = (refused: Refused, tools: (Sets & Pick<PackTool,
     else if ('variable' in place) beside(place.variable, stop(error.message))
     else {
       const tool = tools.find((candidate) => candidate.name === place.tool)
-      const written = namesIn(JSON.stringify(tool?.fixed[place.input] ?? tool?.defaults[place.input] ?? ''))
+      const written = namesIn(
+        JSON.stringify(tool?.fixed[place.input] ?? tool?.defaults[place.input] ?? tool?.person?.[place.input] ?? ''),
+      )
       const message = `${place.tool}: ${stop(error.message)}`
       if (written.length) for (const name of written) beside(name, message)
       else rest.push(message)

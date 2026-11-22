@@ -26,6 +26,7 @@ import {
   freeAlias,
   hiddenLine,
   holdsLine,
+  INPUT_MODES,
   inputsLine,
   inputValuesOf,
   isAlias,
@@ -36,6 +37,8 @@ import {
   nameProblem,
   packQueryOf,
   parsePackTab,
+  personalFields,
+  personValuesOf,
   placeOf,
   preselected,
   problemLines,
@@ -57,6 +60,7 @@ import {
   toolkitOf,
   uncheckedLine,
   usedLine,
+  valuesLine,
   variableProblem,
   variableValueOf,
   withAccountLabels,
@@ -566,6 +570,7 @@ describe('what a pack sets on a tool’s inputs', () => {
     expect(inputValuesOf(fields, { id: 'agent' }, { id: '42', limit: '7' })).toEqual({
       fixed: {},
       defaults: {},
+      person: {},
       errors: {},
     })
   })
@@ -643,6 +648,106 @@ describe('what a pack sets on a tool’s inputs', () => {
   })
 })
 
+describe('an input each person fills', () => {
+  const tool = {
+    fixed: { account: 'ca_1' },
+    defaults: {},
+    person: { location: '{{city}}' },
+  }
+  const fields = fieldsOf({
+    type: 'object',
+    properties: { location: { type: 'string' }, limit: { type: 'integer' }, verbose: { type: 'boolean' } },
+  })
+
+  it('is its own mode, with a hint that says the person’s value is theirs', () => {
+    expect(modeOf(tool, 'location')).toBe('person')
+    expect(modeOf(tool, 'account')).toBe('fixed')
+    expect(INPUT_MODES.map((mode) => mode.label)).toEqual(['Fixed', 'Default', 'Agent decides', 'Per person'])
+    expect(INPUT_MODES.find((mode) => mode.id === 'person')?.hint).toBe(
+      'Hidden from the agent and filled with each person’s own value, set under People; else the pack’s. Use Fixed for anything that limits what they reach.',
+    )
+  })
+
+  it('says what a pack tool fills per person, with its account by its label', () => {
+    expect(inputsLine(tool)).toBe('Fixed account = ca_1 · Per person location = {{city}}')
+    expect(inputsLine(withAccountLabels(tool, () => 'Work inbox'))).toBe(
+      'Fixed account = Work inbox · Per person location = {{city}}',
+    )
+  })
+
+  it('turns the form into the variable each input reads, and asks for one where there is none', () => {
+    expect(
+      inputValuesOf(
+        fields,
+        { location: 'person', limit: 'person', verbose: 'person' },
+        { location: ' {{city}} ', limit: '7', verbose: '' },
+      ),
+    ).toEqual({
+      fixed: {},
+      defaults: {},
+      person: { location: '{{city}}' },
+      errors: { limit: 'Pick the variable each person fills.', verbose: 'Pick the variable each person fills.' },
+    })
+  })
+
+  it('reads where a refusal of one sits', () => {
+    expect(placeOf('tools.items.get_item.person.location')).toEqual({ tool: 'items.get_item', input: 'location' })
+    expect(placeOf('values.city')).toEqual({ variable: 'city' })
+  })
+
+  it('fills a value in with the pack’s value, and none for a variable without one', () => {
+    expect(filledIn('{{city}}', [{ name: 'city', value: null }])).toEqual({ text: '{{city}}', undeclared: [] })
+  })
+
+  it('gives the Share sheet and People a field per variable each person fills, with the pack’s value to fall back on', () => {
+    const pack = {
+      variables: [
+        { name: 'city', value: 'Lisbon', description: 'Where they are.', perPerson: true, usedBy: [] },
+        { name: 'days', value: 7, description: null, perPerson: true, usedBy: [] },
+        { name: 'account', value: 'ca_1', description: null, perPerson: false, usedBy: [] },
+        { name: 'team', value: null, description: null, perPerson: true, usedBy: [] },
+      ],
+    }
+    expect(personalFields(pack)).toEqual([
+      {
+        name: 'city',
+        kind: 'text',
+        hint: 'Where they are. Left empty, they get the pack’s: Lisbon.',
+        fallback: 'Lisbon',
+      },
+      { name: 'days', kind: 'number', hint: 'Left empty, they get the pack’s: 7.', fallback: 7 },
+      {
+        name: 'team',
+        kind: 'text',
+        hint: 'Left empty, they get nothing, and a call that needs it is refused.',
+        fallback: null,
+      },
+    ])
+  })
+
+  it('reads the typed values by each variable’s kind, leaving out what is empty', () => {
+    const fields = personalFields({
+      variables: [
+        { name: 'city', value: 'Lisbon', description: null, perPerson: true },
+        { name: 'days', value: 7, description: null, perPerson: true },
+      ],
+    })
+    expect(personValuesOf(fields, { city: ' Porto ', days: '3' })).toEqual({
+      values: { city: 'Porto', days: 3 },
+      errors: {},
+    })
+    expect(personValuesOf(fields, { city: '', days: 'three' })).toEqual({
+      values: {},
+      errors: { days: 'A number, like 7.' },
+    })
+  })
+
+  it('says a person’s values in one line', () => {
+    expect(valuesLine({ city: 'Porto', days: 3 })).toBe('city: Porto · days: 3')
+    expect(valuesLine({})).toBe('')
+  })
+})
+
 describe('a pack’s variables', () => {
   it('checks a new variable’s name', () => {
     const taken = new Set(['page_size'])
@@ -671,6 +776,7 @@ describe('a pack’s variables', () => {
     expect(kindOfValue(5)).toBe('number')
     expect(kindOfValue('5')).toBe('text')
     expect(kindOfValue(false)).toBe('boolean')
+    expect(kindOfValue(null)).toBe('text')
   })
 
   it('says which tools write a variable', () => {
