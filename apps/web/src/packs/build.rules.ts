@@ -1,7 +1,7 @@
 /**
  * Pure rules for Build and Refresh with AI: the estimate and the cost in words, the tasks, why a start was refused,
  * and the proposal: its groups, what each line is called and reads as, what ticking or unticking one does, where a
- * refused accept's findings belong, and the rehearsal in a line a task.
+ * refused accept's findings belong, and the rehearsal in a line a task, and when a task was not really tried.
  */
 import type { Schemas } from '@/api/client'
 
@@ -203,6 +203,16 @@ export const rehearsalLine = (rehearsal: Pick<Rehearsal, 'task' | 'outcome' | 's
     `${rehearsal.task}: ${plainOutcome(rehearsal.outcome)}`,
     ...rehearsal.steps.filter((step) => !step.ran).map((step) => `${shortName(step.tool)} skipped`),
   ].join(', ')
+
+/** Why a task's outcome is not what happened: a step got a stand-in or was refused, or none was taken; null if tried. */
+export const untriedLine = ({ tried, steps }: Pick<Rehearsal, 'tried' | 'steps'>) =>
+  tried
+    ? null
+    : steps.some((step) => !step.ran)
+      ? 'Not tried: a step did not run, so this says what would happen, not what did.'
+      : steps.some((step) => step.error)
+        ? 'Not tried: a step was refused or failed, so this says what would happen, not what did.'
+        : 'Not tried: no tool ran.'
 
 /** "$0.31 of $1.00", or the tokens when no price is known. */
 export const costLine = (spent: Build['spent'], capUsd: number) =>

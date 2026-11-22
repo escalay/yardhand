@@ -15,6 +15,7 @@ import { packStateOf } from '../packs/state.js'
 import type { Proposal } from './builder.js'
 import { draftOf } from './drafts.js'
 import { applyLines, missingNeeds, touchedOf, write } from './proposal.js'
+import { triedOf } from './rehearsal.js'
 import { pathOf, type routes } from './routes.js'
 import { BUILD_CAP_USD, estimateOf, REHEARSAL_STEPS, TOKEN_BUDGET } from './spend.js'
 
@@ -72,10 +73,18 @@ export const buildsHandlers = (services: Services) => {
       proposal: proposal
         ? {
             model: proposal.model,
-            lines: proposal.lines,
+            // A proposal made before 0.6.1 has no `includeChanges`, and may have ticked taking a tool out
+            lines:
+              proposal.includeChanges === undefined
+                ? proposal.lines.map((line) =>
+                    line.kind === 'tool' && line.change === 'remove' ? { ...line, suggested: false } : line,
+                  )
+                : proposal.lines,
             skipped: proposal.skipped,
-            rehearsal: proposal.rehearsal,
+            // A proposal made before 0.6.1 has no `tried`
+            rehearsal: proposal.rehearsal.map((entry) => ({ ...entry, tried: entry.tried ?? triedOf(entry.steps) })),
             findings: proposal.findings,
+            includeChanges: proposal.includeChanges ?? false,
           }
         : null,
       createdAt: row.createdAt,
@@ -98,12 +107,13 @@ export const buildsHandlers = (services: Services) => {
   const estimate: RouteHandler<Routes['estimate']> = async (c) => {
     requireOwner(c)
     const pack = await packOf(c.req.valid('param').name)
-    const { mode, tasks } = c.req.valid('json')
+    const { mode, tasks, includeChanges } = c.req.valid('json')
     await ready()
     const figure = await estimateFor(tasks)
     return c.json(
       {
         mode,
+        includeChanges: includeChanges ?? false,
         usd: figure.usd === null ? null : Math.round(figure.usd * 10_000) / 10_000,
         capUsd: BUILD_CAP_USD,
         priceKnown: figure.price !== null,
@@ -121,7 +131,7 @@ export const buildsHandlers = (services: Services) => {
   const start: RouteHandler<Routes['start']> = async (c) => {
     requireOwner(c)
     const pack = await packOf(c.req.valid('param').name)
-    const { mode, tasks } = c.req.valid('json')
+    const { mode, tasks, includeChanges } = c.req.valid('json')
     await ready()
     const figure = await estimateFor(tasks)
     if (figure.usd !== null && figure.usd > BUILD_CAP_USD)
@@ -131,6 +141,7 @@ export const buildsHandlers = (services: Services) => {
     const started = await builder.start(pack, {
       mode,
       tasks,
+      includeChanges: includeChanges ?? false,
       estimate: { usd: figure.usd, tokens: figure.tokens, modelCalls: figure.modelCalls },
     })
     if ('busy' in started)

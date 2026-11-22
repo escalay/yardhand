@@ -37,7 +37,7 @@ export const splitFrontMatter = (markdown: string): { data: unknown; body: strin
 }
 
 /** Each line of a text, with whether it is in a fenced code block; the lines that open and close one are. */
-const fenced = (text: string) => {
+export const fenced = (text: string) => {
   let fence: string | null = null
   return text.split(/\r?\n/).map((line) => {
     const mark = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]

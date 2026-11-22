@@ -10,7 +10,7 @@ import { modeOf } from '../packs/entries.js'
 import { toolRefsIn } from '../packs/playbook.js'
 import type { PacksRepo } from '../packs/repo.js'
 import type { PackRow } from '../packs/schema.js'
-import { SKILL_DOC } from '../packs/skill.js'
+import { SKILL_DOC, withPlaybookList } from '../packs/skill.js'
 import type { PackState, PackStateTool } from '../packs/state.js'
 import { withDoc } from '../packs/state.js'
 import { namesIn, placeholdersIn, type Scalar } from '../packs/values.js'
@@ -33,9 +33,9 @@ export type Line = {
   before: unknown
   after: unknown
   reason: string | null
-  /** A tool line for a tool that changes things: never tried in rehearsal, and not ticked to begin with. */
+  /** A tool line for a tool that changes things: never tried in rehearsal, and ticked only with `includeChanges`. */
   changesThings: boolean
-  /** Ticked to begin with: not a tool that changes things, and needing none. */
+  /** Ticked to begin with: not a tool taken out, nor one that changes things unless asked, and needing none such. */
   suggested: boolean
   /** The lines it can't be accepted without. */
   needs: string[]
@@ -51,8 +51,16 @@ const inputOf = (tool: DraftTool | undefined, input: string): InputValue => {
   return { mode, value: mode === 'agent' ? null : set[mode][input] }
 }
 
-/** Every line that tells the draft from the pack as it is, in the order the proposal shows them. */
-export const linesOf = (before: Draft, after: Draft, reasons: Record<string, string>): Line[] => {
+/**
+ * Every line that tells the draft from the pack as it is, in the order the proposal shows them. `includeChanges`
+ * ticks the lines for tools that change things too, as for the owner's own pack.
+ */
+export const linesOf = (
+  before: Draft,
+  after: Draft,
+  reasons: Record<string, string>,
+  { includeChanges = false }: { includeChanges?: boolean } = {},
+): Line[] => {
   const had = new Map(before.tools.map((tool) => [tool.name, tool]))
   const has = new Map(after.tools.map((tool) => [tool.name, tool]))
   const line = (kind: LineKind, target: string, was: unknown, now: unknown, id = `${kind}:${target}`) => ({
@@ -143,8 +151,13 @@ export const linesOf = (before: Draft, after: Draft, reasons: Record<string, str
     if ((entry.kind === 'playbook' || entry.kind === 'skill') && typeof entry.after === 'string')
       entry.needs = [...toolsIn(toolRefsIn(entry.after)), ...variablesIn(placeholdersIn(entry.after))]
   }
-  // A line is ticked to begin with only when everything it needs is
-  const suggested = new Map(lines.map((entry) => [entry.id, !entry.changesThings]))
+  // A line is ticked to begin with only when everything it needs is; taking a tool out never is
+  const suggested = new Map(
+    lines.map((entry) => [
+      entry.id,
+      (includeChanges || !entry.changesThings) && !(entry.kind === 'tool' && entry.change === 'remove'),
+    ]),
+  )
   for (let moved = true; moved; ) {
     moved = false
     for (const entry of lines)
@@ -225,6 +238,18 @@ export const applyLines = (before: Draft, after: Draft, lines: Line[]): Draft =>
     if (line.kind === 'playbook' || line.kind === 'skill')
       state = { ...state, ...withDoc(state, line.kind, line.target, line.after as string | null), tools: state.tools }
   }
+  // The skill drafted lists the draft's playbooks: accepted, it lists those the pack has
+  if (lines.some((line) => line.kind === 'skill') && state.skill)
+    state = {
+      ...state,
+      ...withDoc(
+        state,
+        'skill',
+        SKILL_DOC,
+        withPlaybookList(state.skill.markdown, state.playbooks, state.heldPlaybooks),
+      ),
+      tools: state.tools,
+    }
   return state
 }
 

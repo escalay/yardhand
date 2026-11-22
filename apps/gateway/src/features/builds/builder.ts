@@ -44,6 +44,8 @@ import { BUILD_CAP_USD, createSpend, MAX_TOKENS, type Spent, TOKEN_BUDGET } from
 
 export type Proposal = {
   mode: BuildMode
+  /** Tools that change things were ticked to begin with (absent before 0.6.1). */
+  includeChanges?: boolean
   /** The model that wrote it. */
   model: string
   lines: Line[]
@@ -103,6 +105,7 @@ export const createBuilder = ({
     claim: { id: string; step: string; spent: () => Spent },
     mode: BuildMode,
     tasks: string[],
+    includeChanges: boolean,
   ) => {
     // Read before anything can fail, so a failure still says what was spent
     let spend = createSpend({ capUsd: BUILD_CAP_USD, price: null, tokenBudget: TOKEN_BUDGET })
@@ -148,8 +151,9 @@ export const createBuilder = ({
     }
     const proposalOf = (): Proposal => ({
       mode,
+      includeChanges,
       model: name,
-      lines: linesOf(before, draft, reasons),
+      lines: linesOf(before, draft, reasons, { includeChanges }),
       skipped,
       rehearsal,
       findings: shownFindings(checkPack(draft)),
@@ -195,7 +199,7 @@ export const createBuilder = ({
       const manuals = await manualsOf([
         ...new Set(draft.tools.map((tool) => tool.tool.slice(0, tool.tool.indexOf('.')))),
       ])
-      draft = applySkill(draft, await ask(skillAsk(pack, draft, manuals, changesThings)))
+      draft = applySkill(draft, await ask(skillAsk(mode, pack, draft, manuals, changesThings)))
       written.add(SKILL_DOC)
       did('the skill')
       const broken = brokenTexts(checkPack(draft), written)
@@ -246,7 +250,12 @@ export const createBuilder = ({
      */
     start: async (
       pack: PackRow,
-      { mode, tasks, estimate }: { mode: BuildMode; tasks: string[]; estimate: BuildEstimate },
+      {
+        mode,
+        tasks,
+        includeChanges = false,
+        estimate,
+      }: { mode: BuildMode; tasks: string[]; includeChanges?: boolean; estimate: BuildEstimate },
     ): Promise<{ id: string } | { busy: string }> => {
       const busy = running.get(pack.id)
       if (busy) return { busy: busy.id }
@@ -259,7 +268,7 @@ export const createBuilder = ({
         running.delete(pack.id)
         throw error
       }
-      void run(pack, claim, mode, tasks)
+      void run(pack, claim, mode, tasks, includeChanges)
         .catch((error: unknown) =>
           console.warn(`build ${id}: ${error instanceof Error ? error.message : String(error)}`),
         )
