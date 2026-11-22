@@ -661,6 +661,109 @@ describe('an input value a model drafts', () => {
   })
 })
 
+describe('a pack whose input each person fills', async () => {
+  const PACK_VALUE = 'the desk'
+  const VALUES = { Sam: 'sam-own-greeter', Ada: 'ada-own-greeter' }
+  const model = fakeModel({
+    kit: {
+      tools: [{ name: 'fixture.echo', reason: 'Says a note back.' }],
+      // A build proposes no Per person mode, and changes none the owner set
+      inputs: [{ tool: 'fixture.greet', input: 'from', mode: 'fixed', value: 'the boss' }],
+    },
+    rehearse: (ask: Ask, count: number) =>
+      count % 2 === 0 ? { tool: 'fixture.greet', arguments: { to: 'the guest' } } : { done: true, outcome: 'Greeted.' },
+  })
+  const { api, pack, build } = await gateway(model)
+  await pack('porch', 'Porch', 'Greets guests at the porch.')
+  await api('/api/packs/porch/variables', {
+    method: 'PUT',
+    body: { variables: [{ name: 'greeter', value: PACK_VALUE, description: 'Who greets.' }] },
+  })
+  expect(
+    (
+      await api('/api/packs/porch', {
+        method: 'PATCH',
+        body: { add: { tools: [{ name: 'fixture.greet', person: { from: '{{greeter}}' } }] } },
+      })
+    ).status,
+  ).toBe(200)
+  for (const [name, greeter] of Object.entries(VALUES))
+    expect((await api('/api/packs/porch/people', { method: 'POST', body: { name, values: { greeter } } })).status).toBe(
+      201,
+    )
+  // Their values stop fitting the tool, so the pack is flagged naming whose they are; the pack's own still fits
+  upstream.state.greetFrom = 'enum'
+  await api('/api/upstreams/fixture/sync', { method: 'POST' })
+  const flagged = JSON.stringify((await api('/api/packs/porch')).json)
+  const done = await build('porch', ['say hello to whoever comes, and echo their note back'], 'refresh')
+  upstream.state.greetFrom = true
+  await api('/api/upstreams/fixture/sync', { method: 'POST' })
+  /** Every person's name and value, as the model or a proposal could carry them. */
+  const leaks = (text: string) => [
+    ...Object.keys(VALUES).filter((name) => new RegExp(`\\b${name}\\b`).test(text)),
+    ...Object.values(VALUES).filter((value) => text.includes(value)),
+  ]
+
+  it('is flagged for the owner by a person’s value, so the cases below have something to leave out', () => {
+    expect(flagged).toContain('Sam’s greeter no longer fits')
+  })
+
+  it('rehearses with the pack’s value, never a person’s', async () => {
+    expect(done.status).toBe('ready')
+    const [step] = done.proposal.rehearsal[0].steps
+    expect(step).toMatchObject({ tool: 'fixture.greet', ran: true, error: null })
+    const payload = JSON.stringify((await api(`/api/calls/${step.callId}/payload`)).json.result)
+    expect(payload).toContain(`Hello the guest, from ${PACK_VALUE}`)
+    expect(leaks(payload)).toEqual([])
+    // The model sees the input as the pack's keys do: hidden
+    const ask = model.asks.find((entry) => entry.step === 'rehearse')
+    const greet = JSON.parse(ask?.user ?? '{}').tools.find((tool: { name: string }) => tool.name === 'fixture.greet')
+    expect(greet.inputSchema.properties).not.toHaveProperty('from')
+  })
+
+  it('sends the model no person’s name or value, and keeps none in the proposal', async () => {
+    expect(model.asks.map((ask) => ask.step)).toContain('kit')
+    expect(leaks(JSON.stringify(model.asks))).toEqual([])
+    expect(leaks(JSON.stringify(await api(`/api/packs/porch/builds/${done.id}`)))).toEqual([])
+    // Refresh is told which inputs each person fills, and not to touch them
+    const kit = JSON.parse(model.asks.find((ask) => ask.step === 'kit')?.user ?? '{}')
+    expect(kit.pack_as_it_is.tools).toEqual([
+      expect.objectContaining({ name: 'fixture.greet', perPerson: ['from'], fixed: {}, defaults: {} }),
+    ])
+    const playbookAsk = JSON.parse(model.asks.find((ask) => ask.step === 'playbook')?.user ?? '{}')
+    const greet = playbookAsk.tools.find((tool: { name: string }) => tool.name === 'fixture.greet')
+    expect(greet.inputs).not.toHaveProperty('from')
+  })
+
+  it('leaves an input each person fills as the owner set it', () => {
+    expect(done.proposal.lines.map((line: { id: string }) => line.id)).not.toContain('input:fixture.greet.from')
+    expect(done.proposal.skipped).toContainEqual({
+      name: 'fixture.greet.from',
+      reason: 'Filled per person: a build leaves it as it is.',
+    })
+  })
+
+  it('accepted, keeps each person’s values, and the config export carries none of them', async () => {
+    const accepted = await api(`/api/packs/porch/builds/${done.id}/accept`, {
+      method: 'POST',
+      body: {
+        lines: done.proposal.lines.filter((line: { suggested: boolean }) => line.suggested).map((l: any) => l.id),
+      },
+    })
+    expect([accepted.status, accepted.json.detail]).toEqual([200, undefined])
+    expect(accepted.json.tools.map((tool: { name: string }) => tool.name)).toEqual(['fixture.greet', 'fixture.echo'])
+    expect(accepted.json.tools[0].person).toEqual({ from: '{{greeter}}' })
+    const people = (await api('/api/packs/porch/people')).json._embedded.people as { name: string; values: unknown }[]
+    expect(Object.fromEntries(people.map((person) => [person.name, person.values]))).toEqual({
+      Sam: { greeter: VALUES.Sam },
+      Ada: { greeter: VALUES.Ada },
+    })
+    const exported = JSON.stringify((await api('/api/config')).json)
+    expect(exported).toContain('{{greeter}}')
+    expect(Object.values(VALUES).filter((value) => exported.includes(value))).toEqual([])
+  })
+})
+
 describe('a variable a model drafts', () => {
   it('is accepted as the variables route takes it, so the owner can save the pack’s variables back', async () => {
     const { api, pack, build } = await gateway(

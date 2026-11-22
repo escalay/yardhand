@@ -159,7 +159,10 @@ const toolsShown = (draft: Draft, changesThings: (tool: LiveTool) => boolean) =>
           {
             name: tool.name,
             description: summaryOf(tool.wording ?? (tool.live as LiveTool).description ?? '').slice(0, 600),
-            inputs: inputsOf(shownSchema(tool.live.inputSchema, tool)),
+            // An input filled per person is hidden from the pack's keys as a fixed one is
+            inputs: inputsOf(
+              shownSchema(tool.live.inputSchema, { fixed: { ...tool.person, ...tool.fixed }, defaults: tool.defaults }),
+            ),
             changesThings: changesThings(tool.live as LiveTool),
           },
         ]
@@ -196,7 +199,7 @@ export const kitAsk = ({
     'left out) or `agent` (back to the agent). A value may write a variable as {{name}}.',
     'Only the candidates exist: never name another tool. Name a candidate you leave out under `skipped` with why.',
     mode === 'refresh'
-      ? 'The pack as it is comes with its flags: propose only changes. `remove` names tools of the pack, by the pack’s names, to take out.'
+      ? 'The pack as it is comes with its flags: propose only changes. `remove` names tools of the pack, by the pack’s names, to take out. An input under `perPerson` is filled with each person’s own value: leave it out of `inputs`.'
       : '',
     DATA,
     'Reply with JSON only: {"tools": [{"name", "reason", "wording"?}], "remove": [{"name", "reason"}],',
@@ -217,6 +220,8 @@ export const kitAsk = ({
               wording: tool.wording,
               fixed: tool.fixed,
               defaults: tool.defaults,
+              // Only which inputs each person fills: never anyone's value
+              perPerson: Object.keys(tool.person),
             })),
             variables: before.variables,
             flags,
@@ -286,6 +291,14 @@ export const applyKit = (before: Draft, json: unknown, candidates: LiveTool[]) =
       })
   }
   for (const input of answer.inputs) {
+    // An input filled per person stays as the owner set it: a build proposes no Per person mode, and changes none
+    if (tools.some((tool) => tool.name === input.tool && Object.hasOwn(tool.person, input.input))) {
+      skipped.push({
+        name: `${input.tool}.${input.input}`,
+        reason: 'Filled per person: a build leaves it as it is.',
+      })
+      continue
+    }
     tools = tools.map((tool) => {
       if (tool.name !== input.tool) return tool
       const fixed = { ...tool.fixed }
