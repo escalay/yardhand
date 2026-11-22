@@ -320,7 +320,7 @@ describe('a pack’s own playbooks over REST', () => {
   it('read only the arguments given, even one named like what every object has', async () => {
     await packWith('shelf', 'Shelf', [{ name: 'fixture.echo' }])
     const markdown = (name: string, required: boolean) =>
-      `---\narguments:\n  - name: ${name}\n    required: ${required}\n---\n\n1. Run \`fixture.echo\` with {{${name}}}.\n`
+      `---\narguments:\n  - name: ${name}\n    description: What to build.\n    required: ${required}\n---\n\n1. Run \`fixture.echo\` with {{${name}}}.\n`
     // Such a name is refused on save, so the playbook is stored as one saved before that refusal would be
     const refusedSave = await owner('/api/packs/shelf/playbooks', {
       method: 'POST',
@@ -344,13 +344,16 @@ describe('a pack’s own playbooks over REST', () => {
     await storeAs(true)
     const key = await keyFor({ name: 'Shelf key', pack: 'shelf' })
     const refused = await filled(key.key, '/api/playbooks/ctor-test')
-    expect([refused.status, refused.detail]).toEqual([400, 'ctor-test needs constructor: constructor.'])
+    expect([refused.status, refused.detail]).toEqual([
+      400,
+      'ctor-test needs constructor: constructor (What to build.).',
+    ])
     expect((await filled(key.key, '/api/playbooks/ctor-test', { constructor: 'a box' })).text).toBe(
       '1. Run `fixture.echo` with a box.\n',
     )
     const required = await mcp(key.key)
     const listed = (await required.listPrompts()).prompts.find((prompt) => prompt.name === 'ctor-test')
-    expect(listed?.arguments).toEqual([{ name: 'constructor', required: true }])
+    expect(listed?.arguments).toEqual([{ name: 'constructor', description: 'What to build.', required: true }])
     expect(await prompted(required, 'ctor-test')).toBe(
       'refused: Invalid arguments for prompt ctor-test: constructor: Invalid input: expected string, received undefined',
     )
@@ -362,7 +365,7 @@ describe('a pack’s own playbooks over REST', () => {
     expect([left.status, left.text]).toEqual([200, '1. Run `fixture.echo` with .\n'])
     const optional = await mcp(key.key)
     const listedOptional = (await optional.listPrompts()).prompts.find((prompt) => prompt.name === 'ctor-test')
-    expect(listedOptional?.arguments).toEqual([{ name: 'constructor', required: false }])
+    expect(listedOptional?.arguments).toEqual([{ name: 'constructor', description: 'What to build.', required: false }])
     expect(await prompted(optional, 'ctor-test')).toBe('1. Run `fixture.echo` with .\n')
     await optional.close()
   })

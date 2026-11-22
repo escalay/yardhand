@@ -55,7 +55,7 @@ export const FindingSchema = z
     }),
     code: z.string().openapi({
       description:
-        'In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `name_clash`, `bad_name`, `bad_front_matter`, `empty`, `too_big`, or a warning: `unknown_name`, `not_a_name`, `needs_write`, `split`, `missing_section`, `skill_path`.',
+        'In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `name_clash`, `bad_name`, `bad_front_matter`, `bad_argument_name`, `empty`, `too_big`, or a warning: `unknown_name`, `not_a_name`, `needs_write`, `split`, `missing_section`, `skill_path`.',
       example: 'bad_value',
     }),
     path: z.string().openapi({
