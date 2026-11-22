@@ -132,14 +132,15 @@ starts `Not saved:`, with one entry per problem under `errors`. Nothing is half 
 What the checks say:
 
 - Refused, as an `error`: a tool in backticks that is not in the pack, or written by its own name where the pack
-  gives it another; a `{{open}}word}}` in a playbook or the skill that is neither an argument nor a variable; front
-  matter that can't be read; a fixed or default value the tool's input schema does not take.
+  gives it another; a `{{open}}word}}` in a playbook's text or the skill that is neither an argument nor a
+  variable; front matter that can't be read; a fixed or default value the tool's input schema does not take.
 - Saved, with a `warning` in `findings`: a tool a read-only key can't run, a name shaped like a tool that is none,
   a playbook past 12 steps, a section the skill leaves out.
 - In a fixed or default value, a `{{open}}word}}` the pack has no variable for is sent as written, with a warning:
-  a tool whose own input is a template keeps working. In a playbook or the skill nothing is sent as written, so
-  there it is an error. That holds inside fenced code blocks too: there is no escape to keep a `{{open}}word}}` as
-  written.
+  a tool whose own input is a template keeps working. In a playbook's text or the skill nothing is sent as written,
+  so there it is an error. That holds inside fenced code blocks too: there is no escape to keep a `{{open}}word}}` as
+  written. A playbook's front matter (its title, description and arguments' descriptions) is not read for them: it is
+  served as written.
 
 `GET /api/packs/{name}` shows the pack as it stands: `findings`, `ownPlaybooks`, `skill`, and `flags` once a tool
 changed under a text. A text is never blocked by a tool that moves: it is flagged, and saving it again clears the
