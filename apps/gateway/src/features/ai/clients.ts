@@ -8,11 +8,15 @@ import { embedRequest, SpendCapError } from '../../kit/vectors/index.js'
 import type { BuildsConfig, GroupingConfig, SearchConfig } from './config.js'
 
 const TIMEOUT_MS = 60_000
+const CHARS_PER_TOKEN = 4
 
 /** Problems with a model call, said for the owner. */
 export class AiError extends Error {}
 
-/** What one chat call used, and what the provider says it cost (null when it says nothing). */
+/**
+ * What one chat call used (what was sent and the most it may answer, when the provider reports no tokens), and what
+ * the provider says it cost (null when it says nothing).
+ */
 export type Usage = { inputTokens: number; outputTokens: number; costUsd: number | null }
 
 /** One chat completion that must answer JSON. `spendCap`: a 402 or 403 is the kit's `SpendCapError`. */
@@ -52,12 +56,18 @@ const complete = async (
   const reason = `${model} answered ${response.status}: ${body?.error?.message ?? 'no reason given'}`
   if (ask.spendCap && (response.status === 402 || response.status === 403)) throw new SpendCapError(reason)
   if (!response.ok) throw new AiError(reason)
+  const text = body?.choices?.[0]?.message?.content ?? ''
+  // A provider that reports no tokens is counted at what was sent and the most it may answer, so a build's budget holds
+  const reported = typeof body?.usage?.prompt_tokens === 'number' || typeof body?.usage?.completion_tokens === 'number'
   const usage: Usage = {
-    inputTokens: Number(body?.usage?.prompt_tokens ?? 0),
-    outputTokens: Number(body?.usage?.completion_tokens ?? 0),
+    inputTokens: reported
+      ? Number(body?.usage?.prompt_tokens ?? 0)
+      : Math.ceil((ask.system.length + ask.user.length) / CHARS_PER_TOKEN),
+    outputTokens: reported
+      ? Number(body?.usage?.completion_tokens ?? 0)
+      : (ask.maxTokens ?? Math.ceil(text.length / CHARS_PER_TOKEN)),
     costUsd: typeof body?.usage?.cost === 'number' ? body.usage.cost : null,
   }
-  const text = body?.choices?.[0]?.message?.content ?? ''
   try {
     return { json: JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, '')) as unknown, usage }
   } catch {

@@ -35,6 +35,13 @@ describe('chat', () => {
     llm.state.usage = null
   })
 
+  it('counts what it sent and the most it may answer when the provider reports no usage', async () => {
+    llm.state.usage = null
+    // 12 characters sent are 3 tokens at four a token; the answer counts as its 50 at most
+    const answer = await chat(config, 'writer-1', { system: 'Check.', user: 'Check.', maxTokens: 50 })
+    expect(answer.usage).toEqual({ inputTokens: 3, outputTokens: 50, costUsd: null })
+  })
+
   it('throws the kit’s SpendCapError on a 402 or 403, and AiError on any other refusal', async () => {
     const ask = () => chat(config, 'writer-1', { system: 'Check.', user: 'Check.', maxTokens: 50 })
     for (const status of [402, 403]) {
