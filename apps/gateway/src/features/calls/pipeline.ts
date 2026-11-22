@@ -169,7 +169,11 @@ export const createPipeline =
     // Said by the variable, never the input: the caller can't see an input filled per person
     const title = principal.pack?.title ?? 'the pack'
     const required = Array.isArray(tool.inputSchema.required) ? (tool.inputSchema.required as string[]) : []
-    const missing = entry.unset.find((input) => required.includes(input))
+    const properties = (tool.inputSchema.properties ?? {}) as Record<string, Record<string, unknown> | undefined>
+    // An input the tool gives a default is filled with it, as the order goes: theirs, the pack's, the tool's
+    const missing = entry.unset.find(
+      (input) => required.includes(input) && !Object.hasOwn(properties[input] ?? {}, 'default'),
+    )
     if (missing)
       return refuse(
         new ProblemError('conflict', {

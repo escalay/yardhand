@@ -64,7 +64,7 @@ const greeted = async (key: string, tool: string, args: Record<string, unknown>)
   return ran.status === 200 ? (ran.json.result.content[0].text as string) : ran
 }
 /** The fixture changes `greet`, and the owner approves the change: its upstream is reviewed. */
-const greetTakes = async (from: true | false | 'enum' | 'ref' | 'optional' | 'strict') => {
+const greetTakes = async (from: true | false | 'enum' | 'ref' | 'optional' | 'defaulted' | 'strict') => {
   upstream.state.greetFrom = from
   await owner('/api/upstreams/fixture/sync', { method: 'POST' })
   const pending = (await owner('/api/reviews')).json._embedded.reviews.find(
@@ -811,6 +811,19 @@ describe('Per person: an input each person fills with their own value', () => {
     await greetTakes('optional')
     expect(await greeted(ada.key, 'greet_city', { to: 'Sam' })).toBe('Hello Sam, from the house')
     expect(await greeted(sam.key, 'greet_city', { to: 'Ada' })).toBe('Hello Ada, from Porto')
+    await greetTakes(true)
+  })
+
+  it('leaves a required input with no value to the tool’s own default, still hidden', async () => {
+    await greetTakes('defaulted')
+    const greet = (await owner('/api/tools/fixture.greet')).json.inputSchema
+    expect(greet.required).toContain('from')
+    expect(greet.properties.from.default).toBe('the house')
+    expect(await greeted(ada.key, 'greet_city', { to: 'Sam' })).toBe('Hello Sam, from the house')
+    expect(await greeted(sam.key, 'greet_city', { to: 'Ada' })).toBe('Hello Ada, from Porto')
+    expect(Object.keys((await api(ada.key, '/p/loft/api/tools/greet_city')).json.inputSchema.properties)).toEqual([
+      'to',
+    ])
     await greetTakes(true)
   })
 
