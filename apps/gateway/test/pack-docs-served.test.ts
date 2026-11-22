@@ -319,22 +319,52 @@ describe('a pack’s own playbooks over REST', () => {
 
   it('read only the arguments given, even one named like what every object has', async () => {
     await packWith('shelf', 'Shelf', [{ name: 'fixture.echo' }])
-    const markdown = (required: boolean) =>
-      `---\narguments:\n  - name: constructor\n    required: ${required}\n---\n\n1. Run \`fixture.echo\` with {{constructor}}.\n`
-    await write('shelf', 'ctor-test', markdown(true))
+    const markdown = (name: string, required: boolean) =>
+      `---\narguments:\n  - name: ${name}\n    required: ${required}\n---\n\n1. Run \`fixture.echo\` with {{${name}}}.\n`
+    // Such a name is refused on save, so the playbook is stored as one saved before that refusal would be
+    const refusedSave = await owner('/api/packs/shelf/playbooks', {
+      method: 'POST',
+      body: { name: 'ctor-test', markdown: markdown('constructor', true) },
+    })
+    expect([refusedSave.status, refusedSave.json?.detail]).toEqual([
+      400,
+      'Not saved: constructor is a name every object already has, so it can’t name an argument: pick another, like guest_name.',
+    ])
+    const storeAs = async (required: boolean) => {
+      const saved = await owner('/api/packs/shelf/playbooks/ctor-test', {
+        method: 'PUT',
+        body: { markdown: markdown('box', required) },
+      })
+      expect([saved.status, saved.json?.detail]).toEqual([200, undefined])
+      await db.run(
+        sql`update pack_doc_versions set body = ${markdown('constructor', required)} where name = 'ctor-test' and kind = 'playbook'`,
+      )
+    }
+    await write('shelf', 'ctor-test', markdown('box', true))
+    await storeAs(true)
     const key = await keyFor({ name: 'Shelf key', pack: 'shelf' })
     const refused = await filled(key.key, '/api/playbooks/ctor-test')
     expect([refused.status, refused.detail]).toEqual([400, 'ctor-test needs constructor: constructor.'])
     expect((await filled(key.key, '/api/playbooks/ctor-test', { constructor: 'a box' })).text).toBe(
       '1. Run `fixture.echo` with a box.\n',
     )
-    const saved = await owner('/api/packs/shelf/playbooks/ctor-test', {
-      method: 'PUT',
-      body: { markdown: markdown(false) },
-    })
-    expect([saved.status, saved.json?.detail]).toEqual([200, undefined])
+    const required = await mcp(key.key)
+    const listed = (await required.listPrompts()).prompts.find((prompt) => prompt.name === 'ctor-test')
+    expect(listed?.arguments).toEqual([{ name: 'constructor', required: true }])
+    expect(await prompted(required, 'ctor-test')).toBe(
+      'refused: Invalid arguments for prompt ctor-test: constructor: Invalid input: expected string, received undefined',
+    )
+    expect(await prompted(required, 'ctor-test', { constructor: 'a box' })).toBe('1. Run `fixture.echo` with a box.\n')
+    await required.close()
+
+    await storeAs(false)
     const left = await filled(key.key, '/api/playbooks/ctor-test')
     expect([left.status, left.text]).toEqual([200, '1. Run `fixture.echo` with .\n'])
+    const optional = await mcp(key.key)
+    const listedOptional = (await optional.listPrompts()).prompts.find((prompt) => prompt.name === 'ctor-test')
+    expect(listedOptional?.arguments).toEqual([{ name: 'constructor', required: false }])
+    expect(await prompted(optional, 'ctor-test')).toBe('1. Run `fixture.echo` with .\n')
+    await optional.close()
   })
 
   it('read a variable as it is now', async () => {

@@ -344,7 +344,17 @@ const registerPlaybooks = async (server: McpServer, callApi: CallApi, auth: Auth
       Object.fromEntries(
         playbook.arguments.map((arg) => {
           const text = arg.description ? z.string().describe(arg.description) : z.string()
-          return [arg.name, arg.required ? text : text.optional()]
+          const field = arg.required ? text : text.optional()
+          // An argument named like what every object has (`constructor`) would read the inherited one when left out
+          return [
+            arg.name,
+            Object.hasOwn(Object.prototype, arg.name)
+              ? z.preprocess(
+                  (value) => (value === Object.prototype[arg.name as keyof object] ? undefined : value),
+                  field,
+                )
+              : field,
+          ]
         }),
       ),
     )

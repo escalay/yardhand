@@ -738,6 +738,28 @@ describe('in the config', () => {
     expect(stoop.findings).toEqual([])
   })
 
+  it('skips a playbook whose argument is named like what every object has', async () => {
+    const fresh = await gateway()
+    const there = (path: string, init?: Init) => asking(fresh)(OWNER, path, init)
+    const sent = await there('/api/config', {
+      method: 'POST',
+      body: {
+        packs: [
+          {
+            name: 'porch',
+            title: 'Porch',
+            files: { 'playbooks/build-it.md': '---\narguments:\n  - name: constructor\n---\n\nBuild {{constructor}}.' },
+          },
+        ],
+      },
+    })
+    expect(sent.status).toBe(200)
+    expect(sent.json.skipped).toEqual([
+      'pack porch playbooks/build-it.md: constructor is a name every object already has, so it can’t name an argument: pick another, like guest_name.',
+    ])
+    expect((await there('/api/packs/porch')).json.ownPlaybooks).toEqual([])
+  })
+
   it('skips a file that is no playbook or skill, and a text the checks refuse, saying why', async () => {
     const fresh = await gateway()
     const there = (path: string, init?: Init) => asking(fresh)(OWNER, path, init)

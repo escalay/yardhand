@@ -449,6 +449,22 @@ describe('checkPack on a pack’s own playbooks', () => {
     ])
   })
 
+  it('errors on an argument named like what every object has', () => {
+    expect(
+      found('---\narguments:\n  - name: constructor\n---\nBuild {{constructor}}.').map((finding) => [
+        finding.level,
+        finding.code,
+        finding.message,
+      ]),
+    ).toEqual([
+      [
+        'error',
+        'bad_argument_name',
+        'constructor is a name every object already has, so it can’t name an argument: pick another, like guest_name.',
+      ],
+    ])
+  })
+
   it('errors on front matter it cannot read, with each thing wrong', () => {
     expect(found('---\ntitle: [a, b]\n---\nGreet.').map((finding) => [finding.code, finding.message])).toEqual([
       ['bad_front_matter', 'title is a list: write it as text'],

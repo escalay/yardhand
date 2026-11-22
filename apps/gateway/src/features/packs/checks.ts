@@ -224,6 +224,14 @@ const readPlaybook = (state: PackState, variables: Variables, doc: PackState['pl
       uses: [],
     }
   const given = read.playbook.arguments.map((argument) => argument.name)
+  const inherited = given
+    .filter((argument) => Object.hasOwn(Object.prototype, argument))
+    .map((argument) =>
+      error(
+        'bad_argument_name',
+        `${argument} is a name every object already has, so it can’t name an argument: pick another, like guest_name.`,
+      ),
+    )
   const clashes = given
     .filter((argument) => Object.hasOwn(variables, argument))
     .map((argument) =>
@@ -237,6 +245,7 @@ const readPlaybook = (state: PackState, variables: Variables, doc: PackState['pl
   return {
     findings: [
       ...name,
+      ...inherited,
       ...clashes,
       ...text.findings,
       ...(steps > MAX_STEPS
