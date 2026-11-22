@@ -20,6 +20,6 @@
     "demo": "pnpm --filter gateway demo"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.4"
+    "@biomejs/biome": "^2.6.7"
   }
 }
