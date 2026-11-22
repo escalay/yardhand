@@ -62,7 +62,7 @@ const greeted = async (key: string, tool: string, args: Record<string, unknown>)
   return ran.status === 200 ? (ran.json.result.content[0].text as string) : ran
 }
 /** The fixture changes `greet`, and the owner approves the change: its upstream is reviewed. */
-const greetTakes = async (from: true | false | 'enum' | 'ref' | 'optional') => {
+const greetTakes = async (from: true | false | 'enum' | 'ref' | 'optional' | 'strict') => {
   upstream.state.greetFrom = from
   await owner('/api/upstreams/fixture/sync', { method: 'POST' })
   const pending = (await owner('/api/reviews')).json._embedded.reviews.find(
@@ -872,12 +872,29 @@ describe('Per person: an input each person fills with their own value', () => {
     })
     expect(refused.status).toBe(409)
     expect(refused.json.detail).toBe(
-      'greet_city can’t run: the value of city Loft uses for you no longer fits it. Ask the owner to change it.',
+      'greet_city can’t run: Loft’s value of city for you no longer fits it. Ask the owner to change it.',
     )
     expect(refused.json.detail).not.toContain('from')
     expect((await valuesOf(sam.id, { method: 'PUT', body: { values: { city: 'the boss' } } })).status).toBe(200)
     expect(await greeted(sam.key, 'greet_city', { to: 'Ada' })).toBe('Hello Ada, from the boss')
     expect((await owner('/api/packs/loft')).json.flags).toBe(0)
+    await greetTakes(true)
+  })
+
+  it('refuses a call a person’s value breaks only with the rest, naming the variable, never the hidden input', async () => {
+    await greetTakes('strict')
+    const call = (args: Record<string, unknown>) =>
+      api(sam.key, '/api/calls', { method: 'POST', body: { tool: 'greet_city', arguments: args } })
+    const theirs = await call({ to: 'Ada', sender: 'Sam' })
+    expect([theirs.status, theirs.json.detail]).toEqual([
+      409,
+      'greet_city can’t run: Loft’s value of city for you no longer fits it. Ask the owner to change it.',
+    ])
+    // The caller's own mistake is still theirs, said without the input they can't see
+    const own = await call({ to: 'Ada' })
+    expect(own.status).toBe(400)
+    expect(own.json.errors).toEqual([{ in: 'body', path: 'arguments.sender', message: 'is required' }])
+    expect(own.json.detail).not.toContain('from')
     await greetTakes(true)
   })
 

@@ -5,7 +5,7 @@
 import type { Adapters, Asked, Credential, Progress, Resume, ToolResult } from '../../adapters/index.js'
 import { ProblemError } from '../../kit/index.js'
 import { allows, entryOf, type Principal } from '../clients/principals.js'
-import { valueProblem } from '../packs/entries.js'
+import { shownSchema, valueProblem } from '../packs/entries.js'
 import { effectOf } from '../tools/groups.js'
 import { isOff, needsWrite, type ToolsRepo } from '../tools/repo.js'
 import type { UpstreamsRepo } from '../upstreams/repo.js'
@@ -31,6 +31,24 @@ export type CallOutcome = {
 const MAX_ROUNDS = 3
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+/** The arguments checked as the caller sees the tool: these inputs left out of them and of its schema. */
+const checkWithout = (
+  tool: { name: string; versionId: string; inputSchema: Record<string, unknown> },
+  args: Record<string, unknown>,
+  inputs: string[],
+) =>
+  checkArguments(
+    {
+      name: tool.name,
+      versionId: `${tool.versionId} without ${inputs.join(',')}`,
+      inputSchema: shownSchema(tool.inputSchema, {
+        fixed: Object.fromEntries(inputs.map((input) => [input, null])),
+        defaults: {},
+      }),
+    },
+    Object.fromEntries(Object.entries(args).filter(([key]) => !inputs.includes(key))),
+  )
 
 export const createPipeline =
   ({
@@ -159,22 +177,32 @@ export const createPipeline =
         }),
         tool.upstreamId,
       )
-    const unfit = Object.keys(entry.person).find(
-      (input) => Object.hasOwn(entry.fixed, input) && valueProblem(tool, input, entry.fixed[input]),
-    )
-    if (unfit)
+    const filledPerPerson = Object.keys(entry.person).filter((input) => Object.hasOwn(entry.fixed, input))
+    const unfitFor = (inputs: string[]) => {
+      const names = [...new Set(inputs.map((input) => entry.person[input]))]
       return refuse(
         new ProblemError('conflict', {
-          detail: `${toolName} can’t run: the value of ${entry.person[unfit]} ${title} uses for you no longer fits it. Ask the owner to change it.`,
+          detail: `${toolName} can’t run: ${title}’s ${names.length === 1 ? 'value' : 'values'} of ${names.join(' and ')} for you no longer ${names.length === 1 ? 'fits' : 'fit'} it. Ask the owner to change ${names.length === 1 ? 'it' : 'them'}.`,
         }),
         tool.upstreamId,
       )
+    }
+    const unfit = filledPerPerson.find((input) => valueProblem(tool, input, entry.fixed[input]))
+    if (unfit) return unfitFor([unfit])
     let sent: Record<string, unknown>
+    // The caller's value wins over the pack's default, a fixed value over both
+    const filled = { ...entry.defaults, ...args, ...entry.fixed }
     try {
-      // The caller's value wins over the pack's default, a fixed value over both
-      sent = checkArguments(tool, { ...entry.defaults, ...args, ...entry.fixed })
+      sent = checkArguments(tool, filled)
     } catch (problem) {
-      return refuse(problem as ProblemError, tool.upstreamId)
+      if (!filledPerPerson.length) return refuse(problem as ProblemError, tool.upstreamId)
+      // Refused with this caller's values in: said as the tool they see, else by the variables, never the inputs
+      try {
+        checkWithout(tool, filled, filledPerPerson)
+      } catch (own) {
+        return refuse(own as ProblemError, tool.upstreamId)
+      }
+      return unfitFor(filledPerPerson)
     }
 
     try {

@@ -19,7 +19,7 @@ import { z } from 'zod'
  * `greeting` adds `greet` (`to` and `from`; `state.greetFrom = false` drops `from`, as an upstream renaming an input,
  * and `'enum'` keeps it but takes only `the desk` or `the boss`, as an upstream narrowing one; `'ref'` is the same
  * with the two choices kept beside the inputs under `$defs`, as generated schemas do; `'optional'` no longer requires
- * it and greets from `the house` when it is left out).
+ * it and greets from `the house` when it is left out; `'strict'` drops `from` and refuses any input it doesn't take).
  */
 const Greeter = z.enum(['the desk', 'the boss']).meta({ id: 'Greeter' })
 
@@ -36,7 +36,7 @@ export const startUpstream = async ({
     echoDescription: 'Echoes the text back.',
     echoRoute: 'GET /api/v1/echo',
     whisper: false,
-    greetFrom: true as true | false | 'enum' | 'ref' | 'optional',
+    greetFrom: true as true | false | 'enum' | 'ref' | 'optional' | 'strict',
     calls: 0,
     manual: 'Start with echo for anything you want said back.',
     playbookDescription: 'Says a topic back, loudly.',
@@ -95,6 +95,12 @@ export const startUpstream = async ({
       )
     else if (greeting && state.greetFrom === 'ref')
       server.registerTool('greet', { ...greetMeta, inputSchema: z.object({ to: z.string(), from: Greeter }) }, greet)
+    else if (greeting && state.greetFrom === 'strict')
+      server.registerTool(
+        'greet',
+        { ...greetMeta, inputSchema: z.strictObject({ to: z.string(), sender: z.string() }) },
+        greet,
+      )
     else if (greeting && state.greetFrom)
       server.registerTool('greet', { ...greetMeta, inputSchema: z.object({ to: z.string(), from: z.string() }) }, greet)
     else if (greeting)
