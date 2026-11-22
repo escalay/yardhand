@@ -126,11 +126,12 @@ export const demoModel = () =>
       const held = new Set(said.pack_as_it_is.tools.map((tool) => (typeof tool === 'string' ? tool : tool.name)))
       const tasks = wordsOf(said.tasks.join(' '))
       const fresh = said.candidates.filter((tool) => !held.has(tool.name))
+      // By name where scores tie: search ranks equal matches in no fixed order
       const [best] = fresh
         .filter((tool) => !tool.changesThings)
-        .map((tool, order) => ({ tool, order, score: overlap(tool, tasks) }))
-        .sort((a, b) => b.score - a.score || a.order - b.order)
-      const risky = fresh.find((tool) => tool.changesThings)
+        .map((tool) => ({ tool, score: overlap(tool, tasks) }))
+        .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
+      const [risky] = fresh.filter((tool) => tool.changesThings).sort((a, b) => a.name.localeCompare(b.name))
       return {
         tools: best
           ? [{ name: best.tool.name, reason: `It reads what “${said.tasks[0]}” needs, and changes nothing.` }]
