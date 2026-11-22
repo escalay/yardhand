@@ -169,10 +169,26 @@ export type ValueKind = 'text' | 'number' | 'boolean'
 const KINDS: Record<string, ValueKind> = { string: 'text', number: 'number', integer: 'number', boolean: 'boolean' }
 const typeOfValue = (value: unknown) => (value === null ? 'null' : typeof value)
 
+/** The types one schema says: its `type`, else the type of its choices; empty when it says none. */
+const typesOf = (schema: Record<string, unknown>): unknown[] => {
+  if (schema.type !== undefined) return [schema.type].flat()
+  return [
+    ...(Array.isArray(schema.enum) ? schema.enum : []),
+    ...(Object.hasOwn(schema, 'const') ? [schema.const] : []),
+  ].map(typeOfValue)
+}
+
+/** The types of the branches an input may take (`anyOf`, `oneOf`); unknown when a branch says none. */
+const branchTypesOf = (schema: Record<string, unknown>): unknown[] => {
+  const branches = [schema.anyOf, schema.oneOf].find(Array.isArray) ?? []
+  const types = branches.map((branch) => (branch && typeof branch === 'object' ? typesOf(branch) : []))
+  return types.some((branch) => branch.length === 0) ? ['unknown'] : types.flat()
+}
+
 /**
  * The kind of value one input takes, from its schema: its `type`, else the type of its choices (`enum`, `const`),
- * through a `$ref` to what the tool keeps beside its inputs. Null for an input of several kinds, a list or an object,
- * or one the tool doesn't take.
+ * else the types of its `anyOf` or `oneOf` branches, through a `$ref` to what the tool keeps beside its inputs. A
+ * null type is left aside. Null for an input of several kinds, a list or an object, or one the tool doesn't take.
  */
 export const inputKindOf = (schema: Record<string, unknown>, input: string): ValueKind | null => {
   const properties = propertiesOf(schema)
@@ -181,11 +197,8 @@ export const inputKindOf = (schema: Record<string, unknown>, input: string): Val
   const ref = typeof declared.$ref === 'string' ? /^#\/(\$defs|definitions)\/([^/]+)$/.exec(declared.$ref) : null
   const kept = ref ? (schema[ref[1] as string] as Record<string, Record<string, unknown>> | undefined) : undefined
   const property = (ref && kept?.[ref[2] as string]) || declared
-  const choices = [
-    ...(Array.isArray(property.enum) ? property.enum : []),
-    ...(Object.hasOwn(property, 'const') ? [property.const] : []),
-  ]
-  const types = property.type === undefined ? choices.map(typeOfValue) : [property.type].flat()
+  const own = typesOf(property)
+  const types = own.length > 0 ? own : branchTypesOf(property)
   const kinds = new Set(types.filter((type) => type !== 'null').map((type) => KINDS[String(type)] ?? null))
   const [kind] = kinds
   return kinds.size === 1 ? (kind ?? null) : null

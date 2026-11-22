@@ -324,6 +324,18 @@ describe('inputKindOf', () => {
     ).toEqual({ from: 'text', size: 'number', greeter: 'text' })
   })
 
+  it('reads it from the branches an input may take when they agree, a null branch aside', () => {
+    expect(
+      kindsOf({
+        days: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
+        loud: { oneOf: [{ type: 'boolean' }, { type: 'null' }] },
+        size: { anyOf: [{ const: 3 }, { enum: [5, 7] }] },
+        anything: { anyOf: [{ type: 'integer' }, {}] },
+        shared: { anyOf: [{ $ref: '#/$defs/Days' }, { type: 'null' }] },
+      }),
+    ).toEqual({ days: 'number', loud: 'boolean', size: 'number', anything: null, shared: null })
+  })
+
   it('can’t tell for an input of several kinds, a list or an object, or none the tool takes', () => {
     expect(
       kindsOf({

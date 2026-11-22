@@ -227,6 +227,22 @@ describe('checkPack on a Per person input', () => {
     expect(tally.variables.map((variable) => variableKindOf(tally, variable))).toEqual(['text', 'number', 'boolean'])
   })
 
+  it('says a number for an input that takes a number or null, with no value of the pack’s', () => {
+    const nullable = open({
+      tools: [
+        entry('count', {
+          live: {
+            name: 'fixture.count',
+            inputSchema: { type: 'object', properties: { times: { anyOf: [{ type: 'integer' }, { type: 'null' }] } } },
+          },
+          person: { times: '{{times}}' },
+        }),
+      ],
+      variables: [{ name: 'times', value: null, description: null }],
+    })
+    expect(nullable.variables.map((variable) => variableKindOf(nullable, variable))).toEqual(['number'])
+  })
+
   it('falls back to the kind of the pack’s value, then text, where the inputs that read it don’t say one kind', () => {
     const mixed = open({
       tools: [
