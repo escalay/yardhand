@@ -809,6 +809,75 @@ describe('checkPack on a pack’s skill', () => {
   })
 })
 
+describe('checkPack on the playbooks a skill names', () => {
+  const sections = (playbooks: string) =>
+    SKILL_SECTIONS.map((section) =>
+      section === 'Playbooks' ? `## ${section}\n\n${playbooks}` : `## ${section}\n\nUse \`greet_from_desk\`.`,
+    ).join('\n\n')
+  const findingsOf = (markdown: string, over: Partial<PackState> = {}) =>
+    checkPack(desk({ skill: { markdown, wrote: [] }, ...over })).map((finding) => [
+      finding.level,
+      finding.code,
+      finding.message,
+    ])
+  const own = (name: string) => ({ name, markdown: 'Run `greet_from_desk`.', wrote: [] })
+
+  it('finds nothing when every playbook it names is one the pack has, its own or a connection’s', () => {
+    expect(
+      findingsOf(sections('- `say-hello`: greets.\n- `fixture-say-it-back`: says it back.\n- say-hello — again.'), {
+        playbooks: [own('say-hello')],
+        heldPlaybooks: ['fixture-say-it-back'],
+      }),
+    ).toEqual([])
+  })
+
+  it('warns about a playbook its Playbooks section names that the pack lacks, backticked or as a list item', () => {
+    expect(
+      findingsOf(sections('- `say-hello`: greets.\n- `find-roles`: finds roles.\n- reply-to-sam: answers Sam.'), {
+        playbooks: [own('say-hello')],
+      }),
+    ).toEqual([
+      [
+        'warning',
+        'unknown_playbook',
+        '`find-roles` is no playbook of Front desk: write it, or take it out of the skill.',
+      ],
+      [
+        'warning',
+        'unknown_playbook',
+        '`reply-to-sam` is no playbook of Front desk: write it, or take it out of the skill.',
+      ],
+    ])
+  })
+
+  it('outside that section, warns only about a name shaped like a connection’s playbook', () => {
+    const markdown = `${sections('None yet.')}\n\nFollow \`fixture-say-nothing\`; a key can be \`read-only\`, see \`x-gateway-pack\`.`
+    expect(findingsOf(markdown)).toEqual([
+      [
+        'warning',
+        'unknown_playbook',
+        '`fixture-say-nothing` is no playbook of Front desk: write it, or take it out of the skill.',
+      ],
+    ])
+  })
+
+  it('never takes a tool, a variable or a meta-tool in that section for a playbook', () => {
+    expect(findingsOf(sections('Run `greet_from_desk` with `desk`, or find one with `get_playbook`.'))).toEqual([])
+  })
+})
+
+describe('checkPack on file names in a text', () => {
+  it('never takes a backticked file name for a tool, but still knows a connection’s tool by its upstream', () => {
+    const markdown = 'Read `README.md`, `tokens.css`, `demo-effect.css`, `app.config.mjs` and `fixture.log`.'
+    expect(
+      checkPack(desk({ playbooks: [{ name: 'say-hello', markdown, wrote: [] }] })).map((finding) => [
+        finding.code,
+        finding.message,
+      ]),
+    ).toEqual([['not_in_pack', '`fixture.log` is not in Front desk: add it to the pack, or take it out of the text.']])
+  })
+})
+
 describe('judge on a pack’s documents', () => {
   const named = desk({
     playbooks: [
