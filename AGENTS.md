@@ -142,8 +142,9 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   the schema's `default` and filled when a call leaves it out; the caller's own value wins. **Per person**: hidden
   like Fixed, and filled with one variable as it is for the caller: their own value (`pack_person_values`, set by the
   owner under People and in Share), else the pack's, else nothing is sent and the tool's own default applies; a
-  required input with no value at all and no default is a 409 naming the variable, never the input. A person's value fills Per person inputs only and goes with its variable,
-  and a lock built for no person (`packScopeFrom` without their values: the owner inside a pack) reads the pack's.
+  required input with no value at all and no default is a 409 naming the variable, never the input. A person's value
+  fills Per person inputs only and goes with its variable, and a lock built for no person (`packScopeFrom` without
+  their values: the owner inside a pack) reads the pack's.
   **Agent decides**: the input as the tool has it. Stored per pack tool as `fixed`, `defaults` and `person`; an input
   in none is the agent's.
 - **Variable**: a named value of a pack (`PUT /api/packs/{name}/variables`), written `{{name}}` in a fixed or default
