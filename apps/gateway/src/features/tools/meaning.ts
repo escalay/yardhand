@@ -65,7 +65,10 @@ export const documentOf = (
 export const contextOf = (upstream: { title: string; instructions: string | null }) =>
   [upstream.title, upstream.instructions?.replace(/\s+/g, ' ').slice(0, 300)].filter(Boolean).join(': ')
 
-/** How long a failed or stopped refresh waits before it is tried again, then each time after; the last repeats. */
+/**
+ * How long a failed or stopped refresh waits before it is tried again, then each time after; the last repeats. A
+ * spend-cap stop (402/403) takes the same steps: every 6 hours at most is how a cap raised at the provider is seen.
+ */
 export const RETRY_DELAYS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 6 * 3_600_000]
 
 /**
