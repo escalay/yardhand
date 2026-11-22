@@ -6435,7 +6435,7 @@ export interface operations {
     listAiModels: {
         parameters: {
             query?: {
-                /** @description Whose key and address to ask with: smart grouping’s (the default) or Build with AI’s, which are grouping’s only while it sets no provider, address or key. Asked for another provider, Build with AI on grouping’s connection sends no key. */
+                /** @description Whose key and address to ask with: smart grouping’s (the default) or Build with AI’s, which are grouping’s only while it sets no provider, address or key. Asked for another provider than its own, Build with AI sends no key. */
                 job?: "grouping" | "builds";
                 /** @description Which provider; default the job’s own. */
                 provider?: "openrouter" | "openai" | "local" | "custom";

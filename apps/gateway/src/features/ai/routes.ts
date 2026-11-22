@@ -131,7 +131,7 @@ export const routes = {
       query: z.object({
         job: z.enum(['grouping', 'builds']).optional().openapi({
           description:
-            'Whose key and address to ask with: smart grouping’s (the default) or Build with AI’s, which are grouping’s only while it sets no provider, address or key. Asked for another provider, Build with AI on grouping’s connection sends no key.',
+            'Whose key and address to ask with: smart grouping’s (the default) or Build with AI’s, which are grouping’s only while it sets no provider, address or key. Asked for another provider than its own, Build with AI sends no key.',
         }),
         provider: ProviderSchema.optional().openapi({ description: 'Which provider; default the job’s own.' }),
         q: z.string().max(100).optional().openapi({ description: 'Only models whose id or name has these words.' }),

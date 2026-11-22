@@ -128,11 +128,8 @@ export const aiHandlers = ({ ai, vault }: Services) => {
           ...base,
           provider: { value: provider, from: 'settings' as const },
           baseUrl: elsewhere ? { value: PROVIDERS[provider].baseUrl, from: 'default' as const } : base.baseUrl,
-          // Build with AI never sends smart grouping's key to another provider: that provider would be its own
-          key:
-            elsewhere && 'connection' in base && base.connection === 'grouping'
-              ? { value: '', from: 'default' as const }
-              : base.key,
+          // Build with AI sends a key only to the provider and address it was set with, never to another one
+          key: elsewhere && job === 'builds' ? { value: '', from: 'default' as const } : base.key,
         }
       : base
     const all = await listModels(config).catch((error: unknown) => {
