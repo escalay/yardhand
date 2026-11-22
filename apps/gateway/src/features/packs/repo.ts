@@ -318,7 +318,8 @@ export const packsRepo = (db: Db) => {
     variablesOf,
     /**
      * Replaces the pack's variables with these, in this order. The kept and the new are written before the rest are
-     * removed, so a request that builds a pack lock meanwhile never finds a variable missing that the pack keeps.
+     * removed, so a request that builds a pack lock meanwhile never finds a variable missing that the pack keeps. A
+     * removed variable takes every person's value of it along: one declared again later starts with none.
      */
     setVariables: async (packId: string, drafts: PackVariableDraft[]) => {
       const ofPack = eq(packVariables.packId, packId)
@@ -344,6 +345,10 @@ export const packsRepo = (db: Db) => {
           })
       const names = drafts.map((draft) => draft.name)
       await db.delete(packVariables).where(names.length ? and(ofPack, notInArray(packVariables.name, names)) : ofPack)
+      const ofValues = eq(packPersonValues.packId, packId)
+      await db
+        .delete(packPersonValues)
+        .where(names.length ? and(ofValues, notInArray(packPersonValues.name, names)) : ofValues)
       await touch(packId)
     },
     /** Adds variables at the end; a name the pack already has keeps its value. */

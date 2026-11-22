@@ -914,4 +914,31 @@ describe('Per person: an input each person fills with their own value', () => {
     expect((await owner(`/api/clients/${ada.id}`, { method: 'DELETE' })).status).toBe(204)
     expect((await valuesOf(ada.id)).status).toBe(404)
   })
+
+  it('forgets everyone’s value of a variable the pack removes, so one declared again starts with none', async () => {
+    const changed = async (path: string, init: Init) => {
+      const answer = await owner(path, init)
+      expect([answer.status, answer.json.detail]).toEqual([200, undefined])
+    }
+    await changed(`/api/packs/loft/people/${sam.id}/values`, { method: 'PUT', body: { values: { city: 'Porto' } } })
+    expect(await greeted(sam.key, 'greet_city', { to: 'Ada' })).toBe('Hello Ada, from Porto')
+    // Out of Per person, so the variable can go; declared again and read per person again
+    await changed('/api/packs/loft/tools/greet_city', { method: 'PATCH', body: { person: {} } })
+    await changed('/api/packs/loft/variables', { method: 'PUT', body: { variables: [] } })
+    await changed('/api/packs/loft/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'city', value: null, description: null }] },
+    })
+    await changed('/api/packs/loft/tools/greet_city', { method: 'PATCH', body: { person: { from: '{{city}}' } } })
+
+    const refused = await api(sam.key, '/api/calls', {
+      method: 'POST',
+      body: { tool: 'greet_city', arguments: { to: 'Ada' } },
+    })
+    expect([refused.status, refused.json.detail]).toEqual([
+      409,
+      'greet_city needs city, which has no value for you in Loft: ask the owner to set yours.',
+    ])
+    expect((await valuesOf(sam.id)).json.values[0].value).toBeNull()
+  })
 })
