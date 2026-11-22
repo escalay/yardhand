@@ -29,7 +29,9 @@ export const rehearses = (tool: Pick<LiveTool, 'annotations' | 'access' | 'remot
 
 /**
  * Who a rehearsal runs as: the owner's id, locked to the drafted pack by `packScopeFrom` and read-only, so nothing is
- * saved before accept and the pipeline itself refuses a tool that needs write.
+ * saved before accept and the pipeline itself refuses a tool that needs write. It is no person: the lock is built
+ * with no one's values and the id is no client's, so an input each person fills takes the pack's value, else the
+ * tool's own default, and no one's value reaches the model.
  */
 export const rehearsalPrincipal = (
   pack: Parameters<typeof packScopeFrom>[0],
