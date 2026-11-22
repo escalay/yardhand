@@ -1,6 +1,14 @@
 import { skillEntry } from '@modelcontextprotocol/server/ext/skills'
 import { describe, expect, it } from 'vitest'
-import { packSkillPathOf, packSkillUriOf, SKILL_SECTIONS, sectionsOf, skillBodyOf, skillFile } from './skill.js'
+import {
+  packSkillPathOf,
+  packSkillUriOf,
+  SKILL_SECTIONS,
+  sectionsOf,
+  skillBodyOf,
+  skillFile,
+  withPlaybookList,
+} from './skill.js'
 
 const BODY = SKILL_SECTIONS.map((section) => `## ${section}\n\nUse {{desk}}.`).join('\n\n')
 const pack = (over: Partial<{ name: string; title: string; description: string }> = {}) => ({
@@ -81,5 +89,61 @@ describe('sectionsOf', () => {
       'What it is for',
       "What it can't do",
     ])
+  })
+})
+
+describe('the Playbooks section a build writes', () => {
+  const PLAYBOOKS = [
+    {
+      name: 'find-pricing',
+      markdown: '---\ntitle: Find pricing\ndescription: Finds pricing\n  pages.\n---\n\n1. Look.\n',
+    },
+    { name: 'compare-plans', markdown: '---\ntitle: Compare plans\n---\n\n1. Compare.\n' },
+  ]
+
+  it('lists the pack’s playbooks and nothing else, keeping every other section as written', () => {
+    const body = BODY.replace('## Playbooks\n\nUse {{desk}}.', '## Playbooks\n\n- task\n- turn: does a turn')
+    const listed = withPlaybookList(body, PLAYBOOKS)
+    expect(listed).toBe(
+      BODY.replace(
+        '## Playbooks\n\nUse {{desk}}.',
+        '## Playbooks\n\n- `find-pricing`: Finds pricing pages.\n- `compare-plans`: Compare plans',
+      ),
+    )
+    expect(withPlaybookList(body, [])).toContain('## Playbooks\n\nNone yet.\n\n## Gotchas')
+  })
+
+  it('leaves a blank text blank, so an empty skill is still refused', () => {
+    expect(withPlaybookList('', PLAYBOOKS)).toBe('')
+    expect(withPlaybookList('  \n', PLAYBOOKS)).toBe('  \n')
+  })
+
+  it('keeps a text’s line endings', () => {
+    const crlf = '## Tools\r\nx\r\n## Playbooks\r\nold\r\n## Gotchas\r\ng'
+    expect(withPlaybookList(crlf, PLAYBOOKS)).toBe(
+      '## Tools\r\nx\r\n## Playbooks\r\n\r\n- `find-pricing`: Finds pricing pages.\r\n- `compare-plans`: Compare plans\r\n\r\n## Gotchas\r\ng',
+    )
+    expect(withPlaybookList('## Tools\r\nx', [])).toBe('## Tools\r\nx\r\n\r\n## Playbooks\r\n\r\nNone yet.')
+  })
+
+  it('names a connection’s playbooks the pack holds after its own, and copies no braces or backticks', () => {
+    const odd = {
+      name: 'greet-guest',
+      markdown: '---\ntitle: Greet\ndescription: Greets {{guest}} with `fixture.greet`.\n---\n\n1. Greet.\n',
+    }
+    expect(withPlaybookList(BODY, [odd], ['desk-find-pricing'])).toContain(
+      '## Playbooks\n\n- `greet-guest`: Greets guest with fixture.greet.\n- `desk-find-pricing`: from a connection\n\n## Gotchas',
+    )
+  })
+
+  it('adds the section before Gotchas when the text has none, and never reads one in a code block', () => {
+    const body = BODY.replace('## Playbooks\n\nUse {{desk}}.\n\n', '').replace(
+      'What it is for\n\nUse {{desk}}.',
+      'What it is for\n\n```\n## Playbooks\n- task\n```',
+    )
+    const listed = withPlaybookList(body, PLAYBOOKS.slice(1))
+    expect(sectionsOf(listed)).toEqual([...SKILL_SECTIONS])
+    expect(listed).toContain('```\n## Playbooks\n- task\n```')
+    expect(listed).toContain('## Playbooks\n\n- `compare-plans`: Compare plans\n\n## Gotchas')
   })
 })

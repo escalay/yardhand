@@ -90,15 +90,18 @@ const build = (more: Partial<Schemas['PackBuild']> = {}) => ({
           },
         ],
         outcome: 'echo.echo answered; echo.shout would finish it.',
+        tried: false,
       },
     ],
     findings: [],
+    includeChanges: false,
   },
   createdAt: '2026-11-22T10:00:00Z',
   finishedAt: '2026-11-22T10:00:05Z',
   _links: {},
   ...more,
 })
+type Proposed = NonNullable<Schemas['PackBuild']['proposal']>
 const pack = { name: 'loud', title: 'Loud' } as Schemas['Pack']
 
 const show = (onClose = vi.fn(), onBuildAgain = vi.fn()) => {
@@ -140,7 +143,64 @@ describe('a proposal', () => {
       '/activity?outcome=all&via=rehearsal&call=call_1',
     )
     expect(screen.getByText('shout skipped: it changes things, so it was not tried')).toBeTruthy()
+    // A step got a stand-in, so the task is marked as not really tried
+    expect(
+      screen.getByText('Not tried: a step did not run, so this says what would happen, not what did.'),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(
+        /accept lines\. Accept all takes the lines ticked to begin with; a tool that changes things is yours to tick\.$/,
+      ),
+    ).toBeTruthy()
     expect(screen.getByText('$0.31 of $1.00')).toBeTruthy()
+  })
+
+  it('marks only a task whose steps did not all run as not tried', async () => {
+    const proposed = build().proposal as Proposed
+    GET.mockResolvedValue(
+      answer(
+        build({
+          proposal: {
+            ...proposed,
+            rehearsal: [
+              {
+                task: 'say it back',
+                steps: [{ tool: 'echo.echo', ran: true, callId: 'call_2', standIn: null, error: null }],
+                outcome: 'echo.echo said it back.',
+                tried: true,
+              },
+              { task: 'sing it', steps: [], outcome: 'No tool can sing.', tried: false },
+            ],
+          },
+        }),
+      ),
+    )
+    show()
+    await screen.findByRole('heading', { name: 'Rehearsal · 2 tasks' })
+    expect(screen.queryByText(/did not run/)).toBeNull()
+    expect(screen.getAllByText(/^Not tried/).map((node) => node.textContent)).toEqual(['Not tried: no tool ran.'])
+  })
+
+  it('says when tools that change things were ticked to begin with, as asked', async () => {
+    GET.mockResolvedValue(
+      answer(
+        build({
+          proposal: {
+            ...(build().proposal as Proposed),
+            includeChanges: true,
+            lines: LINES.map((one) => (one.changesThings ? { ...one, suggested: true } : one)),
+          },
+        }),
+      ),
+    )
+    show()
+    await screen.findByRole('heading', { name: 'Proposal for Loud' })
+    expect(
+      screen.getByText(
+        /accept lines\. Accept all takes the lines ticked to begin with, tools that change things among them, as you asked\.$/,
+      ),
+    ).toBeTruthy()
+    expect(ticked('Tool items.delete_item')).toBe(true)
   })
 
   it('ticks what a line needs, and holds a line a ticked one needs', async () => {

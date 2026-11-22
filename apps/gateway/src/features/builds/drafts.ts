@@ -11,10 +11,10 @@ import type { Ask } from '../ai/model.js'
 import type { Finding } from '../packs/checks.js'
 import { DOC_MAX } from '../packs/checks.js'
 import { shownSchema } from '../packs/entries.js'
-import { MAX_STEPS, PLAYBOOK_NAME } from '../packs/playbook.js'
+import { aboutOf, MAX_STEPS, PLAYBOOK_NAME } from '../packs/playbook.js'
 import type { PackContents } from '../packs/repo.js'
 import type { PackRow } from '../packs/schema.js'
-import { SKILL_DOC, SKILL_SECTIONS, skillBodyOf } from '../packs/skill.js'
+import { SKILL_DOC, SKILL_SECTIONS, skillBodyOf, withPlaybookList } from '../packs/skill.js'
 import type { PackState } from '../packs/state.js'
 import { withDoc } from '../packs/state.js'
 import { VARIABLE_DESCRIPTION_MAX, VARIABLES_MAX } from '../packs/values.js'
@@ -22,6 +22,7 @@ import { summaryOf } from '../tools/handlers.js'
 import type { MeaningSearch } from '../tools/meaning.js'
 import type { ToolsRepo } from '../tools/repo.js'
 import { isOff, type LiveTool } from '../tools/repo.js'
+import { STOP } from '../tools/words.js'
 import type { UpstreamsRepo } from '../upstreams/repo.js'
 import type { Draft, DraftTool } from './proposal.js'
 import { CANDIDATES } from './spend.js'
@@ -60,7 +61,11 @@ const KitAnswer = z.object({
     .max(200)
     .default([]),
 })
-const PlaybookAnswer = z.object({ name: z.string().max(64), markdown: z.string().max(DOC_MAX) })
+const PlaybookAnswer = z.object({
+  name: z.string().max(64),
+  markdown: z.string().max(DOC_MAX),
+  revises: z.boolean().nullish(),
+})
 const SkillAnswer = z.object({ markdown: z.string().max(DOC_MAX) })
 const RepairAnswer = z.object({
   playbooks: z.array(PlaybookAnswer).max(20).default([]),
@@ -117,27 +122,75 @@ export const contentsOfDraft = (
   ],
 })
 
+/** The most of `CANDIDATES` the pack's own tools take, so the tasks keep room in a pack that holds many. */
+const HELD = CANDIDATES / 2
+
+/** The most tools a question takes from a connection it names, after its best search match. */
+const NAMED = 4
+
+/** Does this text name the connection: its id as a word, or its whole title? */
+const mentions = (text: string, { id, title }: { id: string; title: string }) => {
+  const lower = text.toLowerCase()
+  return [id, title.trim()].some(
+    (name) =>
+      name.length > 2 &&
+      new RegExp(
+        `(^|[^\\p{L}\\p{N}])${name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`,
+        'u',
+      ).test(lower),
+  )
+}
+
 /**
- * The tools a build may propose: what the pack holds, then what search by meaning and by words finds for its
- * purpose and each task; on enabled connections, not switched off, `CANDIDATES` at most.
+ * The tools a build may propose, `CANDIDATES` at most, on enabled connections and not switched off: what the pack
+ * holds (`HELD` at most), then the purpose and each task in turn, one tool each, so the last task gets as many as
+ * the first. A question's own are what search finds by meaning and by words, with the best matches of a connection
+ * it names after its first.
  */
 export const candidatesOf = async (
   {
     tools,
     upstreams,
     meaning,
-  }: { tools: ToolsRepo; upstreams: Pick<UpstreamsRepo, 'list'>; meaning: MeaningSearch | null },
+  }: {
+    tools: Pick<ToolsRepo, 'searchNames' | 'liveMany'>
+    upstreams: Pick<UpstreamsRepo, 'list'>
+    meaning: MeaningSearch | null
+  },
   held: string[],
   questions: string[],
 ) => {
-  const enabled = (await upstreams.list()).filter((row) => row.enabled).map((row) => row.id)
-  const found = [...held]
+  const enabled = (await upstreams.list()).filter((row) => row.enabled)
+  const ids = enabled.map((row) => row.id)
+  const asked: { named: string[]; searched: string[] }[] = []
   for (const question of questions) {
-    found.push(...((await meaning?.names(question, 30).catch(() => [])) ?? []))
-    found.push(...(await tools.searchNames(question, 20, enabled)))
+    const named: string[] = []
+    for (const row of enabled.filter((row) => mentions(question, row)))
+      named.push(...(await tools.searchNames(question, NAMED, [row.id])))
+    const searched = [
+      ...((await meaning?.names(question, 30).catch(() => [])) ?? []),
+      ...(await tools.searchNames(question, 20, ids)),
+    ]
+    asked.push({ named, searched })
   }
-  const live = await tools.liveMany([...new Set(found)])
-  return live.filter((tool) => enabled.includes(tool.upstreamId) && !isOff(tool)).slice(0, CANDIDATES)
+  const live = new Map(
+    (await tools.liveMany([...new Set([...held, ...asked.flatMap(({ named, searched }) => [...named, ...searched])])]))
+      .filter((tool) => ids.includes(tool.upstreamId) && !isOff(tool))
+      .map((tool) => [tool.name, tool]),
+  )
+  const picked = new Set(held.filter((name) => live.has(name)).slice(0, HELD))
+  const queues = asked.map(({ named, searched }) => {
+    const [first, ...rest] = searched.filter((name) => live.has(name))
+    return [...(first ? [first] : []), ...named.filter((name) => live.has(name)), ...rest]
+  })
+  while (picked.size < CANDIDATES && queues.some((queue) => queue.length))
+    for (const queue of queues) {
+      // Each question's next tool not already picked
+      while (queue.length && picked.has(queue[0] as string)) queue.shift()
+      const next = queue.shift()
+      if (next && picked.size < CANDIDATES) picked.add(next)
+    }
+  return [...picked].slice(0, CANDIDATES).flatMap((name) => live.get(name) ?? [])
 }
 
 /** A tool's inputs as a prompt shows them: names, types and a short description each. */
@@ -199,7 +252,7 @@ export const kitAsk = ({
     'left out) or `agent` (back to the agent). A value may write a variable as {{name}}.',
     'Only the candidates exist: never name another tool. Name a candidate you leave out under `skipped` with why.',
     mode === 'refresh'
-      ? 'The pack as it is comes with its flags: propose only changes. `remove` names tools of the pack, by the pack’s names, to take out. An input under `perPerson` is filled with each person’s own value: leave it out of `inputs`.'
+      ? 'The pack as it is comes with its flags: propose only changes. The tasks add to the pack: keep every tool it has. `remove` names only a tool of the pack that is not live or is switched off (`live: false` or `off: true`), by the pack’s name. An input under `perPerson` is filled with each person’s own value: leave it out of `inputs`.'
       : '',
     DATA,
     'Reply with JSON only: {"tools": [{"name", "reason", "wording"?}], "remove": [{"name", "reason"}],',
@@ -217,6 +270,8 @@ export const kitAsk = ({
             tools: before.tools.map((tool) => ({
               name: tool.name,
               runs: tool.tool,
+              live: Boolean(tool.live),
+              off: tool.live?.access === 'off',
               wording: tool.wording,
               fixed: tool.fixed,
               defaults: tool.defaults,
@@ -237,7 +292,13 @@ export const kitAsk = ({
   }),
 })
 
-/** The draft after the kit: tools added, reworded or removed, variables and inputs set; what was left out, and why. */
+const KEPT =
+  'Kept: it is live and switched on, and a build takes out only a tool that is not. Remove it on the pack’s page if you mean to.'
+
+/**
+ * The draft after the kit: tools added, reworded or removed, variables and inputs set; what was left out, and why. A
+ * tool is removed only when it is not live or is switched off.
+ */
 export const applyKit = (before: Draft, json: unknown, candidates: LiveTool[]) => {
   const answer = read(KitAnswer, json, 'the kit')
   const offered = new Map(candidates.map((tool) => [tool.name, tool]))
@@ -269,11 +330,17 @@ export const applyKit = (before: Draft, json: unknown, candidates: LiveTool[]) =
       wording: proposed.wording || null,
     })
   }
-  for (const gone of answer.remove)
-    if (tools.some((tool) => tool.name === gone.name)) {
-      reasons[`tool:${gone.name}`] = gone.reason
-      tools = tools.filter((tool) => tool.name !== gone.name)
+  for (const gone of answer.remove) {
+    const tool = tools.find((entry) => entry.name === gone.name)
+    if (!tool) continue
+    // The tasks add to a pack: only a tool that can't serve it as it is may leave
+    if (tool.live && tool.live.access !== 'off') {
+      skipped.push({ name: gone.name, reason: KEPT })
+      continue
     }
+    reasons[`tool:${gone.name}`] = gone.reason
+    tools = tools.filter((entry) => entry !== tool)
+  }
   let variables = [...before.variables]
   for (const variable of answer.variables) {
     const next = {
@@ -335,22 +402,58 @@ export const playbookAsk = (
     'Markdown: YAML front matter (title, description, and arguments: a list of {name, description, required}), then',
     `numbered steps, ${MAX_STEPS} at most. Name a tool in single backticks exactly as the pack names it, and only the`,
     'pack’s tools. Write an argument or a variable as {{name}}; nothing else in double braces.',
+    'Name the playbook for its task, in a few lowercase words joined by - (like find-pricing-pages), never a bare',
+    'word like task. It is a new playbook under a name none under `playbooks` has, unless it rewrites one of them:',
+    'then give that one’s exact name and "revises": true.',
     DATA,
-    'Reply with JSON only: {"name": "<lowercase words joined by ->", "markdown": "<the playbook>"}.',
+    'Reply with JSON only: {"name": "<lowercase words joined by ->", "markdown": "<the playbook>", "revises": false}.',
   ].join(' '),
   user: JSON.stringify({
     ...packShown(pack, draft, changesThings),
     task,
-    playbooks: draft.playbooks.map((doc) => doc.name),
+    playbooks: draft.playbooks.map((doc) => ({ name: doc.name, about: aboutOf(doc.name, doc.markdown) })),
   }),
 })
 
-/** The draft with a task's playbook in it, under a name of its own: one the build already used gets a number. */
+/** Names that say nothing of a playbook's task, as models answer them (`task`, `task-2`, `turn`). */
+const BARE_NAMES = new Set('task tasks turn playbook steps step run job work workflow flow'.split(' '))
+const NAME_WORDS = 6
+const NAME_CHARS = 60
+
+/** A playbook's name from its task: its words lowercased, small words dropped, `playbook` when none is left. */
+const nameFromTask = (task: string) => {
+  const words = (
+    task
+      .normalize('NFKD')
+      .replace(/\p{M}/gu, '')
+      .toLowerCase()
+      .match(/[a-z0-9]+/g) ?? []
+  ).filter((word) => !STOP.has(word))
+  // A name starts with a letter
+  const from = words.findIndex((word) => /^[a-z]/.test(word))
+  let name = ''
+  for (const word of from < 0 ? [] : words.slice(from, from + NAME_WORDS)) {
+    if (`${name}-${word}`.length > NAME_CHARS) break
+    name = name ? `${name}-${word}` : word
+  }
+  return PLAYBOOK_NAME.test(name) && !BARE_NAMES.has(name) ? name : 'playbook'
+}
+
+/**
+ * The draft with a task's playbook in it. Its name is the model's unless that says nothing of the task, and never one
+ * the pack already has (its own, or a connection's) or this build wrote, which gets a number: only a playbook of the
+ * pack's own that the model was shown and says it revises keeps its name.
+ */
 export const applyPlaybook = (draft: Draft, json: unknown, task: string, written: Set<string>) => {
   const answer = read(PlaybookAnswer, json, `the playbook for “${task}”`)
-  const base = PLAYBOOK_NAME.test(answer.name) ? answer.name : 'task'
+  const given = answer.name.trim()
+  const revises = answer.revises === true && draft.playbooks.some((doc) => doc.name === given) && !written.has(given)
+  const base =
+    revises || (PLAYBOOK_NAME.test(given) && !BARE_NAMES.has(given.replace(/-\d+$/, ''))) ? given : nameFromTask(task)
+  const taken = new Set([...draft.playbooks.map((doc) => doc.name), ...draft.heldPlaybooks, ...written])
   let name = base
-  for (let count = 2; written.has(name); count++) name = `${base.slice(0, 60)}-${count}`
+  if (!revises)
+    for (let count = 2; taken.has(name); count++) name = `${base.slice(0, NAME_CHARS).replace(/-+$/, '')}-${count}`
   written.add(name)
   return {
     name,
@@ -359,6 +462,7 @@ export const applyPlaybook = (draft: Draft, json: unknown, task: string, written
 }
 
 export const skillAsk = (
+  mode: BuildMode,
   pack: Pick<PackRow, 'name' | 'title' | 'description'>,
   draft: Draft,
   manuals: string[],
@@ -369,22 +473,33 @@ export const skillAsk = (
     `You write the skill for a pack: how an AI agent works with it. Markdown with these six \`## \` sections, in order:`,
     `${SKILL_SECTIONS.join('; ')}. No front matter and no \`# \` heading: the gateway writes those.`,
     'Name a tool in single backticks exactly as the pack names it, and only the pack’s tools; write a variable as',
-    '{{name}}. Gotchas: only what the manuals below say about these tools.',
+    '{{name}}. Which tool for which job: cover every tool under `tools`, not only new ones. Playbooks: the gateway',
+    'lists the pack’s playbooks there itself. Gotchas: only what the manuals below say about these tools.',
+    mode === 'refresh'
+      ? 'The skill as it is comes under `skill_as_it_is`: keep what it says of the tools and values that stay as they are, and change only what the pack’s changes call for.'
+      : '',
     DATA,
     'Reply with JSON only: {"markdown": "<the skill>"}.',
-  ].join(' '),
+  ]
+    .filter(Boolean)
+    .join(' '),
   user: JSON.stringify({
     ...packShown(pack, draft, changesThings),
     playbooks: draft.playbooks.map((doc) => doc.name),
     manuals,
+    ...(mode === 'refresh' ? { skill_as_it_is: draft.skill?.markdown ?? null } : {}),
   }),
 })
 
-export const applySkill = (draft: Draft, json: unknown): Draft => ({
+/** The draft with a skill whose Playbooks section lists the draft's own playbooks, and only them. */
+const withSkill = (draft: Draft, body: string): Draft => ({
   ...draft,
-  ...withDoc(draft, 'skill', SKILL_DOC, skillBodyOf(read(SkillAnswer, json, 'the skill').markdown)),
+  ...withDoc(draft, 'skill', SKILL_DOC, withPlaybookList(skillBodyOf(body), draft.playbooks, draft.heldPlaybooks)),
   tools: draft.tools,
 })
+
+export const applySkill = (draft: Draft, json: unknown): Draft =>
+  withSkill(draft, read(SkillAnswer, json, 'the skill').markdown)
 
 /**
  * The errors the checks found in texts this build wrote (`written`: playbook names, and `SKILL` for the skill), and
@@ -435,7 +550,6 @@ export const applyRepair = (draft: Draft, json: unknown, paths: string[]): Draft
   for (const doc of answer.playbooks)
     if (paths.includes(`playbooks.${doc.name}`))
       next = { ...next, ...withDoc(next, 'playbook', doc.name, doc.markdown), tools: next.tools }
-  if (answer.skill && paths.includes('skill'))
-    next = { ...next, ...withDoc(next, 'skill', SKILL_DOC, skillBodyOf(answer.skill)), tools: next.tools }
+  if (answer.skill && paths.includes('skill')) next = withSkill(next, answer.skill)
   return next
 }

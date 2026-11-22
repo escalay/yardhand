@@ -15,6 +15,15 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }))
 
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+)
+
 const POST = vi.mocked(api.POST) as unknown as ReturnType<typeof vi.fn>
 const answer = (data: unknown, status = 200) => ({ data, response: { ok: true, status, headers: new Headers() } })
 const problem = (status: number, error: unknown, headers: Record<string, string> = {}) => ({
@@ -88,6 +97,45 @@ describe('starting a build', () => {
     await waitFor(() => expect(start.disabled).toBe(false))
     await user.click(start)
     await waitFor(() => expect(onStarted).toHaveBeenCalledWith('pb_1'))
+    // Left unticked, the start asks for nothing more
+    expect(POST).toHaveBeenCalledWith('/api/packs/{name}/builds', {
+      params: { path: { name: 'loud' } },
+      body: { mode: 'refresh', tasks: ['count to three, then say it back'] },
+    })
+  })
+
+  it('ticks tools that change things too, when asked, from the keyboard', async () => {
+    const user = userEvent.setup()
+    byPath({
+      '/api/packs/{name}/builds/estimate': () => answer({ ...estimate, includeChanges: true }),
+      '/api/packs/{name}/builds': () => answer({ id: 'pb_1', status: 'running' }, 202),
+    })
+    const onStarted = show('build')
+    const box = screen.getByRole('checkbox', { name: 'Tick tools that change things too' })
+    expect(box.getAttribute('aria-checked')).toBe('false')
+    expect(
+      screen.getByText(
+        'For a pack of your own: lines for tools that change things, and the playbooks and skill that need them, start ticked. The rehearsal still never runs them.',
+      ),
+    ).toBeTruthy()
+    box.focus()
+    await user.keyboard(' ')
+    expect(box.getAttribute('aria-checked')).toBe('true')
+    await user.type(screen.getByLabelText('Task 1'), 'turn the hall light on')
+    await waitFor(() =>
+      expect(POST).toHaveBeenCalledWith('/api/packs/{name}/builds/estimate', {
+        params: { path: { name: 'loud' } },
+        body: { mode: 'build', tasks: ['turn the hall light on'], includeChanges: true },
+      }),
+    )
+    const start = screen.getByRole('button', { name: 'Build' }) as HTMLButtonElement
+    await waitFor(() => expect(start.disabled).toBe(false))
+    await user.click(start)
+    await waitFor(() => expect(onStarted).toHaveBeenCalledWith('pb_1'))
+    expect(POST).toHaveBeenCalledWith('/api/packs/{name}/builds', {
+      params: { path: { name: 'loud' } },
+      body: { mode: 'build', tasks: ['turn the hall light on'], includeChanges: true },
+    })
   })
 
   it('takes up to five tasks', async () => {

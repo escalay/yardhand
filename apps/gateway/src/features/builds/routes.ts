@@ -25,6 +25,10 @@ const BuildBody = z
         description: `One to five example tasks the pack is for, 300 characters each. Each gets a playbook and is tried first: up to ${REHEARSAL_STEPS} real read calls a task.`,
         example: ['find a quick dinner recipe'],
       }),
+    includeChanges: z.boolean().optional().openapi({
+      description:
+        'Tick the lines for tools that change things (and the playbooks and skill that need them) to begin with, as for a pack of your own. Off by default: those lines are unticked. The rehearsal never runs such a tool either way.',
+    }),
   })
   .openapi('PackBuildRequest', { description: 'What to build: the mode, and the example tasks.' })
 
@@ -32,6 +36,7 @@ const Calls = z.object({ likely: z.number().int(), max: z.number().int() })
 const EstimateSchema = z
   .object({
     mode: z.enum(['build', 'refresh']),
+    includeChanges: z.boolean().openapi({ description: 'Tools that change things will be ticked to begin with.' }),
     usd: z
       .number()
       .nullable()
@@ -82,6 +87,10 @@ const RehearsalSchema = z.object({
     }),
   ),
   outcome: z.string(),
+  tried: z.boolean().openapi({
+    description:
+      'Every step really ran and answered. False when a step was handed a stand-in (a tool that changes things, is off, not live or not in the pack), was refused or failed, or none was taken: the outcome then says what would happen, not what did.',
+  }),
 })
 
 const SpentSchema = z.object({
@@ -118,6 +127,9 @@ export const BuildSchema = z
         skipped: z.array(z.object({ name: z.string(), reason: z.string() })),
         rehearsal: z.array(RehearsalSchema),
         findings: z.array(FindingSchema),
+        includeChanges: z.boolean().openapi({
+          description: 'It was asked with `includeChanges`: tools that change things were ticked to begin with.',
+        }),
       })
       .nullable(),
     createdAt: z.string(),

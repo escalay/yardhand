@@ -823,11 +823,13 @@ describe('what the pack page stands on', () => {
             tool: 'fixture.shout',
             ran: false,
             callId: null,
-            standIn: '[Not run in rehearsal: fixture.shout changes things. Assume it worked.]',
+            standIn:
+              '[Not run in rehearsal: fixture.shout changes things, so nothing happened. Say what it would do, never that it was done.]',
             error: null,
           },
         ],
         outcome: 'fixture.echo answered; fixture.shout would finish it.',
+        tried: false,
       },
     ])
     expect(first.spent).toMatchObject({ known: true, modelCalls: 6 })
