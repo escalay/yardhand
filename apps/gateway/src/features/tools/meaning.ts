@@ -1,6 +1,7 @@
 /**
  * Search by meaning over tool descriptions, with the kit's vectors (Gemini Embedding 2): a ledger on the state volume
- * that only pays for new or changed descriptions, refreshed after every sync and approval. `fuse` merges it with
+ * that only pays for new or changed descriptions, refreshed at start and after every sync and approval, and again
+ * by itself, later each time, after a refresh that failed or stopped (`RETRY_DELAYS`). `fuse` merges it with
  * keyword search by reciprocal-rank fusion, so a name leads and a paraphrase still finds the tool. On a catalog of
  * `MIN_ROWS` tools or more a keyword hit, an exact name included, counts only from `barsFor`'s floor up; one with no
  * vector yet can't be scored and counts, and so does every hit for the owner typing in the app. `standouts` is the
@@ -64,7 +65,17 @@ export const documentOf = (
 export const contextOf = (upstream: { title: string; instructions: string | null }) =>
   [upstream.title, upstream.instructions?.replace(/\s+/g, ' ').slice(0, 300)].filter(Boolean).join(': ')
 
+/** How long a failed or stopped refresh waits before it is tried again, then each time after; the last repeats. */
+export const RETRY_DELAYS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 3_600_000, 6 * 3_600_000]
+
+/**
+ * Where the vectors stand: how many live tools there are, how many have no vector (found by their words only), what
+ * stopped the last refresh, and when it is tried again.
+ */
+export type VectorStatus = { tools: number; missing: number; failed: string | null; retryAt: string | null }
+
 export type MeaningSearch = {
+  /** Embeds what has no vector or changed; one that fails or stops is tried again by itself, later each time. */
   refresh: () => Promise<void>
   /** The nearest tools, best first: an answer every time, for a suggestion someone confirms. */
   names: (q: string, limit: number) => Promise<string[]>
@@ -82,6 +93,10 @@ export type MeaningSearch = {
   has: (name: string) => boolean
   /** Whether it can search now (it has a key); absent means yes. */
   ready?: () => boolean
+  /** Where the vectors stand; absent where nothing counts them. */
+  status?: () => VectorStatus
+  /** No more tries: the search is being replaced (a new key). */
+  stop?: () => void
 }
 
 export const createMeaningSearch = ({
@@ -91,6 +106,7 @@ export const createMeaningSearch = ({
   embed,
   query,
   log = (message) => console.log(message),
+  retryDelays = RETRY_DELAYS,
 }: {
   file: string
   tools: ToolsRepo
@@ -99,35 +115,80 @@ export const createMeaningSearch = ({
   embed: (inputs: EmbeddingInput[]) => Promise<Embedded>
   query: (q: string) => Promise<Float32Array>
   log?: (message: string) => void
+  retryDelays?: number[]
 }): MeaningSearch => {
   let space: VectorSpace | null = null
   let running: Promise<void> = Promise.resolve()
+  let counted = { tools: 0, missing: 0 }
+  let failed: string | null = null
+  let retry: { timer: ReturnType<typeof setTimeout>; at: number } | null = null
+  let failures = 0
+  let stopped = false
+  /** Embeds what is missing; throws when it failed or stopped, after serving every vector the ledger holds. */
   const rebuild = async () => {
     mkdirSync(dirname(file), { recursive: true })
     const live = await tools.listLive({ upstreams: 'all', limit: 100_000 })
     const context = await contexts()
-    const run = await embedMissing({
-      file,
-      items: live.map((tool) => ({ key: tool.name, content: documentOf(tool, context.get(tool.upstreamId)) })),
-      embed,
-      budget: REFRESH_BUDGET,
-    })
-    if (run.embedded || run.stopped)
-      log(
-        `meaning: embedded ${run.embedded}, fresh ${run.fresh}, $${run.cost.toFixed(4)}${run.stopped ? `, stopped (${run.stopped})` : ''}`,
-      )
     const names = new Set(live.map((tool) => tool.name))
-    space = vectorSpace(await readLedger(file), (key) => names.has(key))
+    try {
+      const run = await embedMissing({
+        file,
+        items: live.map((tool) => ({ key: tool.name, content: documentOf(tool, context.get(tool.upstreamId)) })),
+        embed,
+        budget: REFRESH_BUDGET,
+      })
+      if (run.embedded || run.stopped)
+        log(
+          `meaning: embedded ${run.embedded}, fresh ${run.fresh}, $${run.cost.toFixed(4)}${run.stopped ? `, stopped (${run.stopped})` : ''}`,
+        )
+      if (run.stopped)
+        throw new Error(
+          run.stopped === 'spend cap'
+            ? 'the key’s spend cap was reached'
+            : `one refresh spends $${REFRESH_BUDGET} at most, and that was spent`,
+        )
+    } finally {
+      space = vectorSpace(await readLedger(file), (key) => names.has(key))
+      counted = { tools: names.size, missing: names.size - space.keys.length }
+    }
+  }
+  const cancelRetry = () => {
+    if (retry) clearTimeout(retry.timer)
+    retry = null
+  }
+  const retryLater = () => {
+    if (stopped) return
+    const delay = retryDelays[Math.min(failures, retryDelays.length - 1)] ?? 60_000
+    failures += 1
+    const timer = setTimeout(() => {
+      retry = null
+      void refresh()
+    }, delay)
+    timer.unref?.()
+    retry = { timer, at: Date.now() + delay }
+  }
+  // One refresh at a time; a failed one keeps serving what the ledger holds and is tried again later
+  const refresh = () => {
+    cancelRetry()
+    running = running.then(rebuild).then(
+      () => {
+        failed = null
+        failures = 0
+      },
+      (error: unknown) => {
+        failed = (error instanceof Error ? error.message : String(error)).slice(0, 300)
+        log(`meaning: refresh failed (${failed})`)
+        retryLater()
+      },
+    )
+    return running
   }
   return {
-    // One refresh at a time; a failed one leaves the last good space serving
-    refresh: () => {
-      running = running
-        .then(rebuild)
-        .catch((error: unknown) =>
-          log(`meaning: refresh failed (${error instanceof Error ? error.message : String(error)})`),
-        )
-      return running
+    refresh,
+    status: () => ({ ...counted, failed, retryAt: retry ? new Date(retry.at).toISOString() : null }),
+    stop: () => {
+      stopped = true
+      cancelRetry()
     },
     names: async (q, limit) =>
       space?.keys.length ? nearest(space, await query(q), { limit }).map((match) => match.key) : [],

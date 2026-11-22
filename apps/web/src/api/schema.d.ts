@@ -2701,6 +2701,17 @@ export interface components {
                 from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             } | null;
+            /** @description For search, once it has a key: where its vectors stand. Null for the others. */
+            vectors: {
+                /** @description Live tools. */
+                tools: number;
+                /** @description Live tools with no vector yet: search finds them by their words only. */
+                missing: number;
+                /** @description What stopped the last refresh of the vectors, or null when it went through. */
+                failed: string | null;
+                /** @description When a refresh that failed or stopped is tried again by itself. */
+                retryAt: string | null;
+            } | null;
         };
         /** @description What to change; null takes a field back to .env. The key is sealed in the vault and never shown again. */
         AiJobPatch: {

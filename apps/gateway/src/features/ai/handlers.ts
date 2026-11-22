@@ -11,7 +11,7 @@ type Routes = typeof routes
 
 const withEnv = <T>(field: Field<T>, env: string | null) => ({ ...field, env })
 
-export const aiHandlers = ({ ai, vault }: Services) => {
+export const aiHandlers = ({ ai, vault, meaning }: Services) => {
   const view = async (origin: string) => {
     const [search, grouping, builds] = await Promise.all([ai.search(), ai.grouping(), ai.builds()])
     const names = ENV_NAMES.grouping
@@ -30,6 +30,7 @@ export const aiHandlers = ({ ai, vault }: Services) => {
           writerModel: null,
           deciderModel: null,
           deciderProtocol: null,
+          vectors: meaning && (meaning.ready?.() ?? true) ? (meaning.status?.() ?? null) : null,
         },
         {
           job: 'grouping' as const,
@@ -43,6 +44,7 @@ export const aiHandlers = ({ ai, vault }: Services) => {
           writerModel: withEnv(grouping.writerModel, names.writerModel),
           deciderModel: withEnv(grouping.deciderModel, names.deciderModel),
           deciderProtocol: withEnv(grouping.deciderProtocol, names.deciderProtocol),
+          vectors: null,
         },
         {
           job: 'builds' as const,
@@ -56,6 +58,7 @@ export const aiHandlers = ({ ai, vault }: Services) => {
           writerModel: withEnv(builds.writerModel, buildNames.writerModel),
           deciderModel: null,
           deciderProtocol: null,
+          vectors: null,
         },
       ],
       providers: Object.entries(PROVIDERS).map(([id, provider]) => ({

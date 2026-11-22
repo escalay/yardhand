@@ -231,6 +231,7 @@ export const createServices = async ({
       standouts: (q, pick) => current?.standouts(q, pick) ?? Promise.resolve(null),
       has: (name) => current?.has(name) ?? false,
       ready: () => Boolean(current),
+      status: () => current?.status?.() ?? { tools: 0, missing: 0, failed: null, retryAt: null },
     } satisfies MeaningSearch)
   /** Picks up a new search key: a fresh meaning index, filled in the background. */
   const searchKeyChanged = async () => {
@@ -238,6 +239,8 @@ export const createServices = async ({
     const key = (await ai.search()).key.value
     if (key === searchKey) return
     searchKey = key
+    // The old key's retries would write into the same ledger
+    current?.stop?.()
     current = key ? meaningWith(key) : null
     void current?.refresh()
   }
