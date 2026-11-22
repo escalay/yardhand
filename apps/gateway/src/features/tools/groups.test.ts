@@ -20,10 +20,16 @@ describe('groups by rules', () => {
   it('never pluralises the connection’s own name, nor a word with no plural', () => {
     const weather = { id: 'weather', title: 'weather' }
     expect(ruleGroupOf({ remoteName: 'get_weather' }, [], weather)).toEqual({ key: 'weather', title: 'Weather' })
-    expect(ruleGroupOf({ remoteName: 'list_notes' }, [], { id: 'desk', title: 'Desk notes' })).toEqual({
-      key: 'note',
-      title: 'Notes',
+    expect(ruleGroupOf({ remoteName: 'get_weather' }, [], { id: 'meteo', title: 'Weather' })).toEqual({
+      key: 'weather',
+      title: 'Weather',
     })
+    // Only the connection's whole name: a countable noun in a longer title keeps its plural
+    expect(ruleGroupOf({ remoteName: 'list_screens' }, [], { id: 'desk', title: 'Desk screen library' })).toEqual({
+      key: 'screen',
+      title: 'Screens',
+    })
+    expect(ruleGroupOf({ remoteName: 'list_emails' })).toEqual({ key: 'email', title: 'Emails' })
     expect(ruleGroupOf({ remoteName: 'getForecast' }, [], weather)).toEqual({ key: 'forecast', title: 'Forecasts' })
     expect(ruleGroupOf({ remoteName: 'get_weather' })).toEqual({ key: 'weather', title: 'Weather' })
     expect(ruleGroupOf({ remoteName: 'fetch_metadata' })).toEqual({ key: 'metadata', title: 'Metadata' })

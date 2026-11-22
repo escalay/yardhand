@@ -35,7 +35,7 @@ const singular = (word: string) =>
 
 /** Words with no plural: a group of them is named as they are. */
 const MASS = new Set(
-  'weather data metadata info information feedback health traffic content software hardware music media mail email search knowledge research money equipment inventory audio storage billing pricing security documentation help news'.split(
+  'weather data metadata info information feedback health traffic content software hardware music media mail search knowledge research money equipment inventory audio storage billing pricing security documentation help news'.split(
     ' ',
   ),
 )
@@ -52,11 +52,11 @@ const plural = (word: string) => {
 /** The connection a tool is grouped in: its id and title name it. */
 export type Connection = { id: string; title: string }
 
-/** A group's title: the connection's own word as it writes it when the noun is one of its name's, else the plural. */
+/** A group's title: the connection's name as it writes it when the noun is that whole name (one word), else the plural. */
 const titleOf = (word: string, connection?: Connection) => {
-  const own = connection ? [...wordsOf(connection.id), ...wordsOf(connection.title)] : []
-  const named = own.find((candidate) => singular(candidate) === word)
-  return named ? capital(named) : plural(word)
+  const names = connection ? [connection.id, connection.title.trim()] : []
+  const named = names.find((name) => /^[A-Za-z0-9]+$/.test(name) && singular(name.toLowerCase()) === word)
+  return named ? capital(named.toLowerCase()) : plural(word)
 }
 
 export const keyOf = (title: string) =>
