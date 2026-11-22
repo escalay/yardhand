@@ -21,7 +21,7 @@ import { RadioGroup, RadioGroupItem } from '@/ui/shadcn/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shadcn/select'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/shadcn/tooltip'
-import { BUILDS_CARD_ID, groupingKeySentElsewhere, KEY_HELP, sourceLabel } from './ai.rules'
+import { BUILDS_CARD_ID, groupingKeySentElsewhere, KEY_HELP, ownKeySentToGrouping, sourceLabel } from './ai.rules'
 import { ModelPicker } from './ModelPicker'
 import { SettingsGroup } from './SettingsGroup'
 
@@ -499,6 +499,12 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
                 <p className="text-xs text-pretty text-warn">
                   It runs on a provider or address of its own, so smart grouping’s key is sent there. Give it a key of
                   its own if that server should not have it.
+                </p>
+              ) : null}
+              {builds && ownKeySentToGrouping(job) ? (
+                <p className="text-xs text-pretty text-warn">
+                  Its key is its own but its address is smart grouping’s, so this key is sent to {job.baseUrl.value}.
+                  Give it a provider or address of its own if that server should not have it.
                 </p>
               ) : null}
             </Setting>

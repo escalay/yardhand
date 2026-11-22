@@ -39,8 +39,12 @@ type Job = Schemas['AiJob']
 export const sourceLabel = (from: Job['provider']['from']) =>
   from === 'settings' ? 'Set here' : from === 'env' ? '.env' : from === 'grouping' ? 'Smart grouping' : 'Default'
 
+const own = (from: Job['provider']['from']) => from === 'settings' || from === 'env'
+
 /** Build with AI runs on a provider or address of its own while its key is still smart grouping's. */
-export const groupingKeySentElsewhere = (job: Pick<Job, 'provider' | 'baseUrl' | 'key'>) => {
-  const own = (from: Job['provider']['from']) => from === 'settings' || from === 'env'
-  return job.key.from === 'grouping' && (own(job.provider.from) || own(job.baseUrl.from))
-}
+export const groupingKeySentElsewhere = (job: Pick<Job, 'provider' | 'baseUrl' | 'key'>) =>
+  job.key.from === 'grouping' && (own(job.provider.from) || own(job.baseUrl.from))
+
+/** Build with AI has a key of its own while its address is still smart grouping's. */
+export const ownKeySentToGrouping = (job: Pick<Job, 'provider' | 'baseUrl' | 'key'>) =>
+  own(job.key.from) && job.baseUrl.from === 'grouping'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { contextLine, groupingKeySentElsewhere, priceLine, sourceLabel } from './ai.rules'
+import { contextLine, groupingKeySentElsewhere, ownKeySentToGrouping, priceLine, sourceLabel } from './ai.rules'
 
 describe('AI settings', () => {
   it('says a model’s price and size in words', () => {
@@ -25,5 +25,15 @@ describe('AI settings', () => {
     expect(groupingKeySentElsewhere(job('settings', 'default', 'grouping'))).toBe(true)
     expect(groupingKeySentElsewhere(job('grouping', 'env', 'grouping'))).toBe(true)
     expect(groupingKeySentElsewhere(job('settings', 'default', 'settings'))).toBe(false)
+  })
+
+  it('warns when Build with AI’s own key goes to smart grouping’s address', () => {
+    const job = (provider: string, baseUrl: string, key: string) =>
+      ({ provider: { from: provider }, baseUrl: { from: baseUrl }, key: { from: key, set: true } }) as never
+    expect(ownKeySentToGrouping(job('grouping', 'grouping', 'settings'))).toBe(true)
+    expect(ownKeySentToGrouping(job('grouping', 'grouping', 'env'))).toBe(true)
+    expect(ownKeySentToGrouping(job('grouping', 'grouping', 'grouping'))).toBe(false)
+    expect(ownKeySentToGrouping(job('settings', 'default', 'settings'))).toBe(false)
+    expect(ownKeySentToGrouping(job('grouping', 'settings', 'settings'))).toBe(false)
   })
 })
