@@ -144,14 +144,24 @@ export const ownHandlers = ({ packs, tools, catalog, upstreams, listsChanged }: 
     }
   }
 
-  /** Judges the pack with this text in it, refuses what the text gets wrong, then saves it as the newest version. */
-  const save = async (pack: PackRow, kind: PackDocKind, name: string, markdown: string) => {
+  const takenBy = (pack: PackRow, name: string) =>
+    new ProblemError('conflict', {
+      detail: `${pack.title} already has a playbook called ${name}: PUT ${playbooksPath(pack)}/${name} replaces its text.`,
+    })
+
+  /**
+   * Judges the pack with this text in it, refuses what the text gets wrong, then saves it as the newest version; as a
+   * new playbook, only under a name no other save has taken meanwhile.
+   */
+  const save = async (pack: PackRow, kind: PackDocKind, name: string, markdown: string, { fresh = false } = {}) => {
     const before = await packStateOf(repos, pack)
     const body = kind === 'skill' ? skillBodyOf(markdown) : markdown
     const after = withDoc(before, kind, name, body)
     const path = docPathOf(kind, name)
     throwOnRefused(judge(before, after, [path]).refused)
-    await packs.saveDoc(pack.id, kind, name, { body, basedOn: basedOnOf(after, path), source: 'owner' })
+    const draft = { body, basedOn: basedOnOf(after, path), source: 'owner' as const }
+    if (!fresh) await packs.saveDoc(pack.id, kind, name, draft)
+    else if (!(await packs.createDoc(pack.id, kind, name, draft))) throw takenBy(pack, name)
     // A skill changes a tool's words too: read_resource says where the pack's skill is read
     listsChanged({ tools: kind === 'skill', prompts: true, resources: true })
   }
@@ -174,11 +184,8 @@ export const ownHandlers = ({ packs, tools, catalog, upstreams, listsChanged }: 
     requireOwner(c)
     const pack = await packOf(c.req.valid('param').name)
     const { name, markdown } = c.req.valid('json')
-    if (await packs.doc(pack.id, 'playbook', name))
-      throw new ProblemError('conflict', {
-        detail: `${pack.title} already has a playbook called ${name}: PUT ${playbooksPath(pack)}/${name} replaces its text.`,
-      })
-    await save(pack, 'playbook', name, markdown)
+    if (await packs.doc(pack.id, 'playbook', name)) throw takenBy(pack, name)
+    await save(pack, 'playbook', name, markdown, { fresh: true })
     return c.json(await playbookDetail(originOf(c), pack, name), 201, { location: `${playbooksPath(pack)}/${name}` })
   }
 

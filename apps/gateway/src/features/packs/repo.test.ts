@@ -1,14 +1,15 @@
+import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { migrate, testDb } from '../../kit/index.js'
 import { packsRepo } from './repo.js'
-import { PACKS_MIGRATIONS } from './schema.js'
+import { PACKS_MIGRATIONS, packDocs } from './schema.js'
 
 const repoWith = async () => {
   const db = await testDb()
   await migrate(db, 'packs', PACKS_MIGRATIONS)
   const packs = packsRepo(db)
   const id = await packs.create({ name: 'desk', title: 'Front desk', description: 'Greets people.' })
-  return { packs, id }
+  return { db, packs, id }
 }
 /** A read that starts some turns of the loop after a save did, so it lands between the save's statements. */
 const readAfter = async <T>(turns: number, read: () => Promise<T>) => {
@@ -85,6 +86,29 @@ describe('a pack’s documents', () => {
     expect(again).toEqual({ versionId: first.versionId, added: false })
     expect(await packs.docVersions(id, 'playbook', 'say-hello')).toHaveLength(1)
     expect((await packs.doc(id, 'playbook', 'say-hello'))?.basedOn).toEqual({ greet_from_desk: 'v2' })
+  })
+
+  it('makes a new document only under a name it has none of, however saves interleave', async () => {
+    const { packs, id } = await repoWith()
+    const made = await Promise.all(
+      Array.from({ length: 6 }, (_, turn) =>
+        packs.createDoc(id, 'playbook', 'say-hello', { ...hello, body: `Greet ${turn}.` }),
+      ),
+    )
+    const [won, ...more] = made.filter(Boolean)
+    expect(more).toEqual([])
+    const versions = await packs.docVersions(id, 'playbook', 'say-hello')
+    expect(versions.map((version) => version.id)).toEqual([won])
+    expect((await packs.doc(id, 'playbook', 'say-hello'))?.versionId).toBe(won)
+    // A name it already has is taken too
+    expect(await packs.createDoc(id, 'playbook', 'say-hello', hello)).toBeUndefined()
+  })
+
+  it('gives each new document its own place, however saves interleave', async () => {
+    const { db, packs, id } = await repoWith()
+    await Promise.all(['one', 'two', 'three', 'four'].map((name) => packs.saveDoc(id, 'playbook', name, hello)))
+    const rows = await db.select({ position: packDocs.position }).from(packDocs).where(eq(packDocs.packId, id))
+    expect(new Set(rows.map((row) => row.position)).size).toBe(4)
   })
 
   it('lists a pack’s documents in the order they were first saved, each pack its own', async () => {

@@ -148,6 +148,13 @@ describe('writing a pack’s playbooks', () => {
     expect((await write('desk', 'Say_Hello', 'Greet them.')).status).toBe(400)
   })
 
+  it('makes a playbook once when the same name is asked for at once', async () => {
+    const at = await Promise.all(Array.from({ length: 6 }, () => write('desk', 'same-name', 'Greet them.')))
+    expect(at.map((made) => made.status).sort()).toEqual([201, 409, 409, 409, 409, 409])
+    expect((await owner('/api/packs/desk/playbooks/same-name')).json.versions).toHaveLength(1)
+    expect((await owner('/api/packs/desk/playbooks/same-name', { method: 'DELETE' })).status).toBe(204)
+  })
+
   it('refuses a save with everything wrong in the text, each with its place', async () => {
     const bad = await write(
       'desk',

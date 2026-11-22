@@ -112,13 +112,33 @@ export const packsRepo = (db: Db) => {
   }
   const touch = (packId: string) =>
     db.update(packs).set({ updatedAt: new Date().toISOString() }).where(eq(packs.id, packId))
-  const nextPosition = async (table: typeof packTools | typeof packItems | typeof packDocs, packId: string) => {
+  const nextPosition = async (table: typeof packTools | typeof packItems, packId: string) => {
     const [row] = await db
       .select({ top: sql<number>`coalesce(max(${table.position}), -1)` })
       .from(table)
       .where(eq(table.packId, packId))
     return Number(row?.top ?? -1) + 1
   }
+  const versionOf = (packId: string, kind: PackDocKind, name: string, draft: PackDocDraft) => ({
+    id: `pdv_${randomUUID().replaceAll('-', '').slice(0, 16)}`,
+    packId,
+    kind,
+    name,
+    body: draft.body,
+    basedOn: JSON.stringify(draft.basedOn),
+    source: draft.source,
+    createdAt: new Date().toISOString(),
+  })
+  /** A document's row for its first version, placed after the pack's others in the statement that writes it. */
+  const docRowOf = (version: ReturnType<typeof versionOf>) => ({
+    packId: version.packId,
+    kind: version.kind,
+    name: version.name,
+    liveVersion: version.id,
+    position: sql<number>`(select coalesce(max(position), -1) + 1 from pack_docs where pack_id = ${version.packId})`,
+    createdAt: version.createdAt,
+    updatedAt: version.createdAt,
+  })
   const get = async (name: string) => (await db.select().from(packs).where(eq(packs.name, name)))[0]
   const byId = async (id: string) => (await db.select().from(packs).where(eq(packs.id, id)))[0]
   const formerName = async (name: string) => (await db.select().from(packNames).where(eq(packNames.name, name)))[0]
@@ -377,28 +397,36 @@ export const packsRepo = (db: Db) => {
         await db.update(packDocVersions).set({ basedOn }).where(eq(packDocVersions.id, had.versionId))
         return { versionId: had.versionId, added: false }
       }
-      const versionId = `pdv_${randomUUID().replaceAll('-', '').slice(0, 16)}`
-      const now = new Date().toISOString()
-      await db
-        .insert(packDocVersions)
-        .values({ id: versionId, packId, kind, name, body: draft.body, basedOn, source: draft.source, createdAt: now })
+      const version = versionOf(packId, kind, name, draft)
+      await db.insert(packDocVersions).values(version)
       await db
         .insert(packDocs)
-        .values({
-          packId,
-          kind,
-          name,
-          liveVersion: versionId,
-          position: had ? 0 : await nextPosition(packDocs, packId),
-          createdAt: now,
-          updatedAt: now,
-        })
+        .values(docRowOf(version))
         .onConflictDoUpdate({
           target: [packDocs.packId, packDocs.kind, packDocs.name],
-          set: { liveVersion: versionId, updatedAt: now },
+          set: { liveVersion: version.id, updatedAt: version.createdAt },
         })
       await touch(packId)
-      return { versionId, added: true }
+      return { versionId: version.id, added: true }
+    },
+    /**
+     * Makes a document under a name the pack has none of, and returns its version; undefined when the name is taken.
+     * The name is claimed in one statement, so of two makes at once one wins and the other's text is taken back out.
+     */
+    createDoc: async (packId: string, kind: PackDocKind, name: string, draft: PackDocDraft) => {
+      const version = versionOf(packId, kind, name, draft)
+      await db.insert(packDocVersions).values(version)
+      const claimed = await db
+        .insert(packDocs)
+        .values(docRowOf(version))
+        .onConflictDoNothing()
+        .returning({ name: packDocs.name })
+      if (!claimed.length) {
+        await db.delete(packDocVersions).where(eq(packDocVersions.id, version.id))
+        return undefined
+      }
+      await touch(packId)
+      return version.id
     },
     /** Removes a document with every version of it; false when the pack had none of that name. */
     removeDoc: async (packId: string, kind: PackDocKind, name: string) => {
