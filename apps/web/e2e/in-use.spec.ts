@@ -521,7 +521,7 @@ test('an input each person fills: the mode in the editor, one person’s value u
     .click()
   const row = page.getByRole('row', { name: /Lena/ })
   await expect(row).toContainText('city: Lisbon')
-  await row.getByRole('button', { name: "Lena's values" }).click()
+  await row.getByRole('button', { name: 'Lena’s values' }).click()
   const dialog = page.getByRole('dialog', { name: 'Lena’s values' })
   await dialog.getByLabel('city').fill('Porto')
   await dialog.getByRole('button', { name: 'Save values' }).click()

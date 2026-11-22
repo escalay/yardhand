@@ -145,7 +145,7 @@ const Row = ({
               size="xs"
               variant="ghost"
               disabled={busy}
-              aria-label={`${person.name}'s values`}
+              aria-label={`${person.name}’s values`}
               onClick={() => setEditing(true)}
             >
               Values
