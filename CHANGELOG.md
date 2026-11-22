@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/escalay/yardhand/compare/v0.6.2...v0.6.3) (2026-11-22)
+
+
+### Fixes
+
+* **clients:** point a pack address's 401 at its own resource metadata ([#44](https://github.com/escalay/yardhand/issues/44)) ([ed2e916](https://github.com/escalay/yardhand/commit/ed2e91645f035abbe600bea237f4e63ba1228ae6))
+
 ## [0.6.2](https://github.com/escalay/yardhand/compare/v0.6.1...v0.6.2) (2026-11-22)
 
 
