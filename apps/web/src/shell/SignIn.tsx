@@ -12,6 +12,7 @@ import { Field } from '@/ui/Field'
 import { Button } from '@/ui/shadcn/button'
 import { Input } from '@/ui/shadcn/input'
 import { sessionQuery } from './queries'
+import { approvalWaitingAt } from './sign-in.rules'
 
 export const SignIn = () => {
   const queries = useQueryClient()
@@ -23,6 +24,8 @@ export const SignIn = () => {
   })
   const byKey = session.data?.methods.includes('key') ?? true
   const byAccess = session.data?.methods.includes('access') ?? false
+  // Sent here by an app waiting for the owner's approval: signing in leads back to it
+  const approving = approvalWaitingAt(location) !== null
 
   // A new instance nobody owns yet: claim it with the code from the server's log
   if (session.data?.setup) return <Claim />
@@ -44,7 +47,9 @@ export const SignIn = () => {
             Sign in to <em>Yardhand</em>
           </h1>
           <p className="text-sm text-pretty text-muted-foreground">
-            Only the owner signs in here. Agents never do: they use the keys you give them.
+            {approving
+              ? 'An app is waiting for your approval. Sign in as the owner and you go straight back to it.'
+              : 'Only the owner signs in here. Agents never do: they use the keys you give them.'}
           </p>
         </div>
         {byKey ? (

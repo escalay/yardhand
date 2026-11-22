@@ -57,6 +57,11 @@ sequenceDiagram
 ### C. claude.ai connects for the first time
 
 The kit's OAuth server; you approve as the signed-in owner; the new client starts with the default allowlist.
+Signed in to the app, you can approve an app's sign-in (claude.ai, Cursor) without Cloudflare Access: the session
+counts at `/oauth/authorize` only, so agent claims (`/oauth/claim`) still need Access. Arriving from the app's site,
+the browser leaves the `SameSite=Strict` session cookie out, so a Continue page repeats the request from Yardhand's own
+(`features/session`). Until 0.7.0 each step writes a `sign-in` line to the log with what the app sent, never a secret
+(`features/session/sign-ins.ts`).
 
 ```mermaid
 sequenceDiagram
@@ -70,6 +75,7 @@ sequenceDiagram
   C->>G: POST /oauth/register (dynamic client registration)
   C->>G: GET /oauth/authorize with PKCE challenge
   G-->>Y: consent page, for the signed-in owner only
+  Y->>G: Continue (only when the app's site sent you without the session cookie)
   Y->>G: sign in (the owner key, or Cloudflare Access when it is in front)
   Y->>G: approve the client
   G->>G: create client with default allowlist and pins
