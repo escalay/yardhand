@@ -156,9 +156,10 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   ever read by its pack's id. Its pack's keys get it wherever they get a playbook, first and under the name the pack
   gave it: `GET /api/playbooks` (`upstream: null`, `pack` set; left out with `?upstream=`), as an MCP prompt, through
   `get_playbook`, in search hints and in the pack's guide. Filled in by the gateway: the arguments given, then the
-  pack's variables. Every `{{word}}` in a playbook or the skill is read and filled in, inside fenced code blocks too,
-  and there is no escape to keep one as written. It belongs to no connection, so none counts it and its reads are
-  logged with no upstream.
+  pack's variables. Every `{{word}}` in a playbook's text or the skill is read and filled in, inside fenced code
+  blocks too, and there is no escape to keep one as written. A playbook's front matter (title, description, an
+  argument's description) is not read for them: it is served as written. It belongs to no connection, so none
+  counts it and its reads are logged with no upstream.
 - **Pack skill**: the one `SKILL.md` of a pack (`PUT /api/packs/{name}/skill`), "Working with <Title>", in six
   sections. The pack stores the text only; the front matter and the heading are written from the pack
   (`skillFile`), at `skill://<pack>/SKILL.md` (`packSkillPathOf`), by the name the pack has now. Its keys read it

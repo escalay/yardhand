@@ -321,7 +321,7 @@ const readSkill = (state: PackState, variables: Variables, doc: PackStateDoc): D
   const text = readText(state, variables, path, doc, doc.markdown, [])
   const have = sectionsOf(doc.markdown)
   const missing = SKILL_SECTIONS.filter((section) => !have.includes(section)).map((section) =>
-    section.replace("'", '’'),
+    section.replaceAll("'", '’'),
   )
   const warning = (code: string, message: string): Finding => ({ level: 'warning', code, path, key: path, message })
   return {

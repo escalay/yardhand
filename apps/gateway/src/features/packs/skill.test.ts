@@ -32,6 +32,12 @@ describe('skillFile', () => {
     )
   })
 
+  it('fills a variable inside a code block too', () => {
+    expect(skillFile(pack(), '```\nfrom: {{desk}}\n```\n~~~\n{{desk}}\n~~~\n', { desk: 'the desk' })).toContain(
+      '```\nfrom: the desk\n```\n~~~\nthe desk\n~~~\n',
+    )
+  })
+
   it('passes the SDK’s rules for a pack with nothing said about it', async () => {
     expect(await listed(pack({ description: '' }))).toEqual({ name: 'desk', description: 'Working with Front desk.' })
   })
