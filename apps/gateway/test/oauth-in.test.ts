@@ -85,6 +85,16 @@ const browserOn = (app: App) => {
 }
 type Browser = ReturnType<typeof browserOn>
 
+const signInWithKey = async (browser: Browser) => {
+  const signedIn = await browser.send('/api/session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+    body: JSON.stringify({ key: OWNER }),
+  })
+  expect(signedIn.status).toBe(200)
+  expect(browser.jar.has('gw_session')).toBe(true)
+}
+
 /** An app registering itself, as claude.ai does before it sends the owner to approve it. */
 const register = async (app: App, name = 'Sample') => {
   const registered = await app.request('/oauth/register', {
@@ -226,5 +236,147 @@ describe('an app signing in to the gateway', () => {
     const client = await register(app)
     const code = await approve(browser, client.authorize, { 'cf-access-jwt-assertion': accessToken })
     await useAndRevoke(app, client, code)
+  })
+
+  it('signs in with the owner’s approval through their session, calls a tool over MCP and REST, refreshes, and revoke ends it', async () => {
+    const app = await gateway()
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    const client = await register(app)
+    const consent = await browser.send(client.authorize)
+    expect(await consent.text()).toContain('as you (the owner)')
+    const code = await approve(browser, client.authorize)
+    await useAndRevoke(app, client, code)
+  })
+
+  it('also takes the session where Access is in front', async () => {
+    const app = await gateway({ ACCESS_TEAM: ACCESS.team, ACCESS_AUD: ACCESS.audience })
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    const client = await register(app)
+    expect((await approve(browser, client.authorize)).length).toBeGreaterThan(0)
+  })
+})
+
+describe('the owner’s session at the approval pages', () => {
+  /** Every link on a page, as the browser reads it. */
+  const hrefsOf = (html: string) =>
+    [...html.matchAll(/href="([^"]*)"/g)].map((match) =>
+      (match[1] ?? '').replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code))).replaceAll('&amp;', '&'),
+    )
+
+  it('without a session or Access, authorize says sign in first and links to sign-in', async () => {
+    const app = await gateway()
+    const client = await register(app)
+    // Typed in, from this site, and cross-site once past the Continue page
+    for (const site of [null, 'same-origin', 'cross-site']) {
+      const query = site === 'cross-site' ? `${client.authorize}&hop=1` : client.authorize
+      const page = await app.request(query, { headers: site ? { 'sec-fetch-site': site } : {} })
+      expect(page.status).toBe(401)
+      expect(page.headers.get('cache-control')).toBe('no-store')
+      expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
+      const html = await page.text()
+      expect(html).toContain('Sign in to Yardhand first')
+      // Back to the same request once signed in, without the hop
+      expect(hrefsOf(html)).toEqual([`/app/sign-in?next=${encodeURIComponent(client.authorize)}`])
+    }
+  })
+
+  it('an approval posted from another site is refused', async () => {
+    const app = await gateway()
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    const client = await register(app)
+    const { action, body } = allowFormOf(await (await browser.send(client.authorize)).text())
+    const form = { 'content-type': 'application/x-www-form-urlencoded' }
+    for (const headers of [
+      { ...form, 'sec-fetch-site': 'cross-site' },
+      { ...form, 'sec-fetch-site': 'same-site' },
+      { ...form, origin: 'https://elsewhere.example.test' },
+      form,
+    ]) {
+      const posted = await browser.send(action, { method: 'POST', headers, body })
+      expect(posted.status).toBe(403)
+      expect(posted.headers.get('location')).toBeNull()
+    }
+    // The ticket was never used: the owner's own approval still goes through
+    const allowed = await browser.send(action, {
+      method: 'POST',
+      headers: { ...form, 'sec-fetch-site': 'same-origin' },
+      body,
+    })
+    expect(new URL(allowed.headers.get('location') ?? '').searchParams.get('code')).toBeTruthy()
+  })
+
+  it('the session is not the owner at /oauth/claim', async () => {
+    const app = await gateway()
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    const registered = await app.request('/agent/identity', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'service_auth', login_hint: 'owner@example.test' }),
+    })
+    const { claim } = (await registered.json()) as { claim: { verification_uri: string; user_code: string } }
+    const claimPage = new URL(claim.verification_uri)
+    expect((await browser.send(`${claimPage.pathname}${claimPage.search}`)).status).toBe(401)
+    const typed = await browser.send('/oauth/claim', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-site': 'same-origin' },
+      body: new URLSearchParams({
+        claim_attempt_token: claimPage.searchParams.get('claim_attempt_token') ?? '',
+        user_code: claim.user_code,
+      }).toString(),
+    })
+    expect(typed.status).toBe(403)
+  })
+
+  it('an x-gateway-session header sent in is not a session', async () => {
+    const app = await gateway()
+    const client = await register(app)
+    const said = await app.request('/api/session', { headers: { 'x-gateway-session': '1' } })
+    expect(((await said.json()) as { signedIn: boolean }).signedIn).toBe(false)
+    expect((await app.request(client.authorize, { headers: { 'x-gateway-session': '1' } })).status).toBe(401)
+    // A session that no longer exists is not one either
+    expect((await app.request(client.authorize, { headers: { cookie: 'gw_session=made-up' } })).status).toBe(401)
+  })
+
+  it('arriving cross-site without the cookie, the owner gets a Continue page whose link keeps the path and query; following it with the cookie shows the consent', async () => {
+    const app = await gateway()
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    const client = await register(app)
+    // claude.ai sends the owner here: a cross-site navigation, so the browser withholds the SameSite=Strict cookie
+    const arrived = await app.request(`${client.authorize}&hop=0`, { headers: { 'sec-fetch-site': 'cross-site' } })
+    expect(arrived.status).toBe(200)
+    expect(arrived.headers.get('cache-control')).toBe('no-store')
+    expect(arrived.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
+    const html = await arrived.text()
+    expect(html).toContain('Continue to approve this app in Yardhand')
+    const [link] = hrefsOf(html)
+    const followed = new URL(link ?? '', 'http://localhost')
+    expect(followed.pathname).toBe('/oauth/authorize')
+    expect(followed.searchParams.getAll('hop')).toEqual(['1'])
+    followed.searchParams.delete('hop')
+    expect(Object.fromEntries(followed.searchParams)).toEqual(
+      Object.fromEntries(new URL(client.authorize, 'http://localhost').searchParams),
+    )
+    // The click is a same-origin navigation: the cookie goes with it
+    const consent = await browser.send(link ?? '', { headers: { 'sec-fetch-site': 'same-origin' } })
+    expect(consent.status).toBe(200)
+    expect(await consent.text()).toContain('Allow <strong>Sample</strong>')
+    // With the cookie, or Access, there is nothing to continue past
+    const direct = await browser.send(client.authorize, { headers: { 'sec-fetch-site': 'cross-site' } })
+    expect(await direct.text()).toContain('Allow <strong>Sample</strong>')
+  })
+
+  it('escapes the request in the Continue page’s link', async () => {
+    const app = await gateway()
+    const page = await app.request('/oauth/authorize?state=%22%3E%3Cscript%3Ealert(1)%3C/script%3E', {
+      headers: { 'sec-fetch-site': 'cross-site' },
+    })
+    const html = await page.text()
+    expect(html).not.toContain('<script>')
+    expect(hrefsOf(html)[0]).toMatch(/^\/oauth\/authorize\?/)
   })
 })

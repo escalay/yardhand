@@ -15,7 +15,7 @@ import { packChoice, withPackAddresses } from './features/clients/pack-choice.js
 import { callerOf, isOwner } from './features/clients/principals.js'
 import { FEATURES } from './features/index.js'
 import { mountPackDocs } from './features/packs/docs.js'
-import { createSessionAuth, sessionFeature, type Unclaimed } from './features/session/index.js'
+import { createSessionAuth, kitOwner, sessionFeature, type Unclaimed } from './features/session/index.js'
 import { sessionsRepo } from './features/session/repo.js'
 import type { MeaningSearch } from './features/tools/meaning.js'
 import { sealedGuardStore } from './features/vault/answers.js'
@@ -104,7 +104,8 @@ export const createApp = async ({
         name: 'Yardhand',
         signingKey: env.OAUTH_SIGNING_KEY,
         store: await dbOAuthStore(db),
-        owner: access ? accessOwner(access) : async () => null,
+        // The owner's own session approves an app's sign-in too; claims and device codes need Access
+        owner: async (c) => (await kitOwner(sessions)(c)) ?? (access ? await accessOwner(access)(c) : null),
       })
     : undefined
   const app = createAgentApi({

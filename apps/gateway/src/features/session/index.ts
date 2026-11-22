@@ -127,6 +127,71 @@ const sameSite = (c: Context) => {
 const secureOf = (c: Context) =>
   new URL(c.req.url).protocol === 'https:' || c.req.header('x-forwarded-proto') === 'https'
 
+/** Who approves on the kit's pages when the session cookie is what signed them in. */
+const SESSION_OWNER = 'the owner'
+const AUTHORIZE = '/oauth/authorize'
+
+/** The owner when the request carries a live session cookie, read from the cookie itself and never a header. */
+export const sessionOwner = (sessions: SessionsRepo) => async (c: Context) => {
+  const token = getCookie(c, COOKIE)
+  return token && (await sessions.valid(token)) ? SESSION_OWNER : null
+}
+
+/**
+ * The session for the kit's `owner` hook: only at /oauth/authorize, and a POST there only from this site. The claim
+ * and device pages stay with Access, so a session never approves an agent by a code.
+ */
+export const kitOwner = (sessions: SessionsRepo) => {
+  const owner = sessionOwner(sessions)
+  return async (c: Context) => (c.req.path === AUTHORIZE && (SAFE.has(c.req.method) || sameSite(c)) ? owner(c) : null)
+}
+
+const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)
+
+/** A small page of the gateway's own on the way to approving an app: never cached, never framed. */
+const pageOf = (status: 200 | 401, title: string, body: string) =>
+  new Response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title>
+<style>:root{color-scheme:light dark}body{margin:0;font:16px/1.5 Inter,ui-sans-serif,system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;padding:16px}main{max-width:28rem}h1{font-size:20px;font-weight:400;margin:0 0 8px}a{display:inline-block;margin-top:12px;padding:10px 16px;border-radius:8px;background:CanvasText;color:Canvas;text-decoration:none}</style></head><body><main>${body}</main></body></html>`,
+    {
+      status,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+        'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+      },
+    },
+  )
+
+/**
+ * The session cookie is SameSite=Strict, so a browser sent here by claude.ai or ChatGPT (a cross-site navigation)
+ * leaves it out. One click on this page is a same-origin navigation to the same request, and carries it.
+ */
+const continuePage = (url: URL) => {
+  const next = new URL(url)
+  next.searchParams.set('hop', '1')
+  return pageOf(
+    200,
+    'Continue to Yardhand',
+    `<h1>Continue to approve this app in Yardhand</h1><p>An app asked to use this gateway. Continue to see what it asks for and approve it, signed in as the owner.</p><a href="${escapeHtml(next.pathname + next.search)}">Continue</a>`,
+  )
+}
+
+/** No owner at the consent page: a way to sign in that comes back to this same request. */
+const signInFirstPage = (url: URL) => {
+  const back = new URL(url)
+  back.searchParams.delete('hop')
+  return pageOf(
+    401,
+    'Sign in to Yardhand first',
+    `<h1>Sign in to Yardhand first</h1><p>Approving an app needs you signed in as the owner. Sign in, and you come back here to approve it.</p><a href="/app/sign-in?next=${escapeHtml(encodeURIComponent(back.pathname + back.search))}">Sign in</a>`,
+  )
+}
+
+const fromAccess = (request: Request) =>
+  request.headers.has('cf-access-jwt-assertion') ||
+  /(?:^|;\s*)CF_Authorization=/.test(request.headers.get('cookie') ?? '')
+
 /**
  * The session layer: a stand-in owner key that only this process knows joins the kit's key map, and a request with
  * a valid session cookie (and no credential of its own) is sent on carrying it. Writes must come from this site.
@@ -134,24 +199,45 @@ const secureOf = (c: Context) =>
 export const createSessionAuth = ({ keys, sessions }: { keys: Map<string, string>; sessions: SessionsRepo }) => {
   const standIn = randomBytes(32).toString('base64url')
   keys.set(hashApiKey(standIn), SESSION_KEY_NAME)
+  const carrying = async (request: Request) => {
+    const token = /(?:^|;\s*)gw_session=([^;]+)/.exec(request.headers.get('cookie') ?? '')?.[1]
+    if (!token || request.headers.has('authorization') || !(await sessions.valid(token))) return request
+    const site = request.headers.get('sec-fetch-site')
+    const origin = request.headers.get('origin')
+    const fromHere = site
+      ? site === 'same-origin'
+      : Boolean(origin) && new URL(origin as string).host === new URL(request.url).host
+    if (!SAFE.has(request.method) && !fromHere) return request
+    const headers = new Headers(request.headers)
+    headers.set('authorization', `Bearer ${standIn}`)
+    headers.set('x-gateway-session', '1')
+    return new Request(request, { headers })
+  }
   return {
     /** Wraps the app's fetch: a cookie becomes the owner, before any route or the kit's auth sees the request. */
     wrap:
       (fetch: (request: Request, ...rest: never[]) => Response | Promise<Response>) =>
-      async (request: Request, ...rest: never[]) => {
-        const token = /(?:^|;\s*)gw_session=([^;]+)/.exec(request.headers.get('cookie') ?? '')?.[1]
-        if (!token || request.headers.has('authorization') || !(await sessions.valid(token)))
-          return fetch(request, ...rest)
-        const site = request.headers.get('sec-fetch-site')
-        const origin = request.headers.get('origin')
-        const fromHere = site
-          ? site === 'same-origin'
-          : Boolean(origin) && new URL(origin as string).host === new URL(request.url).host
-        if (!SAFE.has(request.method) && !fromHere) return fetch(request, ...rest)
-        const headers = new Headers(request.headers)
-        headers.set('authorization', `Bearer ${standIn}`)
-        headers.set('x-gateway-session', '1')
-        return fetch(new Request(request, { headers }), ...rest)
+      async (sent: Request, ...rest: never[]) => {
+        // Only this layer says a request came by a session
+        let request = sent
+        if (request.headers.has('x-gateway-session')) {
+          const headers = new Headers(request.headers)
+          headers.delete('x-gateway-session')
+          request = new Request(request, { headers })
+        }
+        const url = new URL(request.url)
+        const authorizing = request.method === 'GET' && url.pathname === AUTHORIZE
+        if (
+          authorizing &&
+          request.headers.get('sec-fetch-site') === 'cross-site' &&
+          !/(?:^|;\s*)gw_session=/.test(request.headers.get('cookie') ?? '') &&
+          !fromAccess(request) &&
+          url.searchParams.get('hop') !== '1'
+        )
+          return continuePage(url)
+        const answer = await fetch(await carrying(request), ...rest)
+        // The kit's own page here says only "sign in first": this one says where
+        return authorizing && answer.status === 401 ? signInFirstPage(url) : answer
       },
   }
 }

@@ -2,11 +2,13 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
 import { createRootRouteWithContext, Link, Outlet, useRouterState } from '@tanstack/react-router'
+import { useEffect } from 'react'
 import { ApiError } from '@/api/client'
 import { AppShell } from '@/shell/AppShell'
 import { LiveProvider } from '@/shell/live'
 import { meQuery } from '@/shell/queries'
 import { SignIn } from '@/shell/SignIn'
+import { approvalWaitingAt } from '@/shell/sign-in.rules'
 import { Empty } from '@/ui/Empty'
 import { Page } from '@/ui/Page'
 import { Button } from '@/ui/shadcn/button'
@@ -17,7 +19,12 @@ const Root = () => {
   const me = useQuery({ ...meQuery, retry: false })
   // The guided setup is a page of its own, without the tabs
   const bare = useRouterState({ select: (state) => state.location.pathname.startsWith('/setup') })
-  if (me.isPending) return <div className="min-h-svh" aria-busy="true" />
+  // An app's approval that sent the owner to sign in: back to it once they are
+  const next = me.data?.owner ? approvalWaitingAt(location) : null
+  useEffect(() => {
+    if (next) location.replace(next)
+  }, [next])
+  if (me.isPending || next) return <div className="min-h-svh" aria-busy="true" />
   if (me.error instanceof ApiError && (me.error.status === 401 || me.error.status === 403)) return <SignIn />
   if (me.error)
     return (

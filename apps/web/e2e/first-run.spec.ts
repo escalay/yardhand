@@ -21,6 +21,19 @@ test('refuses a wrong key and welcomes the owner', async ({ page }) => {
   await expect(page.getByText('0 of 5 done')).toBeVisible()
 })
 
+test('signing in for an app’s approval goes back to it, and only there', async ({ page }) => {
+  const approval = '/oauth/authorize?client_id=x&state=s'
+  await page.goto(`/app/sign-in?next=${encodeURIComponent(approval)}`)
+  await expect(page.getByText('An app is waiting for your approval')).toBeVisible()
+  await page.getByLabel('Owner key').fill(demo().ownerKey)
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.waitForURL((url) => url.pathname + url.search === approval)
+  // Signed in, a next that leads off this gateway is not followed
+  await page.goto(`/app/sign-in?next=${encodeURIComponent('https://elsewhere.example.test/oauth/authorize?x=1')}`)
+  await expect(page.getByText('Nothing lives at this address')).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe('/app/sign-in')
+})
+
 test('the whole first-run path, to the first agent call', async ({ page, request }) => {
   const { mcp } = demo()
   await signIn(page, demo())
