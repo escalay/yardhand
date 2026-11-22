@@ -645,3 +645,30 @@ describe('the sign-in log', () => {
     }
   })
 })
+
+describe('a pack address asks for sign-in at its own resource', () => {
+  it('points the 401 at the pack address’s metadata, whose resource is the address asked', async () => {
+    const app = await gateway()
+    const made = await app.request('/api/packs', {
+      method: 'POST',
+      headers: bearer(OWNER),
+      body: JSON.stringify({ name: 'loud', title: 'Loud' }),
+    })
+    expect(made.status).toBe(201)
+    for (const [address, metadata] of [
+      ['/p/loud/mcp', '/.well-known/oauth-protected-resource/p/loud/mcp'],
+      ['/mcp', '/.well-known/oauth-protected-resource/mcp'],
+    ] as const) {
+      const refused = await app.request(address, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+      })
+      expect(refused.status).toBe(401)
+      const pointer = /resource_metadata="([^"]+)"/.exec(refused.headers.get('www-authenticate') ?? '')?.[1] ?? ''
+      expect(new URL(pointer).pathname).toBe(metadata)
+      const document = (await (await app.request(new URL(pointer).pathname)).json()) as { resource: string }
+      expect(new URL(document.resource).pathname).toBe(address)
+    }
+  })
+})

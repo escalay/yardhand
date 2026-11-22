@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import type { Model } from './features/ai/model.js'
 import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { withPlaybookQuery } from './features/catalog/query.js'
-import { packChoice, withPackAddresses } from './features/clients/pack-choice.js'
+import { packBaseOf, packChoice, withPackAddresses } from './features/clients/pack-choice.js'
 import { callerOf, isOwner } from './features/clients/principals.js'
 import { FEATURES } from './features/index.js'
 import { mountPackDocs } from './features/packs/docs.js'
@@ -32,6 +32,7 @@ import {
   dbOAuthStore,
   frontDoorOpen,
   migrate,
+  originOf,
   parseApiKeys,
   rateLimit,
   serveFrontDoor,
@@ -130,7 +131,15 @@ export const createApp = async ({
         ...(hasWeb ? [...frontDoorOpen(web), ...pages] : []),
       ],
     },
-    oauth,
+    // A 401 at a pack's address points at that address's own metadata, whose `resource` is the URL asked (RFC 9728)
+    oauth: oauth && {
+      ...oauth,
+      resourceMetadataFor: (c) => {
+        const base = packBaseOf()
+        if (!base) return oauth.resourceMetadataFor(c)
+        return `${originOf(c)}/.well-known/oauth-protected-resource${base}${c.req.path.startsWith('/mcp') ? '/mcp' : ''}`
+      },
+    },
     // An answer kept for an `Idempotency-Key` can hold a key shown once: it is kept sealed
     guards: { store: await sealedGuardStore(db, parseMasterKey(env.GATEWAY_MASTER_KEY)) },
   })
