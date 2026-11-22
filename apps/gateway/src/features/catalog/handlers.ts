@@ -178,12 +178,9 @@ export const catalogHandlers = ({ catalog, upstreams, principals, reads, calls, 
         })
       }
     const via = viaOf(c)
-    // MCP asks in-process with `arguments` only, and is told in its own words
-    const rest =
-      via === 'mcp'
-        ? undefined
-        : { query: queryArgumentsOf(), address: `${originOf(c)}${packBaseOf()}${PLAYBOOKS_PATH}` }
-    const read = await reads.playbook({ principal, via }, name, args, rest)
+    // MCP asks in-process with `arguments` only, and is told in its own words: no address
+    const address = via === 'mcp' ? undefined : `${originOf(c)}${packBaseOf()}${PLAYBOOKS_PATH}`
+    const read = await reads.playbook({ principal, via }, name, args, { query: queryArgumentsOf(), address })
     return c.json(
       {
         name: read.name,

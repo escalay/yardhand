@@ -342,6 +342,12 @@ describe('a pack’s own playbooks over REST', () => {
       200,
       '1. Run `greet_from_desk` with `to` set to Ada, at the front door.\n2. Say it back with `fixture.echo`, sounding glad.\n',
     ])
+    // Over a real connection, at the pack's address
+    const served = await fetch(`${origin}${path}?guest=Sam`, { headers: { authorization: `Bearer ${ada.key}` } })
+    expect([served.status, ((await served.json()) as any).messages?.[0].content.text]).toEqual([
+      200,
+      '1. Run `greet_from_desk` with `to` set to Sam, at the front door.\n2. Say it back with `fixture.echo`, sounding .\n',
+    ])
     const unknown = await at(ada.key, `${path}?guest=Sam&colour=red`)
     expect([unknown.status, unknown.json.detail]).toEqual([
       400,

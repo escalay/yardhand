@@ -31,10 +31,11 @@ const GATEWAY_LINK = /^gateway:\/\/u\/([a-z0-9][a-z0-9-]{0,39})\/(.+)$/
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 /**
- * A playbook asked for over REST: the arguments given as their own query parameters (`queryArgumentsOf`), and where
- * the caller reads playbooks, `https://gw.example.com/p/<pack>/api/playbooks`, to show a use that works.
+ * A playbook asked for over REST: the arguments given as their own query parameters (`queryArgumentsOf`), and, but
+ * for MCP's own asks, where the caller reads playbooks (`https://gw.example.com/p/<pack>/api/playbooks`) to show a
+ * use that works.
  */
-export type RestUse = { query: Map<string, string[]>; address: string }
+export type RestUse = { query: Map<string, string[]>; address?: string }
 
 export type ManualRead = {
   id: string
@@ -234,7 +235,7 @@ export const createReads = ({
     const value = (argument: string) => (Object.hasOwn(args, argument) ? args[argument]?.trim() : undefined)
     const missing = wanted.filter((arg) => arg.required && !value(arg.name)).map((arg) => arg.name)
     if (!missing.length) return { args, problem: null }
-    const form = rest
+    const form = rest?.address
       ? ` Send each as its own query parameter: GET ${rest.address}/${encodeURIComponent(name)}/messages?${wanted
           .filter((arg) => arg.required || value(arg.name))
           .map(
@@ -273,7 +274,7 @@ export const createReads = ({
     return { id, name, result }
   }
 
-  /** A playbook filled in; `rest` when it was asked for over REST, with any arguments given as query parameters. */
+  /** A playbook filled in; `rest` when it was asked for by the route, with any arguments given as query parameters. */
   const playbook = async (
     context: Context,
     name: string,

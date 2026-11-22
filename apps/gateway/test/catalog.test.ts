@@ -9,6 +9,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { SkillsClient } from '@modelcontextprotocol/client/ext/skills'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
+import { VIA_HEADER } from '../src/features/calls/handlers.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
 import { startUpstream } from './fixtures/upstream.js'
 
@@ -197,6 +198,22 @@ describe('reads, over REST', () => {
     // A playbook this key can't read is not found, whatever it is asked with
     expect((await api(elsewhereKey, `${path}?topic=tides`)).status).toBe(404)
     expect((await api(agentKey, '/api/playbooks/fixture-nothing/messages?topic=tides')).status).toBe(404)
+  })
+
+  it('reads them over a real connection too, and never drops them for a caller that says it came by MCP', async () => {
+    const path = '/api/playbooks/fixture-say-it-back/messages'
+    const answer = await fetch(`${origin}${path}?topic=tides`, { headers: { authorization: `Bearer ${agentKey}` } })
+    const json = (await answer.json()) as any
+    expect([answer.status, json.messages?.[0].content.text]).toEqual([200, 'Use echo with "tides", then shout it.'])
+    const asMcp = async (query: string) => {
+      const response = await app.request(`${path}?${query}`, {
+        headers: { authorization: `Bearer ${agentKey}`, [VIA_HEADER]: 'mcp' },
+      })
+      const body = (await response.json()) as any
+      return [response.status, body.detail ?? body.messages?.[0].content.text]
+    }
+    expect(await asMcp('topic=rain')).toEqual([200, 'Use echo with "rain", then shout it.'])
+    expect(await asMcp('topik=rain')).toEqual([400, 'Unknown query parameter topik. Allowed here: arguments, topic.'])
   })
 
   it('keeps the MCP refusal as it was: no address to send', async () => {
