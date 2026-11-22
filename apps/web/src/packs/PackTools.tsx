@@ -10,6 +10,7 @@ import {
   IconCopyPlus,
   IconPencil,
   IconPlus,
+  IconSparkles,
   IconX,
 } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -246,12 +247,15 @@ export const PackTools = ({
   pack,
   titleOf,
   onPatch,
+  onBuild,
   adding,
   onAdding,
 }: {
   pack: Pack
   titleOf: (playbook: string) => string
   onPatch: (body: Schemas['PackPatch']) => Promise<unknown>
+  /** Build the empty pack with AI, from what it is for and a few example tasks. */
+  onBuild: () => void
   /** The dialog that adds tools is open: kept in the address, so the Overview can lead straight to it. */
   adding: boolean
   onAdding: (open: boolean) => void
@@ -299,13 +303,19 @@ export const PackTools = ({
             </ul>
           ) : (
             <p className="px-5 py-6 text-sm text-muted-foreground">
-              No tools yet. Add a playbook and the tools it uses come with it, or pick them yourself.
+              No tools yet. Add a playbook and the tools it uses come with it, pick them yourself, or build it with AI
+              from what it is for and a few example tasks.
             </p>
           )}
-          <div className="border-t border-border px-5 py-3">
+          <div className="flex flex-wrap gap-2 border-t border-border px-5 py-3">
             <Button size="sm" variant={pack.tools.length ? 'ghost' : 'primary'} onClick={() => onAdding(true)}>
               <IconPlus /> Add tools
             </Button>
+            {pack.tools.length ? null : (
+              <Button size="sm" variant="muted" onClick={onBuild}>
+                <IconSparkles /> Build with AI
+              </Button>
+            )}
           </div>
         </div>
       </Section>

@@ -1,7 +1,8 @@
 /**
  * Packs: the board, one pack, the people it is shared with, what a playbook uses, what to recheck in the packs, a
  * pack as its keys get it (where it is reached, what a search of it finds, how many tools it lists), and what is
- * written for it: a playbook of its own or its skill with its text and versions, and a check of a draft.
+ * written for it: a playbook of its own or its skill with its text and versions, and a check of a draft; and a Build
+ * or Refresh with AI: its estimate, and the build itself while it runs and once it has a proposal.
  */
 import { queryOptions } from '@tanstack/react-query'
 import { api, type Schemas, unwrap } from '@/api/client'
@@ -91,4 +92,21 @@ export const packCheckQuery = (pack: string, draft: Schemas['PackCheckInput']) =
     queryFn: () => unwrap(api.POST('/api/packs/{name}/checks', { params: { path: { name: pack } }, body: draft })),
     staleTime: 0,
     gcTime: 0,
+  })
+
+/** What a Build or Refresh with AI is likely to cost, for these tasks. Nothing is asked of the model. */
+export const buildEstimateQuery = (pack: string, body: Schemas['PackBuildRequest']) =>
+  queryOptions({
+    queryKey: ['pack', pack, 'build-estimate', body],
+    queryFn: () => unwrap(api.POST('/api/packs/{name}/builds/estimate', { params: { path: { name: pack } }, body })),
+    staleTime: 60_000,
+    retry: false,
+  })
+
+/** One build, asked again every 2 s while it runs: there is no build event to follow. */
+export const buildQuery = (pack: string, id: string) =>
+  queryOptions({
+    queryKey: ['pack', pack, 'build', id],
+    queryFn: () => unwrap(api.GET('/api/packs/{name}/builds/{id}', { params: { path: { name: pack, id } } })),
+    refetchInterval: (query) => (query.state.data?.status === 'running' ? 2000 : false),
   })

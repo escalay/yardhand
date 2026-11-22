@@ -340,6 +340,13 @@ describe('a pack’s page in the address', () => {
     expect(parsePackTab({ tab: 'keys', share: true })).toEqual({ tab: 'people', share: true })
     expect(parsePackTab({ share: 'yes' })).toEqual({})
   })
+
+  it('opens a build’s proposal in place of the parts', () => {
+    expect(parsePackTab({ build: 'pb_0123456789abcdef' })).toEqual({ build: 'pb_0123456789abcdef' })
+    expect(parsePackTab({ tab: 'people', build: 'pb_1' })).toEqual({ build: 'pb_1' })
+    expect(parsePackTab({ build: '' })).toEqual({})
+    expect(parsePackTab({ build: 42 })).toEqual({})
+  })
 })
 
 describe('sharing a pack', () => {

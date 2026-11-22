@@ -32,6 +32,10 @@ export class ApiError extends Error {
     readonly status: number,
     message: string,
     readonly errors: { path: string; message: string }[] = [],
+    /** The problem's `code`: `spend_cap`, `too_many_requests`, … */
+    readonly code?: string,
+    /** The seconds `Retry-After` gives, when it does. */
+    readonly retryAfter?: number,
   ) {
     super(message)
   }
@@ -43,12 +47,15 @@ export const unwrap = async <Data>(request: Promise<{ data?: Data; error?: unkno
   if (response.status === 204) return data as Data
   if (data === undefined || !response.ok) {
     const problem = error as
-      | { detail?: string; title?: string; errors?: { path: string; message: string }[] }
+      | { detail?: string; title?: string; code?: string; errors?: { path: string; message: string }[] }
       | undefined
+    const retryAfter = Number(response.headers?.get('retry-after'))
     throw new ApiError(
       response.status,
       problem?.detail ?? problem?.title ?? `${response.status} ${response.statusText}`,
       problem?.errors ?? [],
+      problem?.code,
+      retryAfter > 0 ? retryAfter : undefined,
     )
   }
   return data
