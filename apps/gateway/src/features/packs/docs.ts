@@ -160,6 +160,8 @@ export const packGuide = ({
     'Over MCP the tools below are also listed directly, to call as they are; a key with pins of its own lists only those. Tools marked [changes things] need a key with write scope.',
     ...(readOnly ? ['This key is read-only: tools that change things are left out.'] : []),
     '',
+    "The pack sets some inputs of its tools. An input the pack fills itself is not in the tool's schema: leave it out, a call that sends it is refused (400). An input the pack gives a default shows that default in the schema; send your own value to replace it.",
+    '',
     `## Tools (${tools.length})`,
     '',
     ...(tools.length

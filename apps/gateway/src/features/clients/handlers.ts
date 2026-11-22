@@ -240,6 +240,14 @@ export const clientsHandlers = ({
     if (row.revokedAt) throw new ProblemError('gone', { detail: `Client ${id} was revoked; make a new one.` })
     const { packs: packNamesIn, pack: packName, expiresIn, ...change } = c.req.valid('json')
     const repacked = packNamesIn || packName ? await repackedOf(row, packNamesIn, packName) : null
+    // Extending a pack key none of whose packs is left would open nothing
+    if (expiresIn && row.packId && !repacked) {
+      const left = await Promise.all((await clients.packsOf(row)).map((packId) => packs.byId(packId)))
+      if (!left.some(Boolean))
+        throw new ProblemError('conflict', {
+          detail: `${row.name}’s pack was removed, so extending the key would open nothing: make a new key, or give this one a pack with PATCH ${PATH}/${id} {"packs":["<name>"],"expiresIn":"${expiresIn}"}.`,
+        })
+    }
     // A pack key's pins are checked against the packs this change leaves it with
     await (row.packId
       ? checkPackPins(change.pins, repacked?.ids ?? (await clients.packsOf(row)))

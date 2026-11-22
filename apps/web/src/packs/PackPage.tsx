@@ -401,7 +401,7 @@ export const PackPage = ({
             <span>{holdsLine(data.counts)}</span>
             {data.flags ? (
               <span className="flex items-center gap-1 text-foreground">
-                <IconAlertTriangle className="size-4 text-warn" /> {data.flags} wording{data.flags === 1 ? '' : 's'} to
+                <IconAlertTriangle className="size-4 text-warn" /> {data.flags} tool{data.flags === 1 ? '' : 's'} to
                 recheck
               </span>
             ) : null}

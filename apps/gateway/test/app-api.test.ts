@@ -505,6 +505,63 @@ describe('what the pack page stands on', () => {
     expect((await owner('/api/packs/nope/setup')).status).toBe(404)
   })
 
+  it('gives the Inputs editor every input with its mode, and the Variables card its list', async () => {
+    const plain = (await owner('/api/packs/loud')).json
+    expect(plain).toMatchObject({ variables: [], findings: [] })
+    expect(plain.tools[0]).toMatchObject({
+      name: 'fixture.echo',
+      fixed: {},
+      defaults: {},
+      inputs: [{ name: 'text', mode: 'agent', value: null, resolved: null, required: true, problem: null, note: null }],
+    })
+    const set = await owner('/api/packs/loud/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'opening', value: 'hello', description: 'What to say first.' }] },
+    })
+    expect(set.status).toBe(200)
+    const entry = await owner('/api/packs/loud/tools/fixture.echo', {
+      method: 'PATCH',
+      body: { defaults: { text: '{{opening}}, {{first_name}}' } },
+    })
+    expect(entry.json).toMatchObject({
+      defaults: { text: '{{opening}}, {{first_name}}' },
+      inputs: [
+        {
+          name: 'text',
+          mode: 'default',
+          value: '{{opening}}, {{first_name}}',
+          resolved: 'hello, {{first_name}}',
+          required: true,
+          problem: null,
+          note: 'no variable first_name: sent as written',
+        },
+      ],
+    })
+    const page = (await owner('/api/packs/loud')).json
+    expect(page.variables).toEqual([
+      { name: 'opening', value: 'hello', description: 'What to say first.', usedBy: ['fixture.echo'] },
+    ])
+    expect(page.findings).toEqual([
+      {
+        level: 'warning',
+        code: 'not_a_variable',
+        path: 'tools.fixture.echo.defaults.text',
+        message: 'no variable first_name: sent as written',
+      },
+    ])
+    // What a key of the pack reads: the default, filled in
+    expect((await api(reader.key, '/api/tools/fixture.echo')).json.inputSchema).toMatchObject({
+      properties: { text: { type: 'string', default: 'hello, {{first_name}}' } },
+      required: [],
+    })
+    // Back as it was
+    await owner('/api/packs/loud/tools/fixture.echo', { method: 'PATCH', body: { defaults: null } })
+    expect((await owner('/api/packs/loud/variables', { method: 'PUT', body: { variables: [] } })).json).toMatchObject({
+      variables: [],
+      findings: [],
+    })
+  })
+
   it('renames a pack as its Edit dialog does, and frees the old name', async () => {
     const made = await owner('/api/packs', { method: 'POST', body: { name: 'draft', title: 'Draft' } })
     expect([made.status, made.json.formerNames]).toEqual([201, []])

@@ -1,6 +1,6 @@
 /**
- * Pack routes (owner only): curate packs, word their tools, see what a playbook uses, the wording to recheck, and a
- * pack's people: who it is shared with, and sharing it with one more.
+ * Pack routes (owner only): curate packs, word their tools, set their inputs and the pack's variables, see what a
+ * playbook uses, what to recheck, and a pack's people: who it is shared with, and sharing it with one more.
  */
 import { createRoute, z } from '@hono/zod-openapi'
 import { HAL_JSON, LinksSchema, problemResponses } from '../../kit/index.js'
@@ -30,6 +30,66 @@ const FixedSchema = z.record(z.string(), z.unknown()).openapi({
     'Inputs the gateway fills on every call, by input name. They leave the schema the pack’s keys read, and a call that sends one is refused.',
   example: { account: 'Acme Work Email' },
 })
+const DefaultsSchema = z.record(z.string(), z.unknown()).openapi({
+  description:
+    'Inputs the gateway fills when a call leaves them out, by input name. The pack’s keys read each with this value as its default and may send their own.',
+  example: { posted_since: '{{since_days}}' },
+})
+const VariableValue = z.union([z.string().max(4000), z.number(), z.boolean()]).openapi({
+  description: 'A string, a number or true/false. A value that is `{{name}}` and nothing else takes it with its type.',
+  example: 7,
+})
+const VariableSchema = z
+  .object({
+    name: z.string().openapi({ description: 'Written `{{name}}` in a fixed or default value.', example: 'since_days' }),
+    value: VariableValue,
+    description: z.string().nullable().openapi({ description: 'What it is for, for whoever edits the pack.' }),
+    usedBy: z
+      .array(z.string())
+      .openapi({ description: 'The pack’s tools whose values write it, by the pack’s names.' }),
+  })
+  .openapi('PackVariable', { description: 'A named value of a pack, written `{{name}}` where a tool’s input uses it.' })
+const FindingSchema = z
+  .object({
+    level: z.enum(['error', 'warning']).openapi({
+      description:
+        '`error`: calls that use the value can fail (a tool input’s `problem` says which), and a save that sends it is refused. `warning`: worth a look; nothing fails.',
+    }),
+    code: z.string().openapi({
+      description:
+        '`unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`.',
+      example: 'bad_value',
+    }),
+    path: z.string().openapi({
+      description: 'Where: `tools.<name>.fixed.<input>`, `tools.<name>.defaults.<input>` or `variables.<name>`.',
+      example: 'tools.greet_from_desk.fixed.from',
+    }),
+    message: z.string(),
+  })
+  .openapi('PackFinding', { description: 'Something the checks found in a pack.' })
+const ToolInputSchema = z
+  .object({
+    name: z.string(),
+    mode: z.enum(['fixed', 'default', 'agent']).openapi({
+      description:
+        '`fixed`: the pack fills it on every call and hides it. `default`: shown with the pack’s value, which a call may replace. `agent`: the agent fills it.',
+    }),
+    value: z.unknown().openapi({ description: 'The pack’s value as written (`{{name}}` kept), or null.' }),
+    resolved: z.unknown().openapi({ description: 'The value with the pack’s variables filled in, or null.' }),
+    required: z.boolean().openapi({ description: 'The tool itself requires it.' }),
+    problem: z.string().nullable().openapi({
+      description:
+        'Why the value no longer fits the live tool, or null. Until it is changed, a fixed value fails every call and a default fails the calls that leave the input out.',
+    }),
+    note: z.string().nullable().openapi({
+      description: 'Worth a look, or null: a `{{word}}` that is no variable of the pack is sent as written.',
+    }),
+    unchecked: z.boolean().openapi({
+      description:
+        'The pack sets a value here that was not checked: the gateway can’t read this input’s schema, so only a call checks it.',
+    }),
+  })
+  .openapi('PackToolInput', { description: 'One input of a pack tool and who fills it.' })
 const EntryName = z.string().min(2).max(160)
 const ItemName = z.string().min(1).max(160)
 
@@ -46,9 +106,13 @@ export const PackToolSchema = z
     tool: z.string().openapi({ description: 'The tool it runs, `<upstream>.<tool>`.' }),
     alias: z.string().nullable().openapi({ description: 'The pack’s own name for it, or null.' }),
     fixed: FixedSchema,
+    defaults: DefaultsSchema,
+    inputs: z.array(ToolInputSchema).openapi({
+      description: 'Every input of the live tool, in its order, with who fills it. Empty when the tool is not live.',
+    }),
     lostInputs: z.array(z.string()).openapi({
       description:
-        'Fixed inputs the live tool no longer takes: the upstream dropped or renamed them. Fix or drop them.',
+        'Inputs the pack fixes or defaults that the live tool no longer takes: the upstream dropped or renamed them. Set them again or drop them.',
     }),
     upstream: z.string(),
     title: z.string().nullable(),
@@ -95,7 +159,9 @@ const PackCardSchema = z
     counts,
     upstreams: z.array(z.string()),
     keys: z.number().int().openapi({ description: 'Live keys locked to it.' }),
-    flags: z.number().int().openapi({ description: 'Tools whose wording or fixed inputs to recheck.' }),
+    flags: z.number().int().openapi({
+      description: 'Tools to recheck: wording their upstream rewrote, or a fixed or default value that no longer fits.',
+    }),
     updatedAt: z.string(),
     _links: LinksSchema,
   })
@@ -103,6 +169,10 @@ const PackCardSchema = z
 
 export const PackSchema = PackCardSchema.extend({
   tools: z.array(PackToolSchema),
+  variables: z.array(VariableSchema),
+  findings: z.array(FindingSchema).openapi({
+    description: 'What the checks find in the pack as it stands: errors to fix, and warnings.',
+  }),
   playbooks: z.array(PackItemSchema),
   manuals: z.array(PackItemSchema),
   keyList: z.array(PackKeySchema),
@@ -249,6 +319,7 @@ const AddToolSchema = z.object({
   via: ItemName.nullable().optional(),
   alias: Alias.nullable().optional(),
   fixed: FixedSchema.optional(),
+  defaults: DefaultsSchema.optional(),
 })
 const PackPatchSchema = z
   .object({
@@ -267,7 +338,7 @@ const PackPatchSchema = z
       .optional()
       .openapi({
         description:
-          'What to add, at the end; anything already in stays as it is. A tool goes in under its alias when it has one, so the same tool can go in again under another alias (with other fixed inputs).',
+          'What to add, at the end; anything already in stays as it is. A tool goes in under its alias when it has one, so the same tool can go in again under another alias (with other fixed inputs or defaults). An alias can’t be the name of one of a connection’s own tools (`search_tools`, `call_tool` and the rest).',
       }),
     remove: z
       .object({
@@ -295,21 +366,50 @@ const EntryInputSchema = z
     fixed: FixedSchema.nullable().optional().openapi({
       description: 'What it fixes from now on (replaces what it fixed); null or {} fixes nothing.',
     }),
+    defaults: DefaultsSchema.nullable().optional().openapi({
+      description:
+        'What it gives a default from now on (replaces its defaults); null or {} gives none. An input is fixed or has a default, never both.',
+    }),
   })
-  .openapi('PackEntryInput', { description: 'How one pack tool is named and what it fixes.' })
+  .openapi('PackEntryInput', { description: 'How one pack tool is named and which inputs the pack sets.' })
+
+const VariablesInputSchema = z
+  .object({
+    variables: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(80).openapi({
+            description: 'A lowercase letter, then lowercase letters, digits or `_`, 40 at most.',
+            example: 'since_days',
+          }),
+          value: VariableValue,
+          description: z.string().max(400).nullable().optional(),
+        }),
+      )
+      .max(100),
+  })
+  .openapi('PackVariablesInput', {
+    description: 'The pack’s variables from now on, in order: this list replaces the one it had.',
+    example: { variables: [{ name: 'since_days', value: 7, description: 'How far back a search looks.' }] },
+  })
 
 const PackFlagSchema = z
   .object({
     kind: z.enum(['wording', 'input']).openapi({
       description:
-        '`wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack fixes.',
+        '`wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack fixes or defaults, or no longer takes its value.',
     }),
     pack: z.string(),
     packTitle: z.string(),
     tool: z.string().openapi({ description: 'The name the pack calls it.' }),
     wording: z.string(),
-    was: z.string(),
-    now: z.string(),
+    was: z.string().openapi({
+      description:
+        '`wording`: the upstream’s description when the wording was written. `input`: what the pack sets, e.g. `fixes from` or `defaults from`.',
+    }),
+    now: z.string().openapi({
+      description: '`wording`: the upstream’s description now. `input`: what is wrong with it now.',
+    }),
     _links: LinksSchema,
   })
   .openapi('PackFlag', { description: 'Something in a pack to recheck because its upstream changed the tool.' })
@@ -361,7 +461,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Pack tools to recheck',
     description:
-      'Every pack wording whose tool its upstream has since rewritten (old and new text), and every fixed input the tool no longer takes.',
+      'Every pack wording whose tool its upstream has since rewritten (old and new text), and every tool with a fixed or default value its live tool no longer takes: the input is gone, or the value no longer fits it.',
     responses: { 200: ok('The flags.', PackFlagListSchema), ...problemResponses(401, 403) },
   }),
   list: createRoute({
@@ -389,7 +489,8 @@ export const routes = {
     operationId: 'getPack',
     tags: [TAG],
     summary: 'One pack',
-    description: 'A pack with its tools (wording, why each is in, flags), playbooks, manuals and keys.',
+    description:
+      'A pack with its tools (wording, why each is in, who fills each input, flags), variables, playbooks, manuals and keys, and what the checks find in it.',
     request: { params: z.object({ name }) },
     responses: { 200: ok('The pack.', PackSchema), ...problemResponses(401, 403, 404) },
   }),
@@ -411,7 +512,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Change a pack',
     description:
-      'Changes its name, its title, what it is for, and adds or removes tools, playbooks and manuals. A new name moves its address; if the pack has a key that is not revoked then, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack. A name another pack has, or that still leads to one, is a 409.',
+      'Changes its name, its title, what it is for, and adds or removes tools, playbooks and manuals. A new name moves its address; if the pack has a key that is not revoked then, the old name keeps leading to it until you free it (`DELETE /api/packs/{name}/names/{former}`) or remove the pack. A name another pack has, or that still leads to one, is a 409. A tool can go in with fixed inputs and defaults: they are checked against its live input schema, and a problem the pack already had elsewhere never blocks the change. A change that is refused leaves the pack, and its name, as they were.',
     request: { params: z.object({ name }), body: json(PackPatchSchema) },
     responses: { 200: ok('The pack.', PackSchema), ...problemResponses(400, 401, 403, 404, 409) },
   }),
@@ -488,11 +589,22 @@ export const routes = {
     path: `${PATH}/{name}/tools/{tool}`,
     operationId: 'updatePackTool',
     tags: [TAG],
-    summary: 'Rename a pack tool or fix its inputs',
+    summary: 'Rename a pack tool or set its inputs',
     description:
-      'Gives one of the pack’s tools its own name (an alias) and sets the inputs the gateway fills on every call. Fixed values are checked against the live tool’s input schema; the pack’s keys never see them.',
+      'Gives one of the pack’s tools its own name (an alias) and sets its inputs: `fixed` are filled on every call and never shown to the pack’s keys, `defaults` are shown with the pack’s value and filled when a call leaves them out, and every other input is the agent’s. A value may write a variable of the pack as `{{name}}`. Only the maps sent are checked, against the live tool’s input schema with the variables filled in.',
     request: { params: z.object({ name, tool: entryParam }), body: json(EntryInputSchema) },
     responses: { 200: ok('The tool in the pack.', PackToolSchema), ...problemResponses(400, 401, 403, 404, 409) },
+  }),
+  variables: createRoute({
+    method: 'put',
+    path: `${PATH}/{name}/variables`,
+    operationId: 'setPackVariables',
+    tags: [TAG],
+    summary: 'Set a pack’s variables',
+    description:
+      'Replaces the pack’s variables. A fixed or default value writes one as `{{name}}`; a `{{word}}` that is no variable of the pack is sent as written. Refused (400) when a name is bad or repeated, when a new value no longer fits an input that uses it, or when a variable left out is still written somewhere.',
+    request: { params: z.object({ name }), body: json(VariablesInputSchema) },
+    responses: { 200: ok('The pack.', PackSchema), ...problemResponses(400, 401, 403, 404) },
   }),
   uses: createRoute({
     method: 'get',

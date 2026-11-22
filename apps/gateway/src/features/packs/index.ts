@@ -16,6 +16,7 @@ export const feature: Feature = {
     app.openapi(routes.flags, handlers.flags)
     app.openapi(routes.list, handlers.list)
     app.openapi(routes.create, handlers.create)
+    app.openapi(routes.variables, handlers.variables)
     app.openapi(routes.get, handlers.get)
     app.openapi(routes.setup, handlers.setup)
     app.openapi(routes.update, handlers.update)

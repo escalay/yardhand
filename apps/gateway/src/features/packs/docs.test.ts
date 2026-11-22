@@ -104,6 +104,16 @@ describe('a pack’s guide', () => {
     expect(guide).toContain('This key is read-only')
   })
 
+  it('says how the inputs a pack sets read to its keys, as the gateway’s guide does', () => {
+    const flat = guide.replace(/\s+/g, ' ')
+    expect(flat).toContain(
+      "An input the pack fills itself is not in the tool's schema: leave it out, a call that sends it is refused (400).",
+    )
+    expect(flat).toContain(
+      'An input the pack gives a default shows that default in the schema; send your own value to replace it.',
+    )
+  })
+
   it('leaves out the sections it has nothing for, and says when the pack holds no tools', () => {
     const empty = packGuide({ pack: PACK, url: URL, readOnly: false, tools: [], playbooks: [], manuals: [] })
     expect(empty).toContain('## Tools (0)')
