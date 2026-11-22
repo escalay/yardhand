@@ -13,6 +13,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
 import { fakeMeaning } from './fixtures/meaning.js'
+import { demoModel } from './fixtures/model.js'
 import { startOAuthUpstream } from './fixtures/oauth-upstream.js'
 import { startRest } from './fixtures/rest.js'
 import { startUpstream } from './fixtures/upstream.js'
@@ -35,6 +36,7 @@ const app = await createApp({
     WEB_DIR: web,
   },
   meaning: fakeMeaning(db),
+  model: demoModel(),
 })
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 })
 await new Promise<void>((resolve) => server.once('listening', () => resolve()))
@@ -739,6 +741,125 @@ describe('what the pack page stands on', () => {
     expect((await owner('/api/packs/plot/people')).json).toMatchObject({ count: 0, _embedded: { people: [] } })
     expect((await api(agentKey, '/api/packs/plot/people')).status).toBe(403)
     expect((await owner('/api/packs/plot', { method: 'DELETE' })).status).toBe(204)
+  })
+  it('builds a pack with AI as the pack page does: the estimate, a 202 to poll, then discard or accept by line', async () => {
+    // A REST API beside the fixture, for a tool that reads to propose
+    const items = await owner('/api/upstreams', {
+      method: 'POST',
+      body: {
+        id: 'items',
+        title: 'Items API',
+        kind: 'http',
+        url: rest.url,
+        trust: 'trusted',
+        auth: { type: 'header', header: 'x-api-key', value: 'rest-secret' },
+        http: { spec: '/openapi.json' },
+      },
+    })
+    expect(items.status).toBe(201)
+    await owner('/api/packs', {
+      method: 'POST',
+      body: { name: 'quiet', title: 'Quiet', description: 'Say notes back, quietly.' },
+    })
+    await owner('/api/packs/quiet', {
+      method: 'PATCH',
+      body: { add: { tools: [{ name: 'fixture.echo' }, { name: 'fixture.shout' }] } },
+    })
+    const body = { mode: 'refresh', tasks: ['look an item up and say it back'] }
+    // The dialog reads the estimate first: the figure, the model and the most real read calls
+    const estimate = await owner('/api/packs/quiet/builds/estimate', { method: 'POST', body })
+    expect(estimate.status).toBe(200)
+    expect(estimate.json).toMatchObject({
+      mode: 'refresh',
+      capUsd: 1,
+      priceKnown: true,
+      note: null,
+      model: 'demo/pack-writer',
+      realCalls: 6,
+    })
+    expect(estimate.json.usd).toBeGreaterThan(0)
+    expect(estimate.json.usd).toBeLessThan(1)
+    const poll = async (id: string) => {
+      for (let tries = 0; tries < 250; tries++) {
+        const got = await owner(`/api/packs/quiet/builds/${id}`)
+        if (got.json.status !== 'running') return got.json
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+      throw new Error(`build ${id} still running`)
+    }
+    const start = async () => {
+      const started = await owner('/api/packs/quiet/builds', { method: 'POST', body })
+      expect([started.status, started.headers.get('location')]).toEqual([
+        202,
+        `/api/packs/quiet/builds/${started.json.id}`,
+      ])
+      return poll(started.json.id)
+    }
+    const first = await start()
+    expect(first).toMatchObject({ status: 'ready', mode: 'refresh', stopped: null, costNote: null })
+    expect((await owner('/api/packs/quiet')).json.build).toEqual({ id: first.id, status: 'ready' })
+    // A tool line, a variable, a playbook that needs nothing new, and the skill, which names both
+    const lines = first.proposal.lines.map((line: { id: string; needs: string[] }) => [line.id, line.needs])
+    expect(lines).toEqual([
+      ['tool:items.get_item', []],
+      ['variable:tone', []],
+      ['playbook:look-an-item-up', []],
+      ['skill', ['tool:items.get_item', 'variable:tone']],
+    ])
+    // The rehearsal ran the tool that reads and handed the one that changes things a stand-in
+    expect(first.proposal.rehearsal).toEqual([
+      {
+        task: 'look an item up and say it back',
+        steps: [
+          { tool: 'fixture.echo', ran: true, callId: expect.any(String), standIn: null, error: null },
+          {
+            tool: 'fixture.shout',
+            ran: false,
+            callId: null,
+            standIn: '[Not run in rehearsal: fixture.shout changes things. Assume it worked.]',
+            error: null,
+          },
+        ],
+        outcome: 'fixture.echo answered; fixture.shout would finish it.',
+      },
+    ])
+    expect(first.spent).toMatchObject({ known: true, modelCalls: 6 })
+    // Discard leaves the pack as it was
+    expect((await owner(`/api/packs/quiet/builds/${first.id}`, { method: 'DELETE' })).status).toBe(204)
+    const kept = (await owner('/api/packs/quiet')).json
+    expect([kept.build, kept.ownPlaybooks, kept.variables, kept.skill]).toEqual([null, [], [], null])
+    // Built again, one line is accepted: the playbook, and only it
+    const second = await start()
+    const halfway = await owner(`/api/packs/quiet/builds/${second.id}/accept`, {
+      method: 'POST',
+      body: { lines: ['skill'] },
+    })
+    expect([halfway.status, halfway.json.detail]).toEqual([
+      400,
+      'Accepting skill needs tool:items.get_item and variable:tone: tick both.',
+    ])
+    const accepted = await owner(`/api/packs/quiet/builds/${second.id}/accept`, {
+      method: 'POST',
+      body: { lines: ['playbook:look-an-item-up'] },
+    })
+    expect(accepted.status).toBe(200)
+    expect(accepted.json.ownPlaybooks.map((playbook: { name: string }) => playbook.name)).toEqual(['look-an-item-up'])
+    expect(accepted.json.tools.map((tool: { name: string }) => tool.name)).toEqual(['fixture.echo', 'fixture.shout'])
+    expect([accepted.json.build, accepted.json.skill]).toEqual([null, null])
+    const again = await owner(`/api/packs/quiet/builds/${second.id}/accept`, {
+      method: 'POST',
+      body: { lines: ['variable:tone'] },
+    })
+    expect([again.status, again.json.detail]).toEqual([
+      409,
+      'This proposal was already accepted: build again for a new one.',
+    ])
+    // A skipped tool says why: the one that changes things
+    expect(second.proposal.skipped).toEqual([
+      { name: 'items.create_item', reason: 'It changes things, and no task needs that.' },
+    ])
+    expect((await owner('/api/packs/quiet', { method: 'DELETE' })).status).toBe(204)
+    expect((await owner('/api/upstreams/items', { method: 'DELETE' })).status).toBe(204)
   })
 })
 

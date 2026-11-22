@@ -1,7 +1,9 @@
 /**
  * A gateway with fake upstreams, for working on the app and for its browser tests: an MCP server (echo, shout), a
  * REST API with an OpenAPI spec and an OAuth MCP server, all on local ports, and the built app at /app. Nothing leaves
- * this machine: the usage report is built for Settings to show and never sent, and it never asks for a newer version. `--seed` also connects two of them, makes an agent and some calls, as after a week of use.
+ * this machine: the usage report is built for Settings to show and never sent, it never asks for a newer version, and
+ * Build with AI asks a scripted model (`demoModel`). `--seed` also connects two of them, makes an agent and some
+ * calls, as after a week of use.
  *
  * @example
  * pnpm --filter gateway demo            # empty: the first-run path
@@ -16,6 +18,7 @@ import { createApp } from '../src/app.js'
 import { createTelemetry } from '../src/features/telemetry/index.js'
 import { createUpdates } from '../src/features/updates/index.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
+import { demoModel } from '../test/fixtures/model.js'
 import { startOAuthUpstream } from '../test/fixtures/oauth-upstream.js'
 import { startRest } from '../test/fixtures/rest.js'
 import { startUpstream } from '../test/fixtures/upstream.js'
@@ -36,6 +39,8 @@ const claim = () => {
 }
 const app = await createApp({
   db: await testDb(),
+  // Build with AI asks a scripted model: the demo and the browser tests never reach a provider
+  model: demoModel(),
   ...(setupCode ? { unclaimed: { code: setupCode, claim } } : {}),
   env: {
     API_KEYS: setupCode ? '' : `owner:${hashApiKey(OWNER_KEY)}`,
