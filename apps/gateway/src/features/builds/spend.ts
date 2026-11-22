@@ -1,8 +1,9 @@
 /**
  * What a build may spend on its model, and the estimate shown before it starts. The cap holds before every ask: what
- * is spent plus the larger of the ask's list-price worst case and the dearest call seen so far, so a provider that
- * charges above list price overshoots by one call at most. Cost is what the provider reported, else list price times
- * tokens; with neither, a build is held to a token budget instead (what $1 buys at $2.50 a million).
+ * is spent plus the larger of the ask's worst case and the dearest call seen so far, so a provider that charges above
+ * list price overshoots by one call at most. The worst case is the ask's tokens at most at the list price, else at the
+ * most the provider has charged a token so far. Cost is what the provider reported, else list price times tokens,
+ * else that rate; with none of them, a build is held to a token budget instead (what $1 buys at $2.50 a million).
  */
 import type { Usage } from '../ai/clients.js'
 import type { AskStep, Price } from '../ai/model.js'
@@ -42,20 +43,26 @@ export const createSpend = ({
   let modelCalls = 0
   let dearest = 0
   let reported = false
+  /** The most the provider has charged a token, from the costs it reported. */
+  let perToken = 0
   return {
     /** May the build make this ask? */
     affords: ({ inputChars, maxTokens }: { inputChars: number; maxTokens: number }) => {
       const inputTokens = Math.ceil(inputChars / CHARS_PER_TOKEN)
       if (!price && !reported) return tokens + inputTokens + maxTokens <= tokenBudget
-      const worst = price ? costOf(price, inputTokens, maxTokens) : 0
+      const worst = price ? costOf(price, inputTokens, maxTokens) : perToken * (inputTokens + maxTokens)
       return usd + Math.max(worst, dearest) <= capUsd
     },
     /** Counts one answered ask. */
     add: (usage: Usage) => {
       modelCalls++
-      tokens += usage.inputTokens + usage.outputTokens
-      if (usage.costUsd !== null) reported = true
-      const cost = usage.costUsd ?? (price ? costOf(price, usage.inputTokens, usage.outputTokens) : 0)
+      const used = usage.inputTokens + usage.outputTokens
+      tokens += used
+      if (usage.costUsd !== null) {
+        reported = true
+        if (used > 0) perToken = Math.max(perToken, usage.costUsd / used)
+      }
+      const cost = usage.costUsd ?? (price ? costOf(price, usage.inputTokens, usage.outputTokens) : perToken * used)
       usd += cost
       dearest = Math.max(dearest, cost)
     },

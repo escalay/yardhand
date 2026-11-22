@@ -53,6 +53,21 @@ describe('the spend ledger', () => {
     spend.add(usage(5000, 3000, 0.6))
     expect(spend.affords({ inputChars: 400, maxTokens: 400 })).toBe(false)
   })
+
+  it('holds a larger ask to the most the provider charged a token so far, without a list price', () => {
+    const spend = createSpend({ capUsd: 1, price: null, tokenBudget: TOKEN_BUDGET })
+    // $0.50 for 2,000 tokens is $250 a million: 10,000 tokens in and 4,000 out at most could be $3.50, not $0.50
+    spend.add(usage(1000, 1000, 0.5))
+    expect(spend.affords({ inputChars: 40_000, maxTokens: 4000 })).toBe(false)
+    expect(spend.affords({ inputChars: 400, maxTokens: 400 })).toBe(true)
+  })
+
+  it('counts an ask with no reported cost at that rate, once the provider has reported one', () => {
+    const spend = createSpend({ capUsd: 1, price: null, tokenBudget: TOKEN_BUDGET })
+    spend.add(usage(1000, 1000, 0.02))
+    spend.add(usage(1000, 1000))
+    expect(spend.spent().usd).toBeCloseTo(0.04)
+  })
 })
 
 describe('the estimate', () => {
