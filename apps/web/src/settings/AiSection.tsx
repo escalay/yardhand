@@ -1,11 +1,11 @@
 /**
- * Settings › AI: the gateway's two AI jobs, search by meaning and smart grouping, as settings cards: each setting with
- * what it is for and where its value comes from (set here, .env, or a default) on the left, its control on the right,
- * and the test in the footer. A key is never shown, only whether it is set. Model pickers offer only models that fit
+ * Settings › AI: the gateway's three AI jobs, search by meaning, smart grouping and Build with AI, as settings cards:
+ * each setting with what it is for and where its value comes from (set here, .env, smart grouping's for a build
+ * setting left unset, or a default) on the left, its control on the right, and the test in the footer. A key is never shown, only whether it is set. Model pickers offer only models that fit
  * their role: TypeSafe's decision models for a TypeSafe decider, chat models otherwise. Smart grouping that isn't set
  * up gets a three-step setup: provider, key, test.
  */
-import { IconCheck, IconExternalLink, IconSearch, IconSparkles, IconX } from '@tabler/icons-react'
+import { IconCheck, IconExternalLink, IconSearch, IconSparkles, IconWand, IconX } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { type ReactNode, useState } from 'react'
@@ -21,7 +21,7 @@ import { RadioGroup, RadioGroupItem } from '@/ui/shadcn/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shadcn/select'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/shadcn/tooltip'
-import { KEY_HELP } from './ai.rules'
+import { BUILDS_CARD_ID, groupingKeySentElsewhere, KEY_HELP, sourceLabel } from './ai.rules'
 import { ModelPicker } from './ModelPicker'
 import { SettingsGroup } from './SettingsGroup'
 
@@ -62,11 +62,11 @@ const Source = ({ from, env, onReset }: { from: From; env: string | null; onRese
       className={cn(
         'inline-flex h-5 items-center px-1.5 text-[11px] tracking-wide uppercase',
         from === 'settings' && 'bg-mist text-primary',
-        from === 'env' && 'bg-muted text-muted-foreground',
+        (from === 'env' || from === 'grouping') && 'bg-muted text-muted-foreground',
         from === 'default' && 'border border-border text-faint-foreground',
       )}
     >
-      {from === 'settings' ? 'Set here' : from === 'env' ? '.env' : 'Default'}
+      {sourceLabel(from)}
     </span>
   )
   return (
@@ -431,12 +431,15 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
   const [settingUp, setSettingUp] = useState(false)
   const onSave = (patch: Patch) => save.mutate(patch)
   const grouping = job.job === 'grouping'
+  const builds = job.job === 'builds'
+  // Search by meaning takes only a key: the other two choose where their models run
+  const chooses = grouping || builds
   const setup = grouping && (!job.ready || settingUp)
   const showAddress =
     job.provider.value === 'custom' || job.provider.value === 'local' || job.baseUrl.from !== 'default'
-  const Icon = grouping ? IconSparkles : IconSearch
+  const Icon = grouping ? IconSparkles : builds ? IconWand : IconSearch
   return (
-    <div className="border border-border bg-card">
+    <div id={builds ? BUILDS_CARD_ID : undefined} className="scroll-mt-8 border border-border bg-card">
       <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-5">
         <div className="flex gap-4">
           <span className="grid size-9 shrink-0 place-items-center border border-border bg-muted">
@@ -454,10 +457,10 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
       ) : (
         <>
           <div className="divide-y divide-border">
-            {grouping ? (
+            {chooses ? (
               <Setting
                 label="Provider"
-                help="Where both models run."
+                help={builds ? 'Where its model runs. Left unset, smart grouping’s.' : 'Where both models run.'}
                 source={
                   <Source from={job.provider.from} env={job.provider.env} onReset={() => onSave({ provider: null })} />
                 }
@@ -469,7 +472,7 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
                 />
               </Setting>
             ) : null}
-            {grouping && showAddress ? (
+            {chooses && showAddress ? (
               <Setting
                 label="Address"
                 help="The server’s OpenAI-compatible API, ending in /v1."
@@ -485,11 +488,19 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
               help={
                 grouping
                   ? 'Sealed in Yardhand’s vault, never shown again.'
-                  : 'An OpenRouter key; sealed, never shown again.'
+                  : builds
+                    ? 'Sealed in Yardhand’s vault, never shown again. Left unset, smart grouping’s.'
+                    : 'An OpenRouter key; sealed, never shown again.'
               }
               source={<Source from={job.key.from} env={job.key.env} onReset={() => onSave({ key: null })} />}
             >
               <KeyControl job={job} onSave={onSave} />
+              {builds && groupingKeySentElsewhere(job) ? (
+                <p className="text-xs text-pretty text-warn">
+                  It runs on a provider or address of its own, so smart grouping’s key is sent there. Give it a key of
+                  its own if that server should not have it.
+                </p>
+              ) : null}
             </Setting>
             {job.model ? (
               <Setting
@@ -501,10 +512,33 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
                 </div>
               </Setting>
             ) : null}
-            {job.writerModel ? (
+            {job.writerModel && builds ? (
+              <Setting
+                label="Drafts packs"
+                help="Writes a pack’s tools, wording, playbooks and skill, and tries its tasks. A capable chat model drafts better; a build spends $1 at most."
+                source={
+                  <Source
+                    from={job.writerModel.from}
+                    env={job.writerModel.env}
+                    onReset={() => onSave({ writerModel: null })}
+                  />
+                }
+              >
+                <ModelPicker
+                  provider={job.provider.value}
+                  job="builds"
+                  // A job not set up asks for no list until the picker opens: the demo's Settings reaches no provider
+                  eager={job.ready}
+                  fits="writer"
+                  value={job.writerModel.value}
+                  label="Model that drafts packs"
+                  onPick={(model) => onSave({ writerModel: model })}
+                />
+              </Setting>
+            ) : job.writerModel ? (
               <Setting
                 label="Names groups"
-                help="Reads a connection’s tools and writes each group’s name and purpose. Any chat model."
+                help="Reads a connection’s tools and writes each group’s name and purpose. Any chat model. Build with AI drafts packs with it too, unless it has a model of its own."
                 source={
                   <Source
                     from={job.writerModel.from}
@@ -558,6 +592,11 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
                 <>
                   Starts from <Mono className="text-xs">GATEWAY_AI_GROUPING_*</Mono> in .env; what you set here wins.
                 </>
+              ) : builds ? (
+                <>
+                  Starts from <Mono className="text-xs">GATEWAY_AI_BUILDS_*</Mono> in .env; what you set here wins, and
+                  what neither sets follows smart grouping.
+                </>
               ) : (
                 <>
                   Starts from <Mono className="text-xs">OPENROUTER_API_KEY</Mono> in .env; a key set here wins.
@@ -588,7 +627,7 @@ export const AiSection = () => {
   return (
     <SettingsGroup
       title="AI"
-      description="Two jobs that use a model. Each starts from .env and what you set here wins; keys are sealed and never shown."
+      description="Three jobs that use a model. Each starts from .env and what you set here wins; keys are sealed and never shown."
     >
       {ai.isPending ? (
         <Skeleton className="h-48 rounded-none" />
@@ -596,12 +635,9 @@ export const AiSection = () => {
         <p className="text-sm text-error">{ai.error.message}</p>
       ) : (
         <div className="flex flex-col gap-6">
-          {/* Build with AI gets a card of its own; until then it is set through PATCH /api/ai/builds */}
-          {ai.data.jobs
-            .filter((job) => job.job !== 'builds')
-            .map((job) => (
-              <JobCard key={job.job} job={job} providers={ai.data.providers} />
-            ))}
+          {ai.data.jobs.map((job) => (
+            <JobCard key={job.job} job={job} providers={ai.data.providers} />
+          ))}
         </div>
       )}
     </SettingsGroup>

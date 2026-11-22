@@ -1,4 +1,4 @@
-/** Pure rules for Settings › AI: a model's price and size in words. */
+/** Pure rules for Settings › AI: a model's price and size in words, and where a setting comes from. */
 import type { Schemas } from '@/api/client'
 
 type Model = Schemas['AiModel']
@@ -29,4 +29,18 @@ export const KEY_HELP: Record<Schemas['AiJob']['provider']['value'], { url: stri
   },
   local: { url: null, text: 'A local server usually needs no key: leave it empty.' },
   custom: { url: null, text: 'The key your server expects as a bearer token.' },
+}
+
+/** Where Settings › AI keeps the card for Build with AI's model. */
+export const BUILDS_CARD_ID = 'build-with-ai'
+
+type Job = Schemas['AiJob']
+
+export const sourceLabel = (from: Job['provider']['from']) =>
+  from === 'settings' ? 'Set here' : from === 'env' ? '.env' : from === 'grouping' ? 'Smart grouping' : 'Default'
+
+/** Build with AI runs on a provider or address of its own while its key is still smart grouping's. */
+export const groupingKeySentElsewhere = (job: Pick<Job, 'provider' | 'baseUrl' | 'key'>) => {
+  const own = (from: Job['provider']['from']) => from === 'settings' || from === 'env'
+  return job.key.from === 'grouping' && (own(job.provider.from) || own(job.baseUrl.from))
 }

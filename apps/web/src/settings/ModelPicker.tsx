@@ -24,12 +24,18 @@ const HEADING: Record<ModelRole, string> = {
 
 export const ModelPicker = ({
   provider,
+  job = 'grouping',
+  eager = true,
   fits,
   value,
   label,
   onPick,
 }: {
   provider: Provider
+  /** Whose key and address the list is asked with. */
+  job?: 'grouping' | 'builds'
+  /** Ask for the list at once, for the current model's name; false waits until the picker opens. */
+  eager?: boolean
   fits: ModelRole
   value: string
   label: string
@@ -38,9 +44,10 @@ export const ModelPicker = ({
   const [open, setOpen] = useState(false)
   const [typed, setTyped] = useState('')
   const models = useQuery({
-    queryKey: ['ai', 'models', provider, fits],
-    queryFn: () => unwrap(api.GET('/api/ai/models', { params: { query: { provider, for: fits } } })),
+    queryKey: ['ai', 'models', job, provider, fits],
+    queryFn: () => unwrap(api.GET('/api/ai/models', { params: { query: { job, provider, for: fits } } })),
     staleTime: 3_600_000,
+    enabled: eager || open,
   })
   const list = models.data?.models ?? []
   const current = list.find((model) => model.id === value)
