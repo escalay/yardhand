@@ -2,7 +2,14 @@
 
 import { join } from 'node:path'
 import { authHeaders, type Credential, createAdapters } from './adapters/index.js'
-import { type Env as AiEnv, type AiJob, type AiSettings, resolveGrouping, resolveSearch } from './features/ai/config.js'
+import {
+  type Env as AiEnv,
+  type AiJob,
+  type AiSettings,
+  resolveBuilds,
+  resolveGrouping,
+  resolveSearch,
+} from './features/ai/config.js'
 import { createHanded } from './features/calls/handed.js'
 import { createPipeline } from './features/calls/pipeline.js'
 import { createReads } from './features/calls/reads.js'
@@ -55,6 +62,11 @@ export type Env = {
   GATEWAY_AI_GROUPING_WRITER_MODEL?: string
   GATEWAY_AI_GROUPING_DECIDER_MODEL?: string
   GATEWAY_AI_GROUPING_DECIDER_PROTOCOL?: string
+  /** Build with AI's starting values; a field left empty follows smart grouping's (features/ai/config.ts). */
+  GATEWAY_AI_BUILDS_PROVIDER?: string
+  GATEWAY_AI_BUILDS_BASE_URL?: string
+  GATEWAY_AI_BUILDS_KEY?: string
+  GATEWAY_AI_BUILDS_MODEL?: string
   /** Usage telemetry (features/telemetry): `off`, the collector's address, and the shared off switch. */
   GATEWAY_TELEMETRY?: string
   GATEWAY_TELEMETRY_URL?: string
@@ -187,6 +199,13 @@ export const createServices = async ({
     saved: (job: AiJob) => vault.get<AiSettings>(`ai:${job}`),
     search: async () => resolveSearch(await vault.get<AiSettings>('ai:search'), env as AiEnv),
     grouping: async () => resolveGrouping(await vault.get<AiSettings>('ai:grouping'), env as AiEnv),
+    builds: async () => {
+      const [saved, grouping] = await Promise.all([
+        vault.get<AiSettings>('ai:builds'),
+        vault.get<AiSettings>('ai:grouping'),
+      ])
+      return resolveBuilds(saved, env as AiEnv, resolveGrouping(grouping, env as AiEnv))
+    },
   }
   /** Search by meaning with the key the search job has now; rebuilt when it changes in Settings. */
   const meaningWith = (apiKey: string) =>

@@ -596,9 +596,12 @@ export const AiSection = () => {
         <p className="text-sm text-error">{ai.error.message}</p>
       ) : (
         <div className="flex flex-col gap-6">
-          {ai.data.jobs.map((job) => (
-            <JobCard key={job.job} job={job} providers={ai.data.providers} />
-          ))}
+          {/* Build with AI gets a card of its own; until then it is set through PATCH /api/ai/builds */}
+          {ai.data.jobs
+            .filter((job) => job.job !== 'builds')
+            .map((job) => (
+              <JobCard key={job.job} job={job} providers={ai.data.providers} />
+            ))}
         </div>
       )}
     </SettingsGroup>

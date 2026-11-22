@@ -6,9 +6,10 @@
  *   key is set here; a new model would throw away every stored vector.
  * - `grouping`: smart grouping. A writer names a connection's groups (any OpenAI-compatible chat model); a decider
  *   files each tool in one (TypeSafe's System One API, e.g. `typesafe/jev-1.14`, or a plain chat model).
+ * - `builds`: Build with AI. One chat model drafts packs; each field it leaves unset follows smart grouping's.
  */
 
-export const AI_JOBS = ['search', 'grouping'] as const
+export const AI_JOBS = ['search', 'grouping', 'builds'] as const
 export type AiJob = (typeof AI_JOBS)[number]
 export const PROVIDERS = {
   openrouter: { title: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1' },
@@ -39,7 +40,8 @@ const DEFAULTS = {
 }
 
 export type Env = Record<string, string | undefined>
-export type From = 'settings' | 'env' | 'default'
+/** `grouping`: the build job sets none of its own, so it takes smart grouping's. */
+export type From = 'settings' | 'env' | 'grouping' | 'default'
 export type Field<T> = { value: T; from: From }
 
 /** The env names each job reads. */
@@ -52,6 +54,12 @@ export const ENV_NAMES = {
     writerModel: 'GATEWAY_AI_GROUPING_WRITER_MODEL',
     deciderModel: 'GATEWAY_AI_GROUPING_DECIDER_MODEL',
     deciderProtocol: 'GATEWAY_AI_GROUPING_DECIDER_PROTOCOL',
+  },
+  builds: {
+    provider: 'GATEWAY_AI_BUILDS_PROVIDER',
+    baseUrl: 'GATEWAY_AI_BUILDS_BASE_URL',
+    key: 'GATEWAY_AI_BUILDS_KEY',
+    writerModel: 'GATEWAY_AI_BUILDS_MODEL',
   },
 } as const
 
@@ -115,8 +123,44 @@ export const resolveGrouping = (saved: AiSettings | undefined, env: Env) => {
   return { job: 'grouping' as const, provider, baseUrl, key, writerModel, deciderModel, deciderProtocol, ready }
 }
 
+/** A field the build job sets itself (Settings, then .env), or null when it follows grouping's. */
+const own = <T>(saved: T | undefined, fromEnv: T | undefined): Field<T> | null =>
+  saved !== undefined && saved !== ''
+    ? { value: saved, from: 'settings' }
+    : fromEnv !== undefined && fromEnv !== ''
+      ? { value: fromEnv, from: 'env' }
+      : null
+
+/** Grouping's field, as the build job follows it: a default stays a default. */
+const followed = <T>(field: Field<T>): Field<T> => ({
+  value: field.value,
+  from: field.from === 'default' ? 'default' : 'grouping',
+})
+
+/**
+ * The build job as it stands. Each field it doesn't set follows smart grouping's, one by one; only its address
+ * follows its own provider when it sets one, so a provider of its own is never sent to grouping's server.
+ */
+export const resolveBuilds = (saved: AiSettings | undefined, env: Env, grouping: GroupingConfig) => {
+  const names = ENV_NAMES.builds
+  const envProvider = env[names.provider]
+  const ownProvider = own<Provider>(saved?.provider, isProvider(envProvider) ? envProvider : undefined)
+  const provider = ownProvider ?? followed(grouping.provider)
+  const baseUrl =
+    own(saved?.baseUrl, env[names.baseUrl]) ??
+    (ownProvider
+      ? { value: PROVIDERS[provider.value].baseUrl as string, from: 'default' as From }
+      : followed(grouping.baseUrl))
+  const key = own(saved?.key, env[names.key]) ?? followed(grouping.key)
+  const writerModel = own(saved?.writerModel, env[names.writerModel]) ?? followed(grouping.writerModel)
+  // A local server needs no key
+  const ready = Boolean(baseUrl.value) && (Boolean(key.value) || provider.value === 'local')
+  return { job: 'builds' as const, provider, baseUrl, key, writerModel, ready }
+}
+
 export type SearchConfig = ReturnType<typeof resolveSearch>
 export type GroupingConfig = ReturnType<typeof resolveGrouping>
+export type BuildsConfig = ReturnType<typeof resolveBuilds>
 
 /** Saved settings after a change: `null` drops a field back to `.env`; an unchanged field stays. */
 export const applyChange = (

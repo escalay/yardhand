@@ -3,7 +3,7 @@ import type { RouteHandler } from '@hono/zod-openapi'
 import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { requireOwner } from '../clients/principals.js'
-import { AiError, listModels, testGrouping, testSearch } from './clients.js'
+import { AiError, listModels, testBuilds, testGrouping, testSearch } from './clients.js'
 import { type AiJob, applyChange, ENV_NAMES, type Field, PROVIDERS } from './config.js'
 import type { routes } from './routes.js'
 
@@ -13,8 +13,9 @@ const withEnv = <T>(field: Field<T>, env: string | null) => ({ ...field, env })
 
 export const aiHandlers = ({ ai, vault }: Services) => {
   const view = async (origin: string) => {
-    const [search, grouping] = await Promise.all([ai.search(), ai.grouping()])
+    const [search, grouping, builds] = await Promise.all([ai.search(), ai.grouping(), ai.builds()])
     const names = ENV_NAMES.grouping
+    const buildNames = ENV_NAMES.builds
     return {
       jobs: [
         {
@@ -43,6 +44,19 @@ export const aiHandlers = ({ ai, vault }: Services) => {
           deciderModel: withEnv(grouping.deciderModel, names.deciderModel),
           deciderProtocol: withEnv(grouping.deciderProtocol, names.deciderProtocol),
         },
+        {
+          job: 'builds' as const,
+          title: 'Build with AI',
+          does: 'Drafts a pack’s tools, wording, playbooks and skill from its purpose and a few example tasks, and tries each task first. What you leave unset here follows smart grouping.',
+          ready: builds.ready,
+          provider: withEnv(builds.provider, buildNames.provider),
+          baseUrl: withEnv(builds.baseUrl, buildNames.baseUrl),
+          key: { set: Boolean(builds.key.value), from: builds.key.from, env: buildNames.key },
+          model: null,
+          writerModel: withEnv(builds.writerModel, buildNames.writerModel),
+          deciderModel: null,
+          deciderProtocol: null,
+        },
       ],
       providers: Object.entries(PROVIDERS).map(([id, provider]) => ({
         id: id as keyof typeof PROVIDERS,
@@ -66,6 +80,10 @@ export const aiHandlers = ({ ai, vault }: Services) => {
       throw new ProblemError('bad_request', {
         detail: 'Search by meaning takes only a key here: its model is set by agent-api-kit.',
       })
+    if (job === 'builds' && (change.deciderModel !== undefined || change.deciderProtocol !== undefined))
+      throw new ProblemError('bad_request', {
+        detail: 'Build with AI takes a provider, address, key and model here: it has no decider.',
+      })
     const next = applyChange(await ai.saved(job as AiJob), change)
     // A new provider brings its own address unless one is given with it
     if (change.provider && change.baseUrl === undefined) delete next.baseUrl
@@ -81,6 +99,10 @@ export const aiHandlers = ({ ai, vault }: Services) => {
     if (job === 'search') {
       const result = await testSearch(await ai.search())
       return c.json({ job, ok: result.ok, checks: [{ name: 'Embedding', ...result }] }, 200)
+    }
+    if (job === 'builds') {
+      const result = await testBuilds(await ai.builds())
+      return c.json({ job, ok: result.ok, checks: [{ name: 'Writer', ...result }] }, 200)
     }
     const result = await testGrouping(await ai.grouping())
     return c.json(

@@ -39,6 +39,9 @@ describe('the settings', () => {
     })
     expect(bad).toHaveLength(8)
     expect(bad.join('\n')).toMatch(/32 random bytes[\s\S]*go together[\s\S]*name:hash[\s\S]*isn’t an address/)
+    expect(problemsOf({ ...good, GATEWAY_AI_BUILDS_PROVIDER: 'anthropic' })).toEqual([
+      'GATEWAY_AI_BUILDS_PROVIDER is anthropic: it is one of openrouter, openai, local, custom.',
+    ])
     // Cloudflare Access alone is a way in
     expect(problemsOf({ GATEWAY_MASTER_KEY: good.GATEWAY_MASTER_KEY, ACCESS_TEAM: 't', ACCESS_AUD: 'a' })).toEqual([])
   })

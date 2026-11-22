@@ -26,6 +26,7 @@ const owner = async (path: string, init: Init = {}) => {
   return { status: response.status, json: (await response.json().catch(() => null)) as any }
 }
 const grouping = (json: any) => json.jobs.find((job: { job: string }) => job.job === 'grouping')
+const builds = (json: any) => json.jobs.find((job: { job: string }) => job.job === 'builds')
 
 describe('AI settings', () => {
   it('shows each job’s settings with where they come from, and no key', async () => {
@@ -84,6 +85,38 @@ describe('AI settings', () => {
     const search = (await owner('/api/ai/search/test', { method: 'POST' })).json
     expect(search).toMatchObject({ ok: false, checks: [{ name: 'Embedding', ok: false }] })
     expect(search.checks[0].detail).toContain('OPENROUTER_API_KEY')
+  })
+
+  it('gives Build with AI its own model, following smart grouping for whatever it leaves unset', async () => {
+    const follows = builds((await owner('/api/ai')).json)
+    expect(follows).toMatchObject({
+      job: 'builds',
+      ready: true,
+      provider: { value: 'custom', from: 'grouping', env: 'GATEWAY_AI_BUILDS_PROVIDER' },
+      baseUrl: { value: llm.baseUrl, from: 'grouping', env: 'GATEWAY_AI_BUILDS_BASE_URL' },
+      key: { set: true, from: 'grouping', env: 'GATEWAY_AI_BUILDS_KEY' },
+      writerModel: { value: 'writer-1', from: 'grouping', env: 'GATEWAY_AI_BUILDS_MODEL' },
+      model: null,
+      deciderModel: null,
+      deciderProtocol: null,
+    })
+    const own = builds((await owner('/api/ai/builds', { method: 'PATCH', body: { writerModel: 'decider-1' } })).json)
+    expect(own.writerModel).toMatchObject({ value: 'decider-1', from: 'settings' })
+    expect(own.key.from).toBe('grouping')
+    expect(grouping((await owner('/api/ai')).json).writerModel.value).toBe('writer-1')
+    const refused = await owner('/api/ai/builds', { method: 'PATCH', body: { deciderModel: 'decider-1' } })
+    expect([refused.status, refused.json.detail]).toEqual([
+      400,
+      'Build with AI takes a provider, address, key and model here: it has no decider.',
+    ])
+  })
+
+  it('tests the build model with one small call', async () => {
+    const before = llm.asks.length
+    const { json } = await owner('/api/ai/builds/test', { method: 'POST' })
+    expect(json).toMatchObject({ job: 'builds', ok: true, checks: [{ name: 'Writer', ok: true }] })
+    expect(llm.asks.slice(before).map((ask) => ask.model)).toEqual(['decider-1'])
+    await owner('/api/ai/builds', { method: 'PATCH', body: { writerModel: null } })
   })
 
   it('lists the models a provider offers, filtered by words', async () => {

@@ -5,7 +5,7 @@
  */
 import { choice, type Question, TypeSafeClient } from '@typesafe-ai/sdk'
 import { embedRequest } from '../../kit/vectors/index.js'
-import type { GroupingConfig, SearchConfig } from './config.js'
+import type { BuildsConfig, GroupingConfig, SearchConfig } from './config.js'
 
 const TIMEOUT_MS = 60_000
 
@@ -128,20 +128,24 @@ export const testSearch = (config: SearchConfig) =>
     return `Embedded a sentence into ${vectors[0]?.length ?? 0} numbers.`
   })
 
-export const testGrouping = async (config: GroupingConfig) => {
-  const writer = await timed(async () => {
+/** Asks a writer model for a fixed JSON object. */
+const testWriter = (config: Pick<GroupingConfig, 'baseUrl' | 'key'>, model: string) =>
+  timed(async () => {
     const answer = await chatJson<{ ok?: unknown }>(
       config,
-      config.writerModel.value,
+      model,
       'You check a connection. Reply with exactly this JSON object and nothing else: {"ok": true}',
       'Check.',
     )
     if (answer.ok !== true && answer.ok !== 'true')
-      throw new AiError(
-        `${config.writerModel.value} answered ${JSON.stringify(answer).slice(0, 80)}, not {"ok": true}.`,
-      )
-    return `${config.writerModel.value} answered JSON.`
+      throw new AiError(`${model} answered ${JSON.stringify(answer).slice(0, 80)}, not {"ok": true}.`)
+    return `${model} answered JSON.`
   })
+
+export const testBuilds = (config: BuildsConfig) => testWriter(config, config.writerModel.value)
+
+export const testGrouping = async (config: GroupingConfig) => {
+  const writer = await testWriter(config, config.writerModel.value)
   const decider = await timed(async () => {
     const picked = await decide(
       config,

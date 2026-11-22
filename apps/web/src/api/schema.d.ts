@@ -561,7 +561,7 @@ export interface paths {
         };
         /**
          * AI settings
-         * @description The gateway’s AI jobs (search by meaning, smart grouping), each setting with where it comes from: Settings, .env or a default (owner only).
+         * @description The gateway’s AI jobs (search by meaning, smart grouping, Build with AI), each setting with where it comes from: Settings, .env, smart grouping’s or a default (owner only).
          */
         get: operations["getAiSettings"];
         put?: never;
@@ -587,7 +587,7 @@ export interface paths {
         head?: never;
         /**
          * Change an AI job
-         * @description Saves a job’s provider, address, key or models; they win over .env from then on. null takes a field back to .env (owner only).
+         * @description Saves a job’s provider, address, key or models; they win over .env from then on. null takes a field back to .env, and for Build with AI then to smart grouping’s (owner only).
          */
         patch: operations["updateAiJob"];
         trace?: never;
@@ -2517,7 +2517,7 @@ export interface components {
         /** @description One of the gateway’s AI jobs and its settings. */
         AiJob: {
             /** @enum {string} */
-            job: "search" | "grouping";
+            job: "search" | "grouping" | "builds";
             title: string;
             /** @description What the job does, in a sentence. */
             does: string;
@@ -2527,59 +2527,59 @@ export interface components {
                 /** @enum {string} */
                 value: "openrouter" | "openai" | "local" | "custom";
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             };
             baseUrl: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             };
             /** @description Whether a key is set and where from; the key itself never leaves the gateway. */
             key: {
                 set: boolean;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             };
             /** @description For search: the embedding model (set by the kit). */
             model: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             } | null;
-            /** @description For grouping: the model that names groups. */
+            /** @description For grouping: the model that names groups. For builds: the model that drafts packs. */
             writerModel: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             } | null;
             /** @description For grouping: the model that files tools. */
             deciderModel: {
                 value: string;
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             } | null;
             /** @description `typesafe`: TypeSafe’s System One API. `openai`: a chat model asked to choose. */
@@ -2587,10 +2587,10 @@ export interface components {
                 /** @enum {string} */
                 value: "typesafe" | "openai";
                 /**
-                 * @description `settings`: saved here, wins. `env`: from .env. `default`: neither says.
+                 * @description `settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.
                  * @enum {string}
                  */
-                from: "settings" | "env" | "default";
+                from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             } | null;
         };
@@ -2609,7 +2609,7 @@ export interface components {
         /** @description What a test call to each of the job’s models said. */
         AiTest: {
             /** @enum {string} */
-            job: "search" | "grouping";
+            job: "search" | "grouping" | "builds";
             ok: boolean;
             checks: {
                 name: string;
@@ -6315,8 +6315,8 @@ export interface operations {
                 "Idempotency-Key"?: string;
             };
             path: {
-                /** @description `search` or `grouping`. */
-                job: "search" | "grouping";
+                /** @description `search`, `grouping` or `builds`. */
+                job: "search" | "grouping" | "builds";
             };
             cookie?: never;
         };
@@ -6372,8 +6372,8 @@ export interface operations {
                 "Idempotency-Key"?: string;
             };
             path: {
-                /** @description `search` or `grouping`. */
-                job: "search" | "grouping";
+                /** @description `search`, `grouping` or `builds`. */
+                job: "search" | "grouping" | "builds";
             };
             cookie?: never;
         };

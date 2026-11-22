@@ -4,8 +4,9 @@ import { HAL_JSON, LinksSchema, problemResponses } from '../../kit/index.js'
 import { AI_JOBS, PROVIDERS } from './config.js'
 
 export const TAG = 'AI'
-const FROM = z.enum(['settings', 'env', 'default']).openapi({
-  description: '`settings`: saved here, wins. `env`: from .env. `default`: neither says.',
+const FROM = z.enum(['settings', 'env', 'grouping', 'default']).openapi({
+  description:
+    '`settings`: saved here, wins. `env`: from .env. `grouping`: Build with AI sets none of its own, so smart grouping’s. `default`: none of them says.',
 })
 const field = <T extends z.ZodTypeAny>(value: T) => z.object({ value, from: FROM, env: z.string().nullable() })
 const ProviderSchema = z.enum(Object.keys(PROVIDERS) as [keyof typeof PROVIDERS, ...(keyof typeof PROVIDERS)[]])
@@ -22,7 +23,9 @@ const JobSchema = z
       .object({ set: z.boolean(), from: FROM, env: z.string().nullable() })
       .openapi({ description: 'Whether a key is set and where from; the key itself never leaves the gateway.' }),
     model: field(z.string()).nullable().openapi({ description: 'For search: the embedding model (set by the kit).' }),
-    writerModel: field(z.string()).nullable().openapi({ description: 'For grouping: the model that names groups.' }),
+    writerModel: field(z.string())
+      .nullable()
+      .openapi({ description: 'For grouping: the model that names groups. For builds: the model that drafts packs.' }),
     deciderModel: field(z.string()).nullable().openapi({ description: 'For grouping: the model that files tools.' }),
     deciderProtocol: field(z.enum(['typesafe', 'openai']))
       .nullable()
@@ -77,7 +80,9 @@ const ok = <Schema extends z.ZodTypeAny>(description: string, schema: Schema) =>
   content: { [HAL_JSON]: { schema } },
   description,
 })
-const job = z.enum(AI_JOBS).openapi({ param: { name: 'job', in: 'path' }, description: '`search` or `grouping`.' })
+const job = z
+  .enum(AI_JOBS)
+  .openapi({ param: { name: 'job', in: 'path' }, description: '`search`, `grouping` or `builds`.' })
 
 export const routes = {
   get: createRoute({
@@ -87,7 +92,7 @@ export const routes = {
     tags: [TAG],
     summary: 'AI settings',
     description:
-      'The gateway’s AI jobs (search by meaning, smart grouping), each setting with where it comes from: Settings, .env or a default (owner only).',
+      'The gateway’s AI jobs (search by meaning, smart grouping, Build with AI), each setting with where it comes from: Settings, .env, smart grouping’s or a default (owner only).',
     responses: { 200: ok('The AI jobs.', AiSchema), ...problemResponses(401, 403) },
   }),
   update: createRoute({
@@ -97,7 +102,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Change an AI job',
     description:
-      'Saves a job’s provider, address, key or models; they win over .env from then on. null takes a field back to .env (owner only).',
+      'Saves a job’s provider, address, key or models; they win over .env from then on. null takes a field back to .env, and for Build with AI then to smart grouping’s (owner only).',
     request: {
       params: z.object({ job }),
       body: { required: true, content: { 'application/json': { schema: PatchSchema } } },
