@@ -1,6 +1,7 @@
 /**
  * Pack routes (owner only): curate packs, word their tools, set their inputs and the pack's variables, see what a
- * playbook uses, what to recheck, and a pack's people: who it is shared with, and sharing it with one more.
+ * playbook uses, what to recheck, and a pack's people: who it is shared with, sharing it with one more, and each
+ * person's own values.
  */
 import { createRoute, z } from '@hono/zod-openapi'
 import { HAL_JSON, LinksSchema, problemResponses } from '../../kit/index.js'
@@ -35,15 +36,33 @@ const DefaultsSchema = z.record(z.string(), z.unknown()).openapi({
     'Inputs the gateway fills when a call leaves them out, by input name. The pack’s keys read each with this value as its default and may send their own.',
   example: { posted_since: '{{since_days}}' },
 })
+const PersonInputsSchema = z.record(z.string(), z.unknown()).openapi({
+  description:
+    'Inputs the gateway fills per person, by input name, each with one variable written `{{name}}` and nothing else. Hidden from the pack’s keys like a fixed input, and filled with the caller’s own value of the variable, else the pack’s, else nothing is sent and the tool’s own default applies. The person’s value is theirs to change, so an input that limits what they reach (an account) belongs in `fixed`.',
+  example: { location: '{{city}}' },
+})
 const VariableValue = z.union([z.string().max(4000), z.number(), z.boolean()]).openapi({
   description: 'A string, a number or true/false. A value that is `{{name}}` and nothing else takes it with its type.',
   example: 7,
 })
+const VariableKind = z.enum(['text', 'number', 'boolean']).openapi({
+  description:
+    'The kind of value it holds: what the Per person inputs that read it take, when they say one kind, else the kind of the pack’s value, else `text`. A person’s value of it is sent as this kind.',
+  example: 'number',
+})
 const VariableSchema = z
   .object({
     name: z.string().openapi({ description: 'Written `{{name}}` in a fixed or default value.', example: 'since_days' }),
-    value: VariableValue,
+    value: VariableValue.nullable().openapi({
+      description:
+        'The pack’s value, or null for none: then only Per person inputs read it, and a person with no value of their own gets nothing.',
+    }),
     description: z.string().nullable().openapi({ description: 'What it is for, for whoever edits the pack.' }),
+    perPerson: z.boolean().openapi({
+      description:
+        'A Per person input reads it: each person can have their own value (`PUT /api/packs/{name}/people/{client}/values`), and the pack’s is the fallback.',
+    }),
+    kind: VariableKind,
     usedBy: z
       .array(z.string())
       .openapi({ description: 'The pack’s tools whose values write it, by the pack’s names.' }),
@@ -57,12 +76,12 @@ export const FindingSchema = z
     }),
     code: z.string().openapi({
       description:
-        'In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `name_clash`, `bad_name`, `bad_front_matter`, `bad_argument_name`, `empty`, `too_big`, or a warning: `unknown_name`, `not_a_name`, `needs_write`, `split`, `missing_section`, `skill_path`.',
+        'In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `person_variable`, `no_value`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `no_value`, `name_clash`, `bad_name`, `bad_front_matter`, `bad_argument_name`, `empty`, `too_big`, or a warning: `unknown_name`, `not_a_name`, `needs_write`, `split`, `missing_section`, `skill_path`.',
       example: 'bad_value',
     }),
     path: z.string().openapi({
       description:
-        'Where: `tools.<name>.fixed.<input>`, `tools.<name>.defaults.<input>`, `variables.<name>`, `playbooks.<name>` (one of the pack’s own) or `skill`.',
+        'Where: `tools.<name>.fixed.<input>`, `tools.<name>.defaults.<input>`, `tools.<name>.person.<input>`, `variables.<name>`, `playbooks.<name>` (one of the pack’s own) or `skill`.',
       example: 'tools.greet_from_desk.fixed.from',
     }),
     message: z.string(),
@@ -71,16 +90,19 @@ export const FindingSchema = z
 const ToolInputSchema = z
   .object({
     name: z.string(),
-    mode: z.enum(['fixed', 'default', 'agent']).openapi({
+    mode: z.enum(['fixed', 'default', 'person', 'agent']).openapi({
       description:
-        '`fixed`: the pack fills it on every call and hides it. `default`: shown with the pack’s value, which a call may replace. `agent`: the agent fills it.',
+        '`fixed`: the pack fills it on every call and hides it. `default`: shown with the pack’s value, which a call may replace. `person`: hidden, and filled with each person’s own value of one variable, else the pack’s. `agent`: the agent fills it.',
     }),
     value: z.unknown().openapi({ description: 'The pack’s value as written (`{{name}}` kept), or null.' }),
-    resolved: z.unknown().openapi({ description: 'The value with the pack’s variables filled in, or null.' }),
+    resolved: z.unknown().openapi({
+      description:
+        'The value with the pack’s variables filled in, or null. For `person`: the pack’s value of the variable, which a person’s own replaces.',
+    }),
     required: z.boolean().openapi({ description: 'The tool itself requires it.' }),
     problem: z.string().nullable().openapi({
       description:
-        'Why the value no longer fits the live tool, or null. Until it is changed, a fixed value fails every call and a default fails the calls that leave the input out.',
+        'Why the value no longer fits the live tool, or null. Until it is changed, a fixed value fails every call and a default fails the calls that leave the input out. For `person`: also a person’s own value the tool no longer takes, which fails that person’s calls.',
     }),
     note: z.string().nullable().openapi({
       description: 'Worth a look, or null: a `{{word}}` that is no variable of the pack is sent as written.',
@@ -108,12 +130,13 @@ export const PackToolSchema = z
     alias: z.string().nullable().openapi({ description: 'The pack’s own name for it, or null.' }),
     fixed: FixedSchema,
     defaults: DefaultsSchema,
+    person: PersonInputsSchema,
     inputs: z.array(ToolInputSchema).openapi({
       description: 'Every input of the live tool, in its order, with who fills it. Empty when the tool is not live.',
     }),
     lostInputs: z.array(z.string()).openapi({
       description:
-        'Inputs the pack fixes or defaults that the live tool no longer takes: the upstream dropped or renamed them. Set them again or drop them.',
+        'Inputs the pack sets (fixed, default or per person) that the live tool no longer takes: the upstream dropped or renamed them. Set them again or drop them.',
     }),
     upstream: z.string(),
     title: z.string().nullable(),
@@ -291,6 +314,11 @@ const PersonSchema = z
       })
       .nullable()
       .openapi({ description: 'The old name of the pack it last connected by; null once it uses the name now.' }),
+    values: z.record(z.string(), VariableValue).openapi({
+      description:
+        'Their own values of the pack’s Per person variables, by name; a variable left out reads the pack’s value. `PUT /api/packs/{name}/people/{client}/values` sets them.',
+      example: { city: 'Lisbon' },
+    }),
     _links: LinksSchema,
   })
   .openapi('Person', { description: 'Someone a pack is shared with: one client that opens it.' })
@@ -317,6 +345,14 @@ const ShareInputSchema = z
     expiresIn: z.enum(KEY_LIFETIMES).default('30d').openapi({
       description: 'How long it works: 8 hours, a day, 7 days, 30 days, or `never` for until revoked.',
     }),
+    values: z
+      .record(z.string(), VariableValue)
+      .optional()
+      .openapi({
+        description:
+          'Their own values of the pack’s Per person variables, by name, each checked against every input that reads it; one left out reads the pack’s value.',
+        example: { city: 'Lisbon' },
+      }),
   })
   .openapi('PackShare', { description: 'One person to share a pack with.' })
 
@@ -327,6 +363,36 @@ const SharedPackSchema = PersonSchema.extend({
       'Ready to send to the person: what the pack is, what they can do, until when, and the setup for their app with the key in it. Shown once.',
   }),
 }).openapi('SharedPack', { description: 'The new person, with their key and the message to send them, this once.' })
+
+const PersonValuesSchema = z
+  .object({
+    client: z.string().openapi({ description: 'The client’s id.' }),
+    name: z.string(),
+    values: z.array(
+      z.object({
+        name: z.string().openapi({ description: 'The variable, written `{{name}}`.' }),
+        description: z.string().nullable(),
+        value: VariableValue.nullable().openapi({ description: 'Their own value, or null: then they get the pack’s.' }),
+        packValue: VariableValue.nullable().openapi({ description: 'The pack’s value, or null for none.' }),
+        kind: VariableKind,
+        usedBy: z.array(z.string()).openapi({ description: 'The pack’s tools that read it per person.' }),
+      }),
+    ),
+    _links: LinksSchema,
+  })
+  .openapi('PersonValues', {
+    description: 'One person’s values of a pack’s Per person variables: every such variable, with theirs or null.',
+  })
+
+const PersonValuesInputSchema = z
+  .object({
+    values: z.record(z.string(), VariableValue.nullable()).openapi({
+      description:
+        'Their values from now on, by variable: this replaces the ones they had. A variable left out, or null, reads the pack’s value.',
+      example: { city: 'Lisbon' },
+    }),
+  })
+  .openapi('PersonValuesInput', { description: 'One person’s own values of a pack’s Per person variables.' })
 
 const PackSetupSchema = z
   .object({
@@ -375,6 +441,7 @@ const AddToolSchema = z.object({
   alias: Alias.nullable().optional(),
   fixed: FixedSchema.optional(),
   defaults: DefaultsSchema.optional(),
+  person: PersonInputsSchema.optional(),
 })
 const PackPatchSchema = z
   .object({
@@ -423,7 +490,11 @@ const EntryInputSchema = z
     }),
     defaults: DefaultsSchema.nullable().optional().openapi({
       description:
-        'What it gives a default from now on (replaces its defaults); null or {} gives none. An input is fixed or has a default, never both.',
+        'What it gives a default from now on (replaces its defaults); null or {} gives none. An input is in one mode only: fixed, a default or per person.',
+    }),
+    person: PersonInputsSchema.nullable().optional().openapi({
+      description:
+        'What it fills per person from now on (replaces what it did), each input with one variable written `{{name}}`; null or {} fills none.',
     }),
   })
   .openapi('PackEntryInput', { description: 'How one pack tool is named and which inputs the pack sets.' })
@@ -437,7 +508,10 @@ const VariablesInputSchema = z
             description: 'A lowercase letter, then lowercase letters, digits or `_`, 40 at most.',
             example: 'since_days',
           }),
-          value: VariableValue,
+          value: VariableValue.nullable().openapi({
+            description:
+              'Its value, or null for none of the pack’s: only an input filled per person can then read it, with each person’s own value.',
+          }),
           description: z.string().max(400).nullable().optional(),
         }),
       )
@@ -452,7 +526,7 @@ const PackFlagSchema = z
   .object({
     kind: z.enum(['wording', 'input', 'playbook', 'skill']).openapi({
       description:
-        '`wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack fixes or defaults, or no longer takes its value. `playbook`, `skill`: one of the pack’s own playbooks, or its skill, was written for a tool that has since changed or left the pack.',
+        '`wording`: the upstream rewrote the tool. `input`: the tool no longer takes an input the pack sets, or no longer takes its value or a person’s own value of it. `playbook`, `skill`: one of the pack’s own playbooks, or its skill, was written for a tool that has since changed or left the pack.',
     }),
     pack: z.string(),
     packTitle: z.string(),
@@ -466,7 +540,7 @@ const PackFlagSchema = z
     wording: z.string().openapi({ description: 'The pack’s wording of the tool; empty for `playbook` and `skill`.' }),
     was: z.string().openapi({
       description:
-        '`wording`: the upstream’s description when the wording was written. `input`: what the pack sets, e.g. `fixes from` or `defaults from`. `playbook`, `skill`: the names it was written for that have moved, e.g. `written for greet_from_desk`.',
+        '`wording`: the upstream’s description when the wording was written. `input`: what the pack sets, e.g. `fixes from`, `defaults from` or `fills from per person`. `playbook`, `skill`: the names it was written for that have moved, e.g. `written for greet_from_desk`.',
     }),
     now: z.string().openapi({
       description:
@@ -513,6 +587,11 @@ const json = <Schema extends z.ZodTypeAny>(schema: Schema) => ({
   content: { 'application/json': { schema } },
 })
 const name = PackName.openapi({ param: { name: 'name', in: 'path' } })
+const clientParam = z
+  .string()
+  .min(1)
+  .max(80)
+  .openapi({ param: { name: 'client', in: 'path' }, description: 'The client’s id, as People lists it.' })
 const entryParam = EntryName.openapi({
   param: { name: 'tool', in: 'path' },
   description: 'The name the pack calls it: its alias, else `<upstream>.<tool>`.',
@@ -628,12 +707,34 @@ export const routes = {
     tags: [TAG],
     summary: 'Share a pack with a person',
     description:
-      'Makes one person’s key for this pack alone, read only and for 30 days unless said, and answers with a message ready to send them: what the pack is, what they can do, until when, and the setup for their app with the key in it, at the address set in `PUBLIC_HOST` (unset, or naming only this machine as `localhost` does, the address this request came by). The key and the message are shown this once. Sent with an `Idempotency-Key`, the same request sent again within a day is answered the same key and message, not a second person: that answer is kept sealed with the master key. Extend and Revoke are the client’s own routes (`PATCH` and `DELETE /api/clients/{id}`). A pack that holds no tools is a 409.',
+      'Makes one person’s key for this pack alone, read only and for 30 days unless said, with their own `values` for the pack’s Per person inputs (each checked against every input that reads it, before the key is made), and answers with a message ready to send them: what the pack is, what they can do, until when, and the setup for their app with the key in it, at the address set in `PUBLIC_HOST` (unset, or naming only this machine as `localhost` does, the address this request came by). The key and the message are shown this once. Sent with an `Idempotency-Key`, the same request sent again within a day is answered the same key and message, not a second person: that answer is kept sealed with the master key. Extend and Revoke are the client’s own routes (`PATCH` and `DELETE /api/clients/{id}`). A pack that holds no tools is a 409.',
     request: { params: z.object({ name }), body: json(ShareInputSchema) },
     responses: {
       201: ok('The person, their key and the message.', SharedPackSchema),
       ...problemResponses(400, 401, 403, 404, 409),
     },
+  }),
+  personValues: createRoute({
+    method: 'get',
+    path: `${PATH}/{name}/people/{client}/values`,
+    operationId: 'getPersonValues',
+    tags: [TAG],
+    summary: 'One person’s values',
+    description:
+      'Every variable a Per person input of the pack reads, with this person’s own value (null: they get the pack’s) and the pack’s. A client that doesn’t open the pack, or was revoked, is a 404.',
+    request: { params: z.object({ name, client: clientParam }) },
+    responses: { 200: ok('Their values.', PersonValuesSchema), ...problemResponses(401, 403, 404) },
+  }),
+  setPersonValues: createRoute({
+    method: 'put',
+    path: `${PATH}/{name}/people/{client}/values`,
+    operationId: 'setPersonValues',
+    tags: [TAG],
+    summary: 'Set one person’s values',
+    description:
+      'Replaces this person’s own values of the pack’s Per person variables. Each is checked against every input that reads it, and the whole change is refused (400) for a value one of them doesn’t take or a variable no Per person input reads. Their next call uses them.',
+    request: { params: z.object({ name, client: clientParam }), body: json(PersonValuesInputSchema) },
+    responses: { 200: ok('Their values.', PersonValuesSchema), ...problemResponses(400, 401, 403, 404) },
   }),
   wording: createRoute({
     method: 'put',
@@ -656,7 +757,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Rename a pack tool or set its inputs',
     description:
-      'Gives one of the pack’s tools its own name (an alias) and sets its inputs: `fixed` are filled on every call and never shown to the pack’s keys, `defaults` are shown with the pack’s value and filled when a call leaves them out, and every other input is the agent’s. A value may write a variable of the pack as `{{name}}`. Only the maps sent are checked, against the live tool’s input schema with the variables filled in. A new name never fails on a playbook or the skill that writes the old one: the text is flagged, and the pack’s `findings` say where.',
+      'Gives one of the pack’s tools its own name (an alias) and sets its inputs: `fixed` are filled on every call and never shown to the pack’s keys, `defaults` are shown with the pack’s value and filled when a call leaves them out, `person` are hidden and filled with each person’s own value of a variable, else the pack’s, and every other input is the agent’s. A value may write a variable of the pack as `{{name}}`. Only the maps sent are checked, against the live tool’s input schema with the variables filled in. A new name never fails on a playbook or the skill that writes the old one: the text is flagged, and the pack’s `findings` say where.',
     request: { params: z.object({ name, tool: entryParam }), body: json(EntryInputSchema) },
     responses: { 200: ok('The tool in the pack.', PackToolSchema), ...problemResponses(400, 401, 403, 404, 409) },
   }),
@@ -667,7 +768,7 @@ export const routes = {
     tags: [TAG],
     summary: 'Set a pack’s variables',
     description:
-      'Replaces the pack’s variables. A fixed or default value writes one as `{{name}}`, and so do the pack’s own playbooks and its skill; in a value, a `{{word}}` that is no variable of the pack is sent as written. Refused (400) when a name is bad or repeated, when a new value no longer fits an input that uses it, or when a variable left out is still written by a value, a playbook or the skill.',
+      'Replaces the pack’s variables. A fixed or default value writes one as `{{name}}`, and so do the pack’s own playbooks and its skill; in a value, a `{{word}}` that is no variable of the pack is sent as written. A variable a Per person input reads may have a null value: each person then gives their own. Refused (400) when a name is bad or repeated, when a new value no longer fits an input that uses it, when a variable with no value is written by anything but a Per person input, or when a variable left out is still written by a value, a playbook or the skill.',
     request: { params: z.object({ name }), body: json(VariablesInputSchema) },
     responses: { 200: ok('The pack.', PackSchema), ...problemResponses(400, 401, 403, 404) },
   }),

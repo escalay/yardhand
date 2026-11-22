@@ -8,7 +8,7 @@ import { type ManualContent, skillPathOf } from '../catalog/content.js'
 import type { CatalogRepo } from '../catalog/repo.js'
 import type { LiveTool, ToolsRepo } from '../tools/repo.js'
 import type { UpstreamsRepo } from '../upstreams/repo.js'
-import { defaultsOf, type Fixed, fixedOf } from './entries.js'
+import { defaultsOf, type Fixed, fixedOf, personOf } from './entries.js'
 import type { PackContents, PacksRepo } from './repo.js'
 import type { PackDocKind, PackRow } from './schema.js'
 import type { Scalar } from './values.js'
@@ -26,8 +26,11 @@ export type PackStateTool = {
   /** As stored: `{{name}}` not yet filled in. */
   fixed: Fixed
   defaults: Fixed
+  /** The inputs filled per person, each `{{variable}}`. */
+  person: Fixed
 }
-export type PackStateVariable = { name: string; value: Scalar; description: string | null }
+/** A variable; `value` is null when the pack has none of its own and only Per person inputs read it. */
+export type PackStateVariable = { name: string; value: Scalar | null; description: string | null }
 /** A playbook or the skill as written, and the names its stored text was written for (none for a new one). */
 export type PackStateDoc = { markdown: string; wrote: string[] }
 export type PackState = {
@@ -74,12 +77,13 @@ export const packStateOf = async (
       live: live.get(row.toolName) ?? null,
       fixed: fixedOf(row),
       defaults: defaultsOf(row),
+      person: personOf(row),
     })),
-    variables: held.variables.flatMap((row) =>
-      row.value === null
-        ? []
-        : [{ name: row.name, value: JSON.parse(row.value) as Scalar, description: row.description }],
-    ),
+    variables: held.variables.map((row) => ({
+      name: row.name,
+      value: row.value === null ? null : (JSON.parse(row.value) as Scalar),
+      description: row.description,
+    })),
     playbooks: held.docs.filter((doc) => doc.kind === 'playbook').map((doc) => ({ name: doc.name, ...stateDoc(doc) })),
     skill: skill ? stateDoc(skill) : null,
     heldPlaybooks: held.playbooks,
@@ -95,11 +99,11 @@ export const withTools = (state: PackState, added: PackStateTool[], removedNames
   return { ...state, tools: [...state.tools, ...fresh].filter((tool) => !removedNames.includes(tool.name)) }
 }
 
-/** After renaming the tool stored as `key`, or replacing what it fixes or defaults. */
+/** After renaming the tool stored as `key`, or replacing what it fixes, defaults or fills per person. */
 export const withEntry = (
   state: PackState,
   key: string,
-  change: { name?: string; fixed?: Fixed; defaults?: Fixed },
+  change: { name?: string; fixed?: Fixed; defaults?: Fixed; person?: Fixed },
 ): PackState => ({
   ...state,
   tools: state.tools.map((tool) =>
@@ -109,6 +113,7 @@ export const withEntry = (
           ...(change.name === undefined ? {} : { name: change.name }),
           ...(change.fixed === undefined ? {} : { fixed: change.fixed }),
           ...(change.defaults === undefined ? {} : { defaults: change.defaults }),
+          ...(change.person === undefined ? {} : { person: change.person }),
         }
       : tool,
   ),

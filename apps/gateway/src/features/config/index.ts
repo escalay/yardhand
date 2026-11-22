@@ -10,7 +10,7 @@ import { type ManualContent, skillPathOf } from '../catalog/content.js'
 import { requireOwner } from '../clients/principals.js'
 import type { Feature } from '../index.js'
 import { basedOnOf, docPathOf, judge, sentenceOf } from '../packs/checks.js'
-import { ALIAS, defaultsOf, fixedOf } from '../packs/entries.js'
+import { ALIAS, defaultsOf, fixedOf, personOf } from '../packs/entries.js'
 import { withoutFrontMatter } from '../packs/frontmatter.js'
 import { toolRefsIn } from '../packs/playbook.js'
 import { PACK_REASONS } from '../packs/schema.js'
@@ -30,7 +30,7 @@ const route = createRoute({
   tags: [TAG],
   summary: 'Export the settings',
   description:
-    'Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs and defaults, as written), variables, playbooks and manuals, as one JSON document (owner only). The playbooks and the skill written for a pack are under its `files`, by path: `playbooks/<name>.md` as written and `SKILL.md` as it is read, with its `{{name}}` left as written. Each is a plain Markdown file to keep in git; their older versions are not exported.',
+    'Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs, defaults and inputs filled per person, as written), variables (one only Per person inputs read has a null value), playbooks and manuals, as one JSON document (owner only). The values each person gives a pack’s Per person inputs are not in it. The playbooks and the skill written for a pack are under its `files`, by path: `playbooks/<name>.md` as written and `SKILL.md` as it is read, with its `{{name}}` left as written. Each is a plain Markdown file to keep in git; their older versions are not exported.',
   responses: {
     200: { content: { 'application/json': { schema: ConfigSchema } }, description: 'The settings.' },
     ...problemResponses(401, 403),
@@ -75,6 +75,7 @@ const ImportSchema = z
                 alias: z.string().regex(ALIAS).nullable().default(null),
                 fixed: z.record(z.string(), z.unknown()).nullable().default(null),
                 defaults: z.record(z.string(), z.unknown()).nullable().default(null),
+                person: z.record(z.string(), z.unknown()).nullable().default(null),
               }),
             )
             .default([]),
@@ -82,7 +83,7 @@ const ImportSchema = z
             .array(
               z.object({
                 name: z.string().regex(VARIABLE),
-                value: z.union([z.string().max(4000), z.number(), z.boolean()]),
+                value: z.union([z.string().max(4000), z.number(), z.boolean()]).nullable(),
                 description: z.string().max(400).nullable().default(null),
               }),
             )
@@ -195,6 +196,7 @@ export const feature: Feature = {
                 alias: tool.name === tool.toolName ? null : tool.name,
                 fixed: tool.fixed ? fixedOf(tool) : null,
                 defaults: tool.defaults ? defaultsOf(tool) : null,
+                person: tool.person ? personOf(tool) : null,
               })),
               playbooks: held.playbooks,
               manuals: held.manuals,
@@ -206,17 +208,12 @@ export const feature: Feature = {
                     : [`playbooks/${doc.name}.md`, doc.body],
                 ),
               ),
-              variables: held.variables.flatMap((variable) =>
-                variable.value === null
-                  ? []
-                  : [
-                      {
-                        name: variable.name,
-                        value: JSON.parse(variable.value) as Scalar,
-                        description: variable.description,
-                      },
-                    ],
-              ),
+              // A variable only Per person inputs read goes with no value; people's own values never go
+              variables: held.variables.map((variable) => ({
+                name: variable.name,
+                value: variable.value === null ? null : (JSON.parse(variable.value) as Scalar),
+                description: variable.description,
+              })),
             }
           }),
         ),
@@ -320,13 +317,14 @@ export const feature: Feature = {
                 live: found ?? null,
                 fixed: tool.fixed ?? {},
                 defaults: tool.defaults ?? {},
+                person: tool.person ?? {},
               },
             ],
             [],
           )
           const problems = !found
             ? ['not live yet']
-            : judge(state, after, [`tools.${as}.fixed`, `tools.${as}.defaults`]).refused.map(
+            : judge(state, after, [`tools.${as}.fixed`, `tools.${as}.defaults`, `tools.${as}.person`]).refused.map(
                 (finding) => finding.message,
               )
           if (problems.length) result.skipped.push(`pack ${wanted.name} tool ${as}: ${problems.join('; ')}`)

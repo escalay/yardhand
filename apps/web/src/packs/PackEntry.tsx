@@ -1,9 +1,10 @@
 /**
  * How a pack names one of its tools and who fills each of its inputs. Fixed: the gateway, on every call, and the
  * input is taken off what the pack's keys read, so `work_inbox` can be the inbox search with the account set to work.
- * Default: shown with the pack's value, which the agent may replace. Anything else is the agent's. A value may write
- * the pack's variables as `{{name}}`. The same tool can go in again under another name with other values (another
- * account, another project).
+ * Default: shown with the pack's value, which the agent may replace. Per person: hidden too, and filled with each
+ * person's own value of one variable, else the pack's. Anything else is the agent's. A value may write the pack's
+ * variables as `{{name}}`. The same tool can go in again under another name with other values (another account,
+ * another project).
  */
 import { IconAlertTriangle, IconBraces, IconX } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -69,7 +70,9 @@ const VariablePicker = ({
         variables.map((variable) => (
           <DropdownMenuItem key={variable.name} onSelect={() => onPick(variable.name)}>
             <Mono className="min-w-0 flex-1 truncate text-xs">{`{{${variable.name}}}`}</Mono>
-            <span className="max-w-24 truncate text-xs text-muted-foreground">{String(variable.value)}</span>
+            <span className="max-w-24 truncate text-xs text-muted-foreground">
+              {variable.value === null ? 'each person’s' : String(variable.value)}
+            </span>
           </DropdownMenuItem>
         ))
       ) : (
@@ -80,6 +83,51 @@ const VariablePicker = ({
     </DropdownMenuContent>
   </DropdownMenu>
 )
+
+/** An input filled per person: the variable it reads, picked from the pack's, and what it falls back to. */
+const PersonRow = ({
+  field,
+  text,
+  variables,
+  stored,
+  problem,
+  onText,
+}: {
+  field: FormField
+  text: string
+  variables: Variable[]
+  stored: string | null
+  problem: string | null
+  onText: (text: string) => void
+}) => {
+  const name = /^\s*\{\{\s*([a-z][a-z0-9_]*)\s*\}\}\s*$/.exec(text)?.[1]
+  const read = variables.find((variable) => variable.name === name)
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex min-h-9 items-center gap-2">
+        {name ? (
+          <Mono className="min-w-0 flex-1 truncate text-[13px]">{`{{${name}}}`}</Mono>
+        ) : (
+          <span className="min-w-0 flex-1 text-sm text-muted-foreground">Which variable each person fills</span>
+        )}
+        <VariablePicker input={field.name} variables={variables} onPick={(picked) => onText(`{{${picked}}}`)} />
+      </div>
+      {stored ? (
+        <span className="text-xs text-error">{stored}. Their calls fail until it is changed.</span>
+      ) : problem ? (
+        <span className="text-xs text-error">{problem}</span>
+      ) : name && !read ? (
+        <span className="text-xs text-error">No variable {name}: add it under Variables first.</span>
+      ) : read ? (
+        <span className="text-xs text-muted-foreground">
+          {read.value === null
+            ? 'Someone with no value of their own gets nothing: a call that needs it is refused.'
+            : `Someone with no value of their own gets the pack’s: ${String(read.value)}.`}
+        </span>
+      ) : null}
+    </div>
+  )
+}
 
 /** One input: who fills it, and the pack's value when the pack does. */
 const InputRow = ({
@@ -131,7 +179,9 @@ const InputRow = ({
         ))}
       </RadioGroup>
       <p className="text-xs text-muted-foreground">{INPUT_MODES.find((choice) => choice.id === mode)?.hint}</p>
-      {mode === 'agent' ? null : (
+      {mode === 'person' ? (
+        <PersonRow field={field} text={text} variables={variables} stored={stored} problem={problem} onText={onText} />
+      ) : mode === 'agent' ? null : (
         <div className="flex flex-col gap-1">
           {asWritten ? null : (
             <label htmlFor={id} className="sr-only">
@@ -208,12 +258,12 @@ export const EntryEditor = ({
   const [alias, setAlias] = useState(() => startingAlias(tool, mode))
   const [picked, setPicked] = useState<Record<string, InputMode>>({})
   const [typed, setTyped] = useState<Record<string, string> | null>(null)
-  const stored = { ...tool.fixed, ...tool.defaults }
+  const stored = { ...tool.fixed, ...tool.defaults, ...tool.person }
   const texts = typed ?? (detail.data ? valuesOf(fields, stored) : {})
   const modes = Object.fromEntries(fields.map((field) => [field.name, picked[field.name] ?? modeOf(tool, field.name)]))
 
-  const { fixed, defaults, errors } = inputValuesOf(fields, modes, texts)
-  const sets = { ...fixed, ...defaults }
+  const { fixed, defaults, person, errors } = inputValuesOf(fields, modes, texts)
+  const sets = { ...fixed, ...defaults, ...person }
   const changed = (input: string) =>
     modes[input] !== modeOf(tool, input) || JSON.stringify(sets[input]) !== JSON.stringify(stored[input])
   const storedProblems = tool.lostInputs.length + tool.inputs.filter((input) => input.problem).length
@@ -238,13 +288,13 @@ export const EntryEditor = ({
         ? unwrap(
             api.PATCH('/api/packs/{name}/tools/{tool}', {
               params: { path: { name: pack, tool: tool.name } },
-              body: { alias: name || null, fixed, defaults },
+              body: { alias: name || null, fixed, defaults, person },
             }),
           )
         : unwrap(
             api.PATCH('/api/packs/{name}', {
               params: { path: { name: pack } },
-              body: { add: { tools: [{ name: tool.tool, reason: 'picked', alias: name, fixed, defaults }] } },
+              body: { add: { tools: [{ name: tool.tool, reason: 'picked', alias: name, fixed, defaults, person }] } },
             }),
           ),
     onSuccess: () => {
@@ -289,8 +339,8 @@ export const EntryEditor = ({
       <fieldset className="flex min-w-0 flex-col gap-2">
         <legend className="mb-1 text-sm font-medium">Inputs</legend>
         <p className="text-xs text-muted-foreground">
-          Who fills each input: the pack on every call, the pack unless the agent sends its own, or the agent. A value
-          can write a variable of the pack as {'{{name}}'}.
+          Who fills each input: the pack on every call, the pack unless the agent sends its own, the agent, or each
+          person with their own value. A value can write a variable of the pack as {'{{name}}'}.
         </p>
         {detail.isPending ? <p className="text-sm text-muted-foreground">Reading {tool.tool}’s inputs…</p> : null}
         {detail.error ? (

@@ -539,7 +539,14 @@ describe('what the pack page stands on', () => {
     })
     const page = (await owner('/api/packs/loud')).json
     expect(page.variables).toEqual([
-      { name: 'opening', value: 'hello', description: 'What to say first.', usedBy: ['fixture.echo'] },
+      {
+        name: 'opening',
+        value: 'hello',
+        description: 'What to say first.',
+        perPerson: false,
+        kind: 'text',
+        usedBy: ['fixture.echo'],
+      },
     ])
     expect(page.findings).toEqual([
       {
@@ -739,6 +746,59 @@ describe('what the pack page stands on', () => {
     expect((await owner('/api/packs/plot/people')).json).toMatchObject({ count: 0, _embedded: { people: [] } })
     expect((await api(agentKey, '/api/packs/plot/people')).status).toBe(403)
     expect((await owner('/api/packs/plot', { method: 'DELETE' })).status).toBe(204)
+  })
+
+  it('gives the Inputs editor the Per person mode, and the Share sheet and People each person’s values', async () => {
+    await owner('/api/packs', { method: 'POST', body: { name: 'bench', title: 'Bench' } })
+    await owner('/api/packs/bench/variables', {
+      method: 'PUT',
+      body: { variables: [{ name: 'opening', value: null, description: 'What each person says first.' }] },
+    })
+    // The editor saves the fourth mode as the variable it reads
+    const added = await owner('/api/packs/bench', {
+      method: 'PATCH',
+      body: { add: { tools: [{ name: 'fixture.echo', person: { text: '{{opening}}' } }] } },
+    })
+    expect(added.status).toBe(200)
+    expect(added.json.tools[0]).toMatchObject({
+      person: { text: '{{opening}}' },
+      inputs: [{ name: 'text', mode: 'person', value: '{{opening}}', resolved: null, required: true, problem: null }],
+    })
+    // The Variables card and the Share sheet read which variables each person fills
+    expect(added.json.variables).toEqual([
+      {
+        name: 'opening',
+        value: null,
+        description: 'What each person says first.',
+        perPerson: true,
+        kind: 'text',
+        usedBy: ['fixture.echo'],
+      },
+    ])
+    const shared = await owner('/api/packs/bench/people', {
+      method: 'POST',
+      body: { name: 'Sam', values: { opening: 'hello' } },
+    })
+    expect([shared.status, shared.json.values]).toEqual([201, { opening: 'hello' }])
+    const { id, key } = shared.json as { id: string; key: string }
+    expect(
+      (await api(key, '/api/calls', { method: 'POST', body: { tool: 'fixture.echo', arguments: {} } })).json,
+    ).toMatchObject({ result: { content: [{ text: 'hello' }] } })
+    // People's row edits them in place
+    const people = (await owner('/api/packs/bench/people')).json._embedded.people[0]
+    expect(people.values).toEqual({ opening: 'hello' })
+    expect(new URL(people._links.values.href).pathname).toBe(`/api/packs/bench/people/${id}/values`)
+    const set = await owner(`/api/packs/bench/people/${id}/values`, {
+      method: 'PUT',
+      body: { values: { opening: 'hi there' } },
+    })
+    expect(set.json).toMatchObject({
+      client: id,
+      name: 'Sam',
+      values: [{ name: 'opening', value: 'hi there', packValue: null, usedBy: ['fixture.echo'] }],
+    })
+    expect((await owner(`/api/clients/${id}`, { method: 'DELETE' })).status).toBe(204)
+    expect((await owner('/api/packs/bench', { method: 'DELETE' })).status).toBe(204)
   })
 })
 
