@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/escalay/yardhand/compare/v0.6.0...v0.6.1) (2026-11-22)
+
+
+### Fixes
+
+* **builds:** what the first real builds got wrong ([#39](https://github.com/escalay/yardhand/issues/39)) ([2a73027](https://github.com/escalay/yardhand/commit/2a730275d5fb4d86c2dc4fbbd5080a3aeb8db02b))
+* **catalog:** playbook arguments over REST, skill checks, vector retry ([#41](https://github.com/escalay/yardhand/issues/41)) ([292f5f1](https://github.com/escalay/yardhand/commit/292f5f13bcd6e294142b72e3b3c3cddfed334566))
+
 ## [0.6.0](https://github.com/escalay/yardhand/compare/v0.5.0...v0.6.0) (2026-11-22)
 
 
