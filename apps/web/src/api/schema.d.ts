@@ -661,7 +661,7 @@ export interface paths {
         };
         /**
          * Use a playbook
-         * @description A playbook filled in with your arguments: the steps to follow with its tools, as its upstream wrote them or, for a pack’s own, as the pack wrote them with its variables filled in. Logged like a call.
+         * @description A playbook filled in with your arguments: the steps to follow with its tools, as its upstream wrote them or, for a pack’s own, as the pack wrote them with its variables filled in. Give each argument as its own query parameter (`?topic=tides`), or all of them in `arguments`; a name the playbook doesn’t take, or one given twice, is a 400. Logged like a call.
          */
         get: operations["getPlaybookMessages"];
         put?: never;
@@ -6861,7 +6861,7 @@ export interface operations {
         parameters: {
             query?: {
                 /**
-                 * @description Its arguments as a JSON object of strings.
+                 * @description Its arguments as a JSON object of strings. Each can instead be its own query parameter, named as the playbook names it: `?task=a+dinner`.
                  * @example {"task":"a dinner"}
                  */
                 arguments?: string;

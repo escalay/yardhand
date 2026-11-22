@@ -8,10 +8,12 @@ import type { Context } from 'hono'
 import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { VIA_HEADER } from '../calls/handlers.js'
+import { packBaseOf } from '../clients/pack-choice.js'
 import { allows, callerOf, holds, type Principal } from '../clients/principals.js'
 import { ownTitleOf, type ServedPlaybook } from '../packs/own.js'
 import type { UpstreamRow } from '../upstreams/schema.js'
 import { type ManualContent, type PlaybookContent, playbookTitleOf } from './content.js'
+import { queryArgumentsOf } from './query.js'
 import type { LiveItem } from './repo.js'
 import { LINKS_PATH, MANUALS_PATH, PLAYBOOKS_PATH, RESOURCES_PATH, type routes } from './routes.js'
 
@@ -175,7 +177,13 @@ export const catalogHandlers = ({ catalog, upstreams, principals, reads, calls, 
           detail: 'arguments is a JSON object of strings, e.g. {"task":"a dinner for six"}.',
         })
       }
-    const read = await reads.playbook({ principal, via: viaOf(c) }, name, args)
+    const via = viaOf(c)
+    // MCP asks in-process with `arguments` only, and is told in its own words
+    const rest =
+      via === 'mcp'
+        ? undefined
+        : { query: queryArgumentsOf(), address: `${originOf(c)}${packBaseOf()}${PLAYBOOKS_PATH}` }
+    const read = await reads.playbook({ principal, via }, name, args, rest)
     return c.json(
       {
         name: read.name,

@@ -311,10 +311,43 @@ describe('a pack’s own playbooks over REST', () => {
     expect(ofPack.map((call: { tool: string }) => call.tool)).toContain('say-hello')
   })
 
-  it('refuse a use that leaves a required argument out, naming it', async () => {
+  it('refuse a use that leaves a required argument out, naming it and the form that works', async () => {
     const read = await filled(ada.key, '/api/playbooks/say-hello', { mood: 'glad' })
-    expect([read.status, read.detail]).toEqual([400, 'say-hello needs guest: guest (Who to greet.); mood.'])
+    expect([read.status, read.detail]).toEqual([
+      400,
+      'say-hello needs guest: guest (Who to greet.); mood. Send each as its own query parameter: GET http://localhost/api/playbooks/say-hello/messages?guest=<guest>&mood=glad',
+    ])
     expect((await filled(ada.key, '/api/playbooks/say-hello')).status).toBe(400)
+  })
+
+  it('take each argument as its own query parameter, at the pack’s address too', async () => {
+    const path = '/p/desk/api/playbooks/say-hello/messages'
+    const read = await at(ada.key, `${path}?guest=Sam&mood=glad`)
+    expect([read.status, read.json?.detail]).toEqual([200, undefined])
+    expect(read.json.messages[0].content.text).toBe(
+      '1. Run `greet_from_desk` with `to` set to Sam, at the front door.\n2. Say it back with `fixture.echo`, sounding glad.\n',
+    )
+    expect(new URL(read.json._links.playbook.href).pathname).toBe('/p/desk/api/playbooks/say-hello')
+    // One given each way
+    const mixed = await at(ada.key, `${path}?guest=Sam&arguments=${encodeURIComponent('{"mood":"calm"}')}`)
+    expect(mixed.json.messages[0].content.text).toContain('sounding calm.')
+    const missing = await at(both.key, `${path}?mood=glad`)
+    expect([missing.status, missing.json.detail]).toEqual([
+      400,
+      `say-hello needs guest: guest (Who to greet.); mood. Send each as its own query parameter: GET http://localhost${path}?guest=<guest>&mood=glad`,
+    ])
+    const example = /GET (\S+)$/.exec(missing.json.detail)?.[1] ?? ''
+    const tried = await at(both.key, example.replace('<guest>', 'Ada'))
+    expect([tried.status, tried.json.messages?.[0].content.text]).toEqual([
+      200,
+      '1. Run `greet_from_desk` with `to` set to Ada, at the front door.\n2. Say it back with `fixture.echo`, sounding glad.\n',
+    ])
+    const unknown = await at(ada.key, `${path}?guest=Sam&colour=red`)
+    expect([unknown.status, unknown.json.detail]).toEqual([
+      400,
+      'Unknown query parameter colour. Allowed here: arguments, guest, mood.',
+    ])
+    expect(await lastReads(1)).toEqual([['playbook', 'say-hello', null, 'rest', 'refused']])
   })
 
   it('read only the arguments given, even one named like what every object has', async () => {
@@ -346,10 +379,16 @@ describe('a pack’s own playbooks over REST', () => {
     const refused = await filled(key.key, '/api/playbooks/ctor-test')
     expect([refused.status, refused.detail]).toEqual([
       400,
-      'ctor-test needs constructor: constructor (What to build.).',
+      'ctor-test needs constructor: constructor (What to build.). Send each as its own query parameter: GET http://localhost/api/playbooks/ctor-test/messages?constructor=<constructor>',
     ])
     expect((await filled(key.key, '/api/playbooks/ctor-test', { constructor: 'a box' })).text).toBe(
       '1. Run `fixture.echo` with a box.\n',
+    )
+    expect(
+      (await at(key.key, '/api/playbooks/ctor-test/messages?constructor=a+box')).json.messages[0].content.text,
+    ).toBe('1. Run `fixture.echo` with a box.\n')
+    expect((await at(key.key, '/api/playbooks/ctor-test/messages?toString=x')).json.detail).toBe(
+      'Unknown query parameter toString. Allowed here: arguments, constructor.',
     )
     const required = await mcp(key.key)
     const listed = (await required.listPrompts()).prompts.find((prompt) => prompt.name === 'ctor-test')
@@ -829,7 +868,7 @@ describe('a pack’s guide', () => {
     expect(guide.text).not.toContain('name: desk')
     expect(guide.text.indexOf('## Working with Front desk')).toBeLessThan(guide.text.indexOf('## Connect'))
     expect(guide.text).toContain(
-      '- `say-hello`: Front desk · Say hello. Greets a guest by name, from the desk.\n- `fixture-warm-up`: Fixture · Warm up.',
+      '- `say-hello`: Front desk · Say hello. Greets a guest by name, from the desk. `GET http://localhost/p/desk/api/playbooks/say-hello/messages?guest=<guest>&mood=<mood>` (guest required).\n- `fixture-warm-up`: Fixture · Warm up.',
     )
   })
 

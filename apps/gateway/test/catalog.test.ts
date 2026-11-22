@@ -162,6 +162,51 @@ describe('reads, over REST', () => {
     expect(missing.json.detail).toContain('topic (What to say.)')
   })
 
+  it('takes each argument as its own query parameter, and shows that form when one is missing', async () => {
+    const path = '/api/playbooks/fixture-say-it-back/messages'
+    const own = await api(agentKey, `${path}?topic=tides`)
+    expect([own.status, own.json.messages?.[0].content.text]).toEqual([200, 'Use echo with "tides", then shout it.'])
+    const missing = await api(agentKey, path)
+    expect([missing.status, missing.json.detail]).toEqual([
+      400,
+      `fixture-say-it-back needs topic: topic (What to say.). Send each as its own query parameter: GET http://localhost${path}?topic=<topic>`,
+    ])
+    const example = /GET (\S+)$/.exec(missing.json.detail)?.[1] ?? ''
+    const tried = await api(agentKey, example.replace('<topic>', 'rain'))
+    expect([tried.status, tried.json.messages?.[0].content.text]).toEqual([200, 'Use echo with "rain", then shout it.'])
+  })
+
+  it('refuses a query parameter that is no argument of the playbook, or an argument given twice', async () => {
+    const path = '/api/playbooks/fixture-say-it-back/messages'
+    const detailOf = async (query: string) => {
+      const answer = await api(agentKey, `${path}?${query}`)
+      return [answer.status, answer.json.detail]
+    }
+    expect(await detailOf('topik=tides')).toEqual([
+      400,
+      'Unknown query parameter topik. Allowed here: arguments, topic.',
+    ])
+    expect(await detailOf('topic=tides&topic=rain')).toEqual([
+      400,
+      'topic is given twice: give each argument once, as its own query parameter or in arguments.',
+    ])
+    expect(await detailOf(`topic=tides&arguments=${encodeURIComponent('{"topic":"rain"}')}`)).toEqual([
+      400,
+      'topic is given twice: give each argument once, as its own query parameter or in arguments.',
+    ])
+    // A playbook this key can't read is not found, whatever it is asked with
+    expect((await api(elsewhereKey, `${path}?topic=tides`)).status).toBe(404)
+    expect((await api(agentKey, '/api/playbooks/fixture-nothing/messages?topic=tides')).status).toBe(404)
+  })
+
+  it('keeps the MCP refusal as it was: no address to send', async () => {
+    const client = await mcp(agentKey)
+    const said = await client.callTool({ name: 'get_playbook', arguments: { name: 'fixture-say-it-back' } })
+    expect(text(said)).toContain('fixture-say-it-back needs topic: topic (What to say.).')
+    expect(text(said)).not.toContain('query parameter')
+    await client.close()
+  })
+
   it('logs every read with its kind, beside tool calls', async () => {
     const log = (await owner('/api/calls?kind=manual,playbook,link&limit=50')).json._embedded.calls
     const kinds = new Set(log.map((call: { kind: string }) => call.kind))

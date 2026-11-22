@@ -30,6 +30,12 @@ const GATEWAY_LINK = /^gateway:\/\/u\/([a-z0-9][a-z0-9-]{0,39})\/(.+)$/
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
+/**
+ * A playbook asked for over REST: the arguments given as their own query parameters (`queryArgumentsOf`), and where
+ * the caller reads playbooks, `https://gw.example.com/p/<pack>/api/playbooks`, to show a use that works.
+ */
+export type RestUse = { query: Map<string, string[]>; address: string }
+
 export type ManualRead = {
   id: string
   item: LiveItem
@@ -194,23 +200,65 @@ export const createReads = ({
     new ProblemError('not_found', {
       detail: `No playbook ${name} for this client. GET /api/playbooks?q=<what you want to do> finds yours.`,
     })
-  /** The 400 for a use that leaves a required argument out, or nothing. */
-  const missingIn = (name: string, wanted: PlaybookArgument[], args: Record<string, string>) => {
-    const given = (argument: string) => (Object.hasOwn(args, argument) ? args[argument]?.trim() : undefined)
-    const missing = wanted.filter((arg) => arg.required && !given(arg.name)).map((arg) => arg.name)
-    return missing.length
-      ? new ProblemError('bad_request', {
-          detail: `${name} needs ${missing.join(', ')}: ${wanted.map((arg) => `${arg.name}${arg.description ? ` (${arg.description})` : ''}`).join('; ')}.`,
-        })
-      : null
+  const plainly = (names: string[]) => `${names.join(' and ')} ${names.length > 1 ? 'are' : 'is'}`
+  /**
+   * The arguments of one use, given in `arguments` and, over REST, as their own query parameters, with the 400 for a
+   * name the playbook doesn't take, one given twice, or a required one left out. Over REST that 400 shows the form
+   * that works.
+   */
+  const argumentsOf = (
+    name: string,
+    wanted: PlaybookArgument[],
+    given: Record<string, string>,
+    rest?: RestUse,
+  ): { args: Record<string, string>; problem: ProblemError | null } => {
+    const query = [...(rest?.query ?? [])]
+    const unknown = query.map(([key]) => key).filter((key) => !wanted.some((arg) => arg.name === key))
+    if (unknown.length)
+      return {
+        args: given,
+        problem: new ProblemError('bad_request', {
+          detail: `Unknown query parameter${unknown.length > 1 ? 's' : ''} ${unknown.join(', ')}. Allowed here: ${['arguments', ...wanted.map((arg) => arg.name)].join(', ')}.`,
+          errors: unknown.map((key) => ({ in: 'query' as const, path: key, message: `not an argument of ${name}` })),
+        }),
+      }
+    const twice = query.filter(([key, values]) => values.length > 1 || Object.hasOwn(given, key)).map(([key]) => key)
+    if (twice.length)
+      return {
+        args: given,
+        problem: new ProblemError('bad_request', {
+          detail: `${plainly(twice)} given twice: give each argument once, as its own query parameter or in arguments.`,
+        }),
+      }
+    const args = { ...given, ...Object.fromEntries(query.map(([key, values]) => [key, values[0] ?? ''])) }
+    const value = (argument: string) => (Object.hasOwn(args, argument) ? args[argument]?.trim() : undefined)
+    const missing = wanted.filter((arg) => arg.required && !value(arg.name)).map((arg) => arg.name)
+    if (!missing.length) return { args, problem: null }
+    const form = rest
+      ? ` Send each as its own query parameter: GET ${rest.address}/${encodeURIComponent(name)}/messages?${wanted
+          .filter((arg) => arg.required || value(arg.name))
+          .map(
+            (arg) =>
+              `${encodeURIComponent(arg.name)}=${value(arg.name) ? encodeURIComponent(args[arg.name] ?? '') : `<${arg.name}>`}`,
+          )
+          .join('&')}`
+      : ''
+    return {
+      args,
+      problem: new ProblemError('bad_request', {
+        detail: `${name} needs ${missing.join(', ')}: ${wanted.map((arg) => `${arg.name}${arg.description ? ` (${arg.description})` : ''}`).join('; ')}.${form}`,
+      }),
+    }
   }
 
   /** A playbook the caller's pack wrote, filled in here: the arguments given, then the pack's variables. */
-  const ownPlaybook = async (context: Context, name: string, args: Record<string, string>) => {
+  const ownPlaybook = async (context: Context, name: string, given: Record<string, string>, rest?: RestUse) => {
     const started = Date.now()
     const own = await packDocs.playbook(context.principal, name)
     const entry = { kind: 'playbook' as const, name, upstreamId: null, versionId: own?.versionId }
-    const problem = own ? missingIn(name, own.arguments, args) : noPlaybook(name)
+    const { args, problem } = own
+      ? argumentsOf(name, own.arguments, given, rest)
+      : { args: given, problem: noPlaybook(name) }
     if (!own || problem) {
       await record(context, entry, { status: 'refused', error: problem?.message, started })
       throw problem
@@ -225,12 +273,14 @@ export const createReads = ({
     return { id, name, result }
   }
 
+  /** A playbook filled in; `rest` when it was asked for over REST, with any arguments given as query parameters. */
   const playbook = async (
     context: Context,
     name: string,
-    args: Record<string, string>,
+    given: Record<string, string>,
+    rest?: RestUse,
   ): Promise<{ id: string; name: string; result: PromptResult }> => {
-    if (holdsOwn(context.principal, name)) return ownPlaybook(context, name, args)
+    if (holdsOwn(context.principal, name)) return ownPlaybook(context, name, given, rest)
     const started = Date.now()
     const item = await catalog.live('playbook', name)
     const row = item && holds(context.principal, item) ? await reachable(context.principal, item.upstreamId) : undefined
@@ -246,8 +296,8 @@ export const createReads = ({
       return refuse(noPlaybook(name))
     if (!row.enabled) return refuse(new ProblemError('unavailable', { detail: `Upstream ${row.id} is switched off.` }))
     const content = item.content as PlaybookContent
-    const missing = missingIn(name, content.arguments, args)
-    if (missing) return refuse(missing)
+    const { args, problem } = argumentsOf(name, content.arguments, given, rest)
+    if (problem) return refuse(problem)
     try {
       const result = await adapters
         .for(row.kind)
