@@ -1,8 +1,9 @@
 /**
  * Settings › AI: the gateway's three AI jobs, search by meaning, smart grouping and Build with AI, as settings cards:
- * each setting with what it is for and where its value comes from (set here, .env, smart grouping's for a build
- * setting left unset, or a default) on the left, its control on the right, and the test in the footer. A key is never
- * shown, only whether it is set. Model pickers offer only models that fit their role: TypeSafe's decision models for a
+ * each setting with what it is for and where its value comes from (set here, .env, smart grouping's, or a default) on
+ * the left, its control on the right, and the test in the footer. Build with AI takes smart grouping's provider,
+ * address and key together while it sets none of them, and its writer model while it sets none. A key is never shown,
+ * only whether it is set. Model pickers offer only models that fit their role: TypeSafe's decision models for a
  * TypeSafe decider, chat models otherwise. Smart grouping that isn't set up gets a three-step setup: provider, key,
  * test.
  */
@@ -22,7 +23,7 @@ import { RadioGroup, RadioGroupItem } from '@/ui/shadcn/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shadcn/select'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/shadcn/tooltip'
-import { BUILDS_CARD_ID, groupingKeySentElsewhere, KEY_HELP, ownKeySentToGrouping, sourceLabel } from './ai.rules'
+import { BUILDS_CARD_ID, KEY_HELP, ownConnectionUnreachable, sourceLabel } from './ai.rules'
 import { ModelPicker } from './ModelPicker'
 import { SettingsGroup } from './SettingsGroup'
 
@@ -461,7 +462,11 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
             {chooses ? (
               <Setting
                 label="Provider"
-                help={builds ? 'Where its model runs. Left unset, smart grouping’s.' : 'Where both models run.'}
+                help={
+                  builds
+                    ? 'Where its model runs. With no provider, address or key set here, smart grouping’s; with any, all three are its own.'
+                    : 'Where both models run.'
+                }
                 source={
                   <Source from={job.provider.from} env={job.provider.env} onReset={() => onSave({ provider: null })} />
                 }
@@ -490,22 +495,17 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
                 grouping
                   ? 'Sealed in Yardhand’s vault, never shown again.'
                   : builds
-                    ? 'Sealed in Yardhand’s vault, never shown again. Left unset, smart grouping’s.'
+                    ? 'Sealed in Yardhand’s vault, never shown again, and sent only to its own provider and address.'
                     : 'An OpenRouter key; sealed, never shown again.'
               }
               source={<Source from={job.key.from} env={job.key.env} onReset={() => onSave({ key: null })} />}
             >
               <KeyControl job={job} onSave={onSave} />
-              {builds && groupingKeySentElsewhere(job) ? (
+              {builds && ownConnectionUnreachable(job) ? (
                 <p className="text-xs text-pretty text-warn">
-                  It runs on a provider or address of its own, so smart grouping’s key is sent there. Give it a key of
-                  its own if that server should not have it.
-                </p>
-              ) : null}
-              {builds && ownKeySentToGrouping(job) ? (
-                <p className="text-xs text-pretty text-warn">
-                  Its key is its own but its address is smart grouping’s, so this key is sent to {job.baseUrl.value}.
-                  Give it a provider or address of its own if that server should not have it.
+                  It has a provider, address or key of its own, so it uses none of smart grouping’s and has no way to
+                  reach a model yet: give it a key (and an address for local or custom), or reset all three to use smart
+                  grouping’s.
                 </p>
               ) : null}
             </Setting>
@@ -601,8 +601,8 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
                 </>
               ) : builds ? (
                 <>
-                  Starts from <Mono className="text-xs">GATEWAY_AI_BUILDS_*</Mono> in .env; what you set here wins, and
-                  what neither sets follows smart grouping.
+                  Starts from <Mono className="text-xs">GATEWAY_AI_BUILDS_*</Mono> in .env; what you set here wins. With
+                  no provider, address or key in either, it uses smart grouping’s.
                 </>
               ) : (
                 <>

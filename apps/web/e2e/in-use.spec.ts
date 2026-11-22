@@ -1188,7 +1188,7 @@ test('Build and Refresh with AI: the estimate first, a proposal with its rehears
   const own = page.locator('section', { has: page.getByRole('heading', { name: /^Written for this pack · 1/ }) })
   await expect(own.getByText('Count to three, then say it back')).toBeVisible()
 
-  // Its model has a card of its own in Settings › AI, following smart grouping for what it leaves unset
+  // Its model has a card of its own in Settings › AI, on smart grouping's connection while it sets none of its own
   await page.goto('/app/settings#build-with-ai')
   const card = page.locator('#build-with-ai')
   await expect(card.getByText('Build with AI', { exact: true })).toBeVisible()

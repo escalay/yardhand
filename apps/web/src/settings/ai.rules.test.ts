@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { contextLine, groupingKeySentElsewhere, ownKeySentToGrouping, priceLine, sourceLabel } from './ai.rules'
+import { contextLine, ownConnectionUnreachable, priceLine, sourceLabel } from './ai.rules'
 
 describe('AI settings', () => {
   it('says a model’s price and size in words', () => {
@@ -18,22 +18,21 @@ describe('AI settings', () => {
     ])
   })
 
-  it('warns when Build with AI runs elsewhere with smart grouping’s key', () => {
-    const job = (provider: string, baseUrl: string, key: string) =>
-      ({ provider: { from: provider }, baseUrl: { from: baseUrl }, key: { from: key, set: true } }) as never
-    expect(groupingKeySentElsewhere(job('grouping', 'grouping', 'grouping'))).toBe(false)
-    expect(groupingKeySentElsewhere(job('settings', 'default', 'grouping'))).toBe(true)
-    expect(groupingKeySentElsewhere(job('grouping', 'env', 'grouping'))).toBe(true)
-    expect(groupingKeySentElsewhere(job('settings', 'default', 'settings'))).toBe(false)
-  })
-
-  it('warns when Build with AI’s own key goes to smart grouping’s address', () => {
-    const job = (provider: string, baseUrl: string, key: string) =>
-      ({ provider: { from: provider }, baseUrl: { from: baseUrl }, key: { from: key, set: true } }) as never
-    expect(ownKeySentToGrouping(job('grouping', 'grouping', 'settings'))).toBe(true)
-    expect(ownKeySentToGrouping(job('grouping', 'grouping', 'env'))).toBe(true)
-    expect(ownKeySentToGrouping(job('grouping', 'grouping', 'grouping'))).toBe(false)
-    expect(ownKeySentToGrouping(job('settings', 'default', 'settings'))).toBe(false)
-    expect(ownKeySentToGrouping(job('grouping', 'settings', 'settings'))).toBe(false)
+  it('says when Build with AI has a connection of its own it can’t reach a model with', () => {
+    const job = (provider: string, baseUrl: string, key: string, ready = false, value = 'openrouter') =>
+      ({
+        ready,
+        provider: { from: provider, value },
+        baseUrl: { from: baseUrl },
+        key: { from: key, set: key !== 'default' },
+      }) as never
+    // Smart grouping's connection whole: nothing of its own to fix here
+    expect(ownConnectionUnreachable(job('grouping', 'grouping', 'grouping'))).toBe(false)
+    expect(ownConnectionUnreachable(job('default', 'default', 'default'))).toBe(false)
+    // Any of the three set: all three are its own, and grouping's key is never sent there
+    expect(ownConnectionUnreachable(job('settings', 'default', 'default'))).toBe(true)
+    expect(ownConnectionUnreachable(job('default', 'env', 'default'))).toBe(true)
+    expect(ownConnectionUnreachable(job('settings', 'settings', 'default', false, 'custom'))).toBe(true)
+    expect(ownConnectionUnreachable(job('default', 'default', 'settings', true))).toBe(false)
   })
 })

@@ -41,10 +41,9 @@ export const sourceLabel = (from: Job['provider']['from']) =>
 
 const own = (from: Job['provider']['from']) => from === 'settings' || from === 'env'
 
-/** Build with AI runs on a provider or address of its own while its key is still smart grouping's. */
-export const groupingKeySentElsewhere = (job: Pick<Job, 'provider' | 'baseUrl' | 'key'>) =>
-  job.key.from === 'grouping' && (own(job.provider.from) || own(job.baseUrl.from))
-
-/** Build with AI has a key of its own while its address is still smart grouping's. */
-export const ownKeySentToGrouping = (job: Pick<Job, 'provider' | 'baseUrl' | 'key'>) =>
-  own(job.key.from) && job.baseUrl.from === 'grouping'
+/**
+ * Build with AI sets a provider, address or key of its own, so all three are its own and smart grouping's key is
+ * never sent there, but it can't reach a model yet (no key, or no address).
+ */
+export const ownConnectionUnreachable = (job: Pick<Job, 'ready' | 'provider' | 'baseUrl' | 'key'>) =>
+  !job.ready && [job.provider.from, job.baseUrl.from, job.key.from].some(own)
