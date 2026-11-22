@@ -661,7 +661,7 @@ export interface paths {
         };
         /**
          * Use a playbook
-         * @description A playbook filled in with your arguments: the steps to follow with its tools, as its upstream wrote them or, for a pack’s own, as the pack wrote them with its variables filled in. Logged like a call.
+         * @description A playbook filled in with your arguments: the steps to follow with its tools, as its upstream wrote them or, for a pack’s own, as the pack wrote them with its variables filled in. Give each argument as its own query parameter (`?topic=tides`), or all of them in `arguments`; a name the playbook doesn’t take, or one given twice, is a 400. Logged like a call.
          */
         get: operations["getPlaybookMessages"];
         put?: never;
@@ -2701,6 +2701,17 @@ export interface components {
                 from: "settings" | "env" | "grouping" | "default";
                 env: string | null;
             } | null;
+            /** @description For search, once it has a key: where its vectors stand. Null for the others. */
+            vectors: {
+                /** @description Live tools. */
+                tools: number;
+                /** @description Live tools with no vector yet: search finds them by their words only. */
+                missing: number;
+                /** @description What stopped the last refresh of the vectors, or null when it went through. */
+                failed: string | null;
+                /** @description When a refresh that failed or stopped is tried again by itself. */
+                retryAt: string | null;
+            } | null;
         };
         /** @description What to change; null takes a field back to .env. The key is sealed in the vault and never shown again. */
         AiJobPatch: {
@@ -3064,7 +3075,7 @@ export interface components {
              */
             level: "error" | "warning";
             /**
-             * @description In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `person_variable`, `no_value`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `no_value`, `name_clash`, `bad_name`, `bad_front_matter`, `bad_argument_name`, `empty`, `too_big`, or a warning: `unknown_name`, `not_a_name`, `needs_write`, `split`, `missing_section`, `skill_path`.
+             * @description In a tool’s values and the variables: `unknown_input`, `bad_value`, `two_modes`, `person_variable`, `no_value`, `bad_variable_name`, `duplicate_variable`, `variable_in_use`, or a warning: `not_a_variable`, `not_checked`, `unused_variable`, `not_live`. In a playbook or the skill: `not_in_pack`, `use_alias`, `left_pack`, `unresolved`, `no_value`, `name_clash`, `bad_name`, `bad_front_matter`, `bad_argument_name`, `empty`, `too_big`, or a warning: `unknown_name`, `not_a_name`, `needs_write`, `split`, `missing_section`, `skill_path`, `unknown_playbook` (the skill names a playbook the pack lacks).
              * @example bad_value
              */
             code: string;
@@ -6869,7 +6880,7 @@ export interface operations {
         parameters: {
             query?: {
                 /**
-                 * @description Its arguments as a JSON object of strings.
+                 * @description Its arguments as a JSON object of strings. Each can instead be its own query parameter, named as the playbook names it: `?task=a+dinner`.
                  * @example {"task":"a dinner"}
                  */
                 arguments?: string;

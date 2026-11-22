@@ -9,6 +9,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { SkillsClient } from '@modelcontextprotocol/client/ext/skills'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
+import { VIA_HEADER } from '../src/features/calls/handlers.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
 import { startUpstream } from './fixtures/upstream.js'
 
@@ -160,6 +161,67 @@ describe('reads, over REST', () => {
     const missing = await api(agentKey, '/api/playbooks/fixture-say-it-back/messages')
     expect(missing.status).toBe(400)
     expect(missing.json.detail).toContain('topic (What to say.)')
+  })
+
+  it('takes each argument as its own query parameter, and shows that form when one is missing', async () => {
+    const path = '/api/playbooks/fixture-say-it-back/messages'
+    const own = await api(agentKey, `${path}?topic=tides`)
+    expect([own.status, own.json.messages?.[0].content.text]).toEqual([200, 'Use echo with "tides", then shout it.'])
+    const missing = await api(agentKey, path)
+    expect([missing.status, missing.json.detail]).toEqual([
+      400,
+      `fixture-say-it-back needs topic: topic (What to say.). Send each as its own query parameter: GET http://localhost${path}?topic=<topic>`,
+    ])
+    const example = /GET (\S+)$/.exec(missing.json.detail)?.[1] ?? ''
+    const tried = await api(agentKey, example.replace('<topic>', 'rain'))
+    expect([tried.status, tried.json.messages?.[0].content.text]).toEqual([200, 'Use echo with "rain", then shout it.'])
+  })
+
+  it('refuses a query parameter that is no argument of the playbook, or an argument given twice', async () => {
+    const path = '/api/playbooks/fixture-say-it-back/messages'
+    const detailOf = async (query: string) => {
+      const answer = await api(agentKey, `${path}?${query}`)
+      return [answer.status, answer.json.detail]
+    }
+    expect(await detailOf('topik=tides')).toEqual([
+      400,
+      'Unknown query parameter topik. Allowed here: arguments, topic.',
+    ])
+    expect(await detailOf('topic=tides&topic=rain')).toEqual([
+      400,
+      'topic is given twice: give each argument once, as its own query parameter or in arguments.',
+    ])
+    expect(await detailOf(`topic=tides&arguments=${encodeURIComponent('{"topic":"rain"}')}`)).toEqual([
+      400,
+      'topic is given twice: give each argument once, as its own query parameter or in arguments.',
+    ])
+    // A playbook this key can't read is not found, whatever it is asked with
+    expect((await api(elsewhereKey, `${path}?topic=tides`)).status).toBe(404)
+    expect((await api(agentKey, '/api/playbooks/fixture-nothing/messages?topic=tides')).status).toBe(404)
+  })
+
+  it('reads them over a real connection too, and never drops them for a caller that says it came by MCP', async () => {
+    const path = '/api/playbooks/fixture-say-it-back/messages'
+    const answer = await fetch(`${origin}${path}?topic=tides`, { headers: { authorization: `Bearer ${agentKey}` } })
+    const json = (await answer.json()) as any
+    expect([answer.status, json.messages?.[0].content.text]).toEqual([200, 'Use echo with "tides", then shout it.'])
+    const asMcp = async (query: string) => {
+      const response = await app.request(`${path}?${query}`, {
+        headers: { authorization: `Bearer ${agentKey}`, [VIA_HEADER]: 'mcp' },
+      })
+      const body = (await response.json()) as any
+      return [response.status, body.detail ?? body.messages?.[0].content.text]
+    }
+    expect(await asMcp('topic=rain')).toEqual([200, 'Use echo with "rain", then shout it.'])
+    expect(await asMcp('topik=rain')).toEqual([400, 'Unknown query parameter topik. Allowed here: arguments, topic.'])
+  })
+
+  it('keeps the MCP refusal as it was: no address to send', async () => {
+    const client = await mcp(agentKey)
+    const said = await client.callTool({ name: 'get_playbook', arguments: { name: 'fixture-say-it-back' } })
+    expect(text(said)).toContain('fixture-say-it-back needs topic: topic (What to say.).')
+    expect(text(said)).not.toContain('query parameter')
+    await client.close()
   })
 
   it('logs every read with its kind, beside tool calls', async () => {

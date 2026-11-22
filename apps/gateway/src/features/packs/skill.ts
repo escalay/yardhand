@@ -31,6 +31,18 @@ export const sectionsOf = (body: string): string[] => {
   return SKILL_SECTIONS.filter((section) => headings.has(plain(section)))
 }
 
+/** The lines of one of the six sections, outside code blocks: from its `## ` heading to the next. */
+export const sectionLinesOf = (body: string, section: (typeof SKILL_SECTIONS)[number]) => {
+  const lines: string[] = []
+  let inside = false
+  for (const line of linesOutsideFences(body)) {
+    const heading = /^##[ \t]+(.+?)[ \t#]*$/.exec(line)?.[1]
+    if (heading) inside = plain(heading) === plain(section)
+    else if (inside) lines.push(line)
+  }
+  return lines
+}
+
 const headingOf = ({ line, code }: { line: string; code: boolean }) =>
   code ? null : (/^##[ \t]+(.+?)[ \t#]*$/.exec(line)?.[1] ?? null)
 

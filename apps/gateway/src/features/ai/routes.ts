@@ -30,6 +30,24 @@ const JobSchema = z
     deciderProtocol: field(z.enum(['typesafe', 'openai']))
       .nullable()
       .openapi({ description: '`typesafe`: TypeSafe’s System One API. `openai`: a chat model asked to choose.' }),
+    vectors: z
+      .object({
+        tools: z.number().int().openapi({ description: 'Live tools.' }),
+        missing: z
+          .number()
+          .int()
+          .openapi({ description: 'Live tools with no vector yet: search finds them by their words only.' }),
+        failed: z
+          .string()
+          .nullable()
+          .openapi({ description: 'What stopped the last refresh of the vectors, or null when it went through.' }),
+        retryAt: z
+          .string()
+          .nullable()
+          .openapi({ description: 'When a refresh that failed or stopped is tried again by itself.' }),
+      })
+      .nullable()
+      .openapi({ description: 'For search, once it has a key: where its vectors stand. Null for the others.' }),
   })
   .openapi('AiJob', { description: 'One of the gateway’s AI jobs and its settings.' })
 

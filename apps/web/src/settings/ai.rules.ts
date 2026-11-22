@@ -47,3 +47,25 @@ const own = (from: Job['provider']['from']) => from === 'settings' || from === '
  */
 export const ownConnectionUnreachable = (job: Pick<Job, 'ready' | 'provider' | 'baseUrl' | 'key'>) =>
   !job.ready && [job.provider.from, job.baseUrl.from, job.key.from].some(own)
+
+/** A time ahead in words: "in 5 min", "in 2 h", "soon". */
+const inTime = (iso: string, now: number) => {
+  const minutes = Math.round((Date.parse(iso) - now) / 60_000)
+  return minutes < 1 ? 'soon' : minutes < 90 ? `in ${minutes} min` : `in ${Math.round(minutes / 60)} h`
+}
+
+/**
+ * What to know about search by meaning's vectors, or null when every tool has one: how many are found by their words
+ * only, and when a refresh that did not finish is tried again.
+ */
+export const vectorsLine = (vectors: Job['vectors'], now = Date.now()) => {
+  if (!vectors || (!vectors.missing && !vectors.failed)) return null
+  const one = vectors.missing === 1
+  const missing = vectors.missing
+    ? `${vectors.missing.toLocaleString('en-GB')} of ${vectors.tools.toLocaleString('en-GB')} tools ${one ? 'has' : 'have'} no vector yet, so search finds ${one ? 'it by its' : 'them by their'} words only.`
+    : ''
+  const next = vectors.failed
+    ? `The last refresh did not finish (${vectors.failed}); it tries again ${vectors.retryAt ? inTime(vectors.retryAt, now) : 'at the next change'}.`
+    : `${one ? 'It gets' : 'They get'} one at the next refresh.`
+  return [missing, next].filter(Boolean).join(' ')
+}

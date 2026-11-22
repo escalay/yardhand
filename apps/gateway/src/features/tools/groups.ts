@@ -1,7 +1,8 @@
 /**
  * Tool groups by rules, for when no model is set up (and for filing a new tool next to its kind): a Composio tool by
  * its app, a tool that publishes its route by the route's first segment (`GET /api/v1/menus/{id}` → Boards), any
- * other by the noun in its name once its verb is dropped (`listDatasets`, `get_dataset_run` → Datasets). Groups of one
+ * other by the noun in its name once its verb is dropped (`listDatasets`, `get_dataset_run` → Datasets). A word with
+ * no plural, or the connection's own name, is never made plural (`get_weather` on weather → Weather). Groups of one
  * go to Other.
  */
 
@@ -32,10 +33,30 @@ const singular = (word: string) =>
       ? word.slice(0, -1)
       : word
 
-/** `dataset` → `Datasets`, `category` → `Categories`. */
+/** Words with no plural: a group of them is named as they are. */
+const MASS = new Set(
+  'weather data metadata info information feedback health traffic content software hardware music media mail search knowledge research money equipment inventory audio storage billing pricing security documentation help news'.split(
+    ' ',
+  ),
+)
+
+const capital = (word: string) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`
+
+/** `dataset` → `Datasets`, `category` → `Categories`, `weather` → `Weather`. */
 const plural = (word: string) => {
-  const title = `${word.charAt(0).toUpperCase()}${word.slice(1)}`
+  const title = capital(word)
+  if (MASS.has(word)) return title
   return /[^aeiou]y$/.test(word) ? `${title.slice(0, -1)}ies` : word.endsWith('s') ? title : `${title}s`
+}
+
+/** The connection a tool is grouped in: its id and title name it. */
+export type Connection = { id: string; title: string }
+
+/** A group's title: the connection's name as it writes it when the noun is that whole name (one word), else the plural. */
+const titleOf = (word: string, connection?: Connection) => {
+  const names = connection ? [connection.title.trim(), connection.id] : []
+  const named = names.find((name) => /^[A-Za-z0-9]+$/.test(name) && singular(name.toLowerCase()) === word)
+  return named ? capital(named) : plural(word)
 }
 
 export const keyOf = (title: string) =>
@@ -47,7 +68,11 @@ export const keyOf = (title: string) =>
     .slice(0, 40) || 'group'
 
 /** The group rules give a tool. */
-export const ruleGroupOf = (tool: { remoteName: string; route?: string | null }, apps: string[] = []): GroupDraft => {
+export const ruleGroupOf = (
+  tool: { remoteName: string; route?: string | null },
+  apps: string[] = [],
+  connection?: Connection,
+): GroupDraft => {
   const app = apps.find((name) => tool.remoteName.startsWith(`${name}_`))
   if (app) return { key: app, title: app }
   const path = tool.route?.split(/\s+/)[1]
@@ -60,14 +85,14 @@ export const ruleGroupOf = (tool: { remoteName: string; route?: string | null },
     const noun = segment ? wordsOf(segment).find((word) => !VERBS.has(word) && word.length > 2) : undefined
     if (noun) {
       const word = singular(noun)
-      return { key: keyOf(word), title: plural(word) }
+      return { key: keyOf(word), title: titleOf(word, connection) }
     }
   }
   const words = wordsOf(tool.remoteName)
   const noun = words.find((word) => !VERBS.has(word) && word.length > 2)
   if (!noun) return OTHER
   const word = singular(noun)
-  return { key: keyOf(word), title: plural(word) }
+  return { key: keyOf(word), title: titleOf(word, connection) }
 }
 
 /** Names that plainly build or update, however a server hints them: `createScore`, `upsert_dataset`. */
@@ -122,8 +147,9 @@ export const coversOf = (
 export const groupByRules = (
   tools: { name: string; remoteName: string; route?: string | null }[],
   apps: string[] = [],
+  connection?: Connection,
 ) => {
-  const found = tools.map((tool) => ({ tool: tool.name, group: ruleGroupOf(tool, apps) }))
+  const found = tools.map((tool) => ({ tool: tool.name, group: ruleGroupOf(tool, apps, connection) }))
   const sizes = new Map<string, number>()
   for (const { group } of found) sizes.set(group.key, (sizes.get(group.key) ?? 0) + 1)
   const assignments = found.map(({ tool, group }) => ({

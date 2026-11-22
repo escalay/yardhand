@@ -29,7 +29,9 @@ Some upstreams say more than their tools do:
   top saying how its tools and links are named here; the rest is as the upstream wrote it.
 - **Playbooks**: the upstream's step-by-step way to do one task (its MCP prompts). `search_tools` (and
   `GET /api/tools?q=…`, in `playbooks`) suggests one when it fits; `get_playbook` or
-  `GET /api/playbooks/{name}/messages?arguments={…}` fills it in. Named `<upstream>-<prompt>`.
+  `GET /api/playbooks/{name}/messages?topic=tides` fills it in, each argument its own query parameter as the
+  playbook names it (`GET /api/playbooks/{name}` lists them; `?arguments={…}`, a JSON object, works too). Named
+  `<upstream>-<prompt>`.
 - **Links** a tool returns, like `cookbook://recipes/123`: read them as they came with `read_resource` or
   `GET /api/resources?uri=…`; the gateway finds the upstream by the scheme. `GET /api/links` lists the kinds.
 
@@ -68,8 +70,9 @@ A pack can have a skill and playbooks written for it, by its owner, over its own
   also opens the pack's guide, `/p/<pack>/llms.txt`.
 - Its **own playbooks**: listed first in `GET /api/playbooks` and as prompts, with `upstream: null` and `pack` set,
   under the name the pack gave them (`say-hello`, not `<upstream>-<prompt>`). `search_tools` suggests them, and
-  `get_playbook` or `GET /api/playbooks/{name}/messages?arguments={…}` fills one in with your arguments and the
-  pack's own values. They belong to no connection: `?upstream=<id>` leaves them out, and no connection counts them.
+  `get_playbook` or `GET /api/playbooks/{name}/messages?guest=Sam` (each argument its own query parameter) fills one
+  in with your arguments and the pack's own values. They belong to no connection: `?upstream=<id>` leaves them out,
+  and no connection counts them.
 
 Playbooks, manuals and calls stay inside the pack too. A call to anything else is refused (403) and logged; the
 per-upstream passthrough (`/u/{id}/mcp`) is refused too. A pack key opens only the links its tools returned in the
@@ -140,8 +143,10 @@ What the checks say:
 - Refused, as an `error`: a tool in backticks that is not in the pack, or written by its own name where the pack
   gives it another; a `{{open}}word}}` in a playbook's text or the skill that is neither an argument nor a
   variable; front matter that can't be read; a fixed or default value the tool's input schema does not take.
-- Saved, with a `warning` in `findings`: a tool a read-only key can't run, a name shaped like a tool that is none,
-  a playbook past 12 steps, a section the skill leaves out.
+- Saved, with a `warning` in `findings`: a tool a read-only key can't run, a name shaped like a tool that is none
+  (a file's name, like `tokens.css`, is not taken for one), a playbook past 12 steps, a section the skill leaves out,
+  a playbook the skill names that the pack lacks (in its Playbooks section, or anywhere as `<upstream>-<prompt>` of a
+  connection the pack's tools or playbooks come from).
 - In a fixed or default value, a `{{open}}word}}` the pack has no variable for is sent as written, with a warning:
   a tool whose own input is a template keeps working. In a playbook's text or the skill nothing is sent as written,
   so there it is an error. That holds inside fenced code blocks too: there is no escape to keep a `{{open}}word}}` as

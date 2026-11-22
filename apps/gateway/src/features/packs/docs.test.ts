@@ -184,6 +184,34 @@ describe('a pack’s guide', () => {
     expect(both).toContain('Step-by-step ways to do one task with these tools')
   })
 
+  it('shows how to fill a playbook in over REST: each argument its own query parameter', () => {
+    const guide = packGuide({
+      pack: PACK,
+      url: URL,
+      readOnly: false,
+      tools: [],
+      manuals: [],
+      playbooks: [
+        {
+          name: 'say-hello',
+          title: 'Front desk · Say hello',
+          description: 'Greets a guest.',
+          arguments: [
+            { name: 'guest', required: true },
+            { name: 'mood', required: false },
+          ],
+        },
+        { name: 'fixture-warm-up', title: 'Fixture · Warm up', description: 'Warms up.', arguments: [] },
+      ],
+    })
+    expect(guide).toContain(
+      `\`get_playbook\` over MCP, or \`GET ${URL}/api/playbooks/{name}/messages\` with each argument as its own query parameter.`,
+    )
+    expect(guide).toContain(
+      `- \`say-hello\`: Front desk · Say hello. Greets a guest. \`GET ${URL}/api/playbooks/say-hello/messages?guest=<guest>&mood=<mood>\` (guest required).\n- \`fixture-warm-up\`: Fixture · Warm up. Warms up.\n`,
+    )
+  })
+
   it('leaves out the sections it has nothing for, and says when the pack holds no tools', () => {
     const empty = packGuide({ pack: PACK, url: URL, readOnly: false, tools: [], playbooks: [], manuals: [] })
     expect(empty).toContain('## Tools (0)')

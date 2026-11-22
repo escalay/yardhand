@@ -179,8 +179,9 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   pack gives it another, for a name the text was written for that has left the pack, for a `{{word}}` that is
   neither an argument nor a variable (in a text nothing is sent as written), and for an argument named like what
   every object has (`constructor`); a warning for a tool a read-only key can't run, a name shaped like a tool that is
-  none, a `{{…}}` that is no name, more than 12 steps, a missing skill section. A document's errors refuse a save
-  only when that document is the one saved (`judge`).
+  none (a file's name is not one), a `{{…}}` that is no name, more than 12 steps, a missing skill section, a
+  playbook the skill names that the pack lacks (`unknown_playbook`). A document's errors refuse a save only when
+  that document is the one saved (`judge`).
 - **Flag**: pack wording written against a tool version whose description has since changed, or a fixed or default
   value the live tool no longer takes (its input is gone, or no longer takes the value), shown on the pack page, in
   Reviews and as a Home nudge. Agents keep the wording. Until the owner changes the value, a fixed one the tool

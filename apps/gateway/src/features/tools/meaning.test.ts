@@ -1,8 +1,8 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { DIMENSIONS } from '../../kit/vectors/index.js'
+import { describe, expect, it, vi } from 'vitest'
+import { DIMENSIONS, SpendCapError } from '../../kit/vectors/index.js'
 import { barsFor, createMeaningSearch, fuse, MIN_ROWS } from './meaning.js'
 import type { ToolsRepo } from './repo.js'
 
@@ -114,5 +114,135 @@ describe('standouts', () => {
     const search = await refreshed(60, 1)
     expect([search.has(nameOf(0)), search.has(nameOf(59)), search.has(nameOf(60))]).toEqual([true, true, false])
     expect(searchOver(60, 1).has(nameOf(0))).toBe(false)
+  })
+})
+
+describe('a refresh that fails or stops', () => {
+  const FIRST = 20
+  const THEN = 100
+  /** A search over sixty tools whose embedder answers from `answers`, one per call, then embeds as it should. */
+  const failingFirst = (answers: (() => Promise<never>)[], rows = 60, retryDelays = [FIRST, THEN]) => {
+    let calls = 0
+    const asked: number[] = []
+    const search = createMeaningSearch({
+      file: join(mkdtempSync(join(tmpdir(), 'meaning-')), 'tools.jsonl'),
+      tools: {
+        listLive: async () =>
+          Array.from({ length: rows }, (_, row) => ({
+            name: nameOf(row),
+            upstreamId: 'shelf',
+            title: null,
+            description: row < 100 ? 'on topic' : 'something else',
+          })),
+      } as unknown as ToolsRepo,
+      embed: async (inputs) => {
+        asked.push(Date.now())
+        const answer = answers[calls++]
+        if (answer) return answer()
+        return { vectors: inputs.map(() => axis(0)), tokens: 0, cost: 0 }
+      },
+      query: async () => axis(0),
+      log: () => {},
+      retryDelays,
+    })
+    return Object.assign(search, { calls: () => calls, asked })
+  }
+  const busy = () => Promise.reject(new Error('OpenRouter 503: busy'))
+
+  it('is tried again after a while, and says meanwhile which tools have no vector and why', async () => {
+    const search = failingFirst([busy])
+    const before = Date.now()
+    await search.refresh()
+    expect(search.has(nameOf(0))).toBe(false)
+    const status = search.status?.()
+    expect(status).toMatchObject({ tools: 60, missing: 60, failed: 'OpenRouter 503: busy' })
+    expect(Date.parse(status?.retryAt ?? '')).toBeGreaterThanOrEqual(before + FIRST)
+    await vi.waitFor(() => expect(search.has(nameOf(0))).toBe(true))
+    expect(search.status?.()).toEqual({ tools: 60, missing: 0, failed: null, retryAt: null })
+  })
+
+  it('waits longer each time it fails again, and is tried again after the spend cap stopped it', async () => {
+    const capped = () => Promise.reject(new SpendCapError('OpenRouter 402: out of credits'))
+    const search = failingFirst([capped, busy])
+    await search.refresh()
+    expect(search.status?.()).toMatchObject({ missing: 60, failed: 'the key’s spend cap was reached' })
+    await vi.waitFor(() => expect(search.calls()).toBe(2))
+    await vi.waitFor(() => expect(search.status?.().failed).toBe('OpenRouter 503: busy'))
+    // The second wait is the longer one, counted from the second try
+    expect(Date.parse(search.status?.().retryAt ?? '')).toBeGreaterThanOrEqual((search.asked[1] ?? 0) + THEN)
+    await vi.waitFor(() => expect(search.has(nameOf(0))).toBe(true))
+  })
+
+  it('serves the vectors made before it failed', async () => {
+    const late = () => new Promise<never>((_, reject) => setTimeout(() => reject(new Error('OpenRouter 500')), 30))
+    // Two batches of a hundred: the first is embedded, the second fails
+    const search = failingFirst([undefined as never, late], 150)
+    await search.refresh()
+    expect([search.has(nameOf(0)), search.has(nameOf(120))]).toEqual([true, false])
+    expect(search.status?.()).toMatchObject({ tools: 150, missing: 50, failed: 'OpenRouter 500' })
+    search.stop?.()
+  })
+
+  it('tries no more once stopped: a new key starts its own', async () => {
+    const search = failingFirst([busy])
+    await search.refresh()
+    search.stop?.()
+    await new Promise((resolve) => setTimeout(resolve, THEN * 2))
+    expect(search.calls()).toBe(1)
+    expect(search.status?.().retryAt).toBeNull()
+  })
+
+  const WAIT = 200
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  it('keeps one try waiting however many refreshes failed in a row', async () => {
+    const search = failingFirst(
+      Array.from({ length: 20 }, () => busy),
+      60,
+      [WAIT, WAIT * 10],
+    )
+    // A sync, an approval and the start refresh, one after another
+    void search.refresh()
+    void search.refresh()
+    await search.refresh()
+    expect(search.calls()).toBe(3)
+    await vi.waitFor(() => expect(search.calls()).toBeGreaterThanOrEqual(4), { timeout: WAIT * 3 })
+    await pause(WAIT * 2)
+    expect(search.calls()).toBe(4)
+    search.stop?.()
+  })
+
+  it('waits the first delay after refreshes that failed in a row: only its own tries climb the ladder', async () => {
+    const search = failingFirst(
+      Array.from({ length: 20 }, () => busy),
+      60,
+      [WAIT, WAIT * 10],
+    )
+    void search.refresh()
+    void search.refresh()
+    const before = Date.now()
+    await search.refresh()
+    expect(Date.parse(search.status?.().retryAt ?? '')).toBeLessThanOrEqual(Date.now() + WAIT)
+    await vi.waitFor(() => expect(search.calls()).toBe(4), { timeout: WAIT * 5 })
+    await vi.waitFor(() => expect(search.status?.().retryAt).not.toBeNull())
+    expect(Date.parse(search.status?.().retryAt ?? '')).toBeGreaterThanOrEqual(before + WAIT * 10)
+    search.stop?.()
+  })
+
+  it('runs nothing once stopped: neither a refresh still queued nor a try already waiting', async () => {
+    const search = failingFirst(
+      Array.from({ length: 20 }, () => busy),
+      60,
+      [WAIT],
+    )
+    void search.refresh()
+    void search.refresh()
+    await search.refresh()
+    search.stop?.()
+    void search.refresh()
+    await search.refresh()
+    await pause(WAIT * 2)
+    expect(search.calls()).toBe(3)
+    expect(search.status?.().retryAt).toBeNull()
   })
 })

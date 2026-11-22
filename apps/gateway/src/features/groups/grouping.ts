@@ -141,7 +141,8 @@ export const createGrouping = ({
       })
       if (smartly) await apply(upstreamId, smartly, 'ai')
       else {
-        const { groups, assignments } = groupByRules(live, appKeys)
+        const row = await upstreams.get(upstreamId)
+        const { groups, assignments } = groupByRules(live, appKeys, { id: upstreamId, title: row?.title ?? upstreamId })
         await apply(
           upstreamId,
           groups.map((group) => ({

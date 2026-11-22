@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Model } from './features/ai/model.js'
 import { parseTraceparent, traceContext } from './features/calls/traces.js'
+import { withPlaybookQuery } from './features/catalog/query.js'
 import { packChoice, withPackAddresses } from './features/clients/pack-choice.js'
 import { callerOf, isOwner } from './features/clients/principals.js'
 import { FEATURES } from './features/index.js'
@@ -183,7 +184,8 @@ export const createApp = async ({
   mountProxy(app, services)
   // Last: whatever no route answered is a page of the app
   if (hasWeb) serveFrontDoor(app, web)
-  // Outermost: a pack's address is rewritten before anything reads it, and its answers link only inside it
-  app.fetch = withPackAddresses(sessionAuth.wrap(app.fetch as never) as typeof app.fetch)
+  // Outermost: a pack's address is rewritten before anything reads it, and its answers link only inside it.
+  // Innermost: a playbook's arguments as query parameters are lifted off before the kit refuses them
+  app.fetch = withPackAddresses(sessionAuth.wrap(withPlaybookQuery(app.fetch) as never) as typeof app.fetch)
   return Object.assign(app, { services })
 }

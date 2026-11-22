@@ -49,6 +49,33 @@ describe('AI settings', () => {
     ])
   })
 
+  it('says nothing of vectors while search by meaning has no key', async () => {
+    const { json } = await owner('/api/ai')
+    expect(json.jobs.map((job: { vectors: unknown }) => job.vectors)).toEqual([null, null, null])
+  })
+
+  it('says how many tools search by meaning has no vector for, what stopped it, and when it tries again', async () => {
+    const status = { tools: 1488, missing: 12, failed: 'OpenRouter 503: busy', retryAt: '2026-11-22T10:05:00.000Z' }
+    const searching = await createApp({
+      db: await testDb(),
+      env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: randomBytes(32).toString('base64') },
+      meaning: {
+        refresh: async () => {},
+        names: async () => [],
+        standouts: async () => null,
+        has: () => false,
+        status: () => status,
+      },
+    })
+    const response = await searching.request('/api/ai', { headers: { authorization: `Bearer ${OWNER}` } })
+    const json = (await response.json()) as any
+    expect(json.jobs.map((job: { job: string; vectors: unknown }) => [job.job, job.vectors])).toEqual([
+      ['search', status],
+      ['grouping', null],
+      ['builds', null],
+    ])
+  })
+
   it('refuses a build while Build with AI has no model to ask', async () => {
     await owner('/api/packs', { method: 'POST', body: { name: 'desk', title: 'Desk', description: 'Greets guests.' } })
     const body = { mode: 'build', tasks: ['greet a guest'] }

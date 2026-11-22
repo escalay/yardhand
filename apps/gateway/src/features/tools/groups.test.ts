@@ -17,6 +17,42 @@ describe('groups by rules', () => {
     expect(ruleGroupOf({ remoteName: 'search' })).toEqual({ key: 'other', title: 'Other' })
   })
 
+  it('never pluralises the connection’s own name, nor a word with no plural', () => {
+    const weather = { id: 'weather', title: 'weather' }
+    expect(ruleGroupOf({ remoteName: 'get_weather' }, [], weather)).toEqual({ key: 'weather', title: 'Weather' })
+    expect(ruleGroupOf({ remoteName: 'get_weather' }, [], { id: 'meteo', title: 'Weather' })).toEqual({
+      key: 'weather',
+      title: 'Weather',
+    })
+    // Its title as the owner writes it: an acronym stays in capitals
+    expect(ruleGroupOf({ remoteName: 'get_api' }, [], { id: 'api', title: 'API' })).toEqual({
+      key: 'api',
+      title: 'API',
+    })
+    // Only the connection's whole name: a countable noun in a longer title keeps its plural
+    expect(ruleGroupOf({ remoteName: 'list_screens' }, [], { id: 'desk', title: 'Desk screen library' })).toEqual({
+      key: 'screen',
+      title: 'Screens',
+    })
+    expect(ruleGroupOf({ remoteName: 'list_emails' })).toEqual({ key: 'email', title: 'Emails' })
+    expect(ruleGroupOf({ remoteName: 'getForecast' }, [], weather)).toEqual({ key: 'forecast', title: 'Forecasts' })
+    expect(ruleGroupOf({ remoteName: 'get_weather' })).toEqual({ key: 'weather', title: 'Weather' })
+    expect(ruleGroupOf({ remoteName: 'fetch_metadata' })).toEqual({ key: 'metadata', title: 'Metadata' })
+    expect(ruleGroupOf({ remoteName: 'send_feedback', route: 'POST /api/feedback' })).toEqual({
+      key: 'feedback',
+      title: 'Feedback',
+    })
+    const { groups } = groupByRules(
+      [
+        { name: 'weather.get_weather', remoteName: 'get_weather' },
+        { name: 'weather.weather_alerts', remoteName: 'weather_alerts' },
+      ],
+      [],
+      weather,
+    )
+    expect(groups.map((group) => group.title)).toEqual(['Weather'])
+  })
+
   it('sends groups of one to Other, last', () => {
     const { groups, assignments } = groupByRules([
       { name: 'x.listDatasets', remoteName: 'listDatasets' },

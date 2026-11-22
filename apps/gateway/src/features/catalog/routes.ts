@@ -174,15 +174,15 @@ export const routes = {
     tags: [TAG],
     summary: 'Use a playbook',
     description:
-      'A playbook filled in with your arguments: the steps to follow with its tools, as its upstream wrote them or, for a pack’s own, as the pack wrote them with its variables filled in. Logged like a call.',
+      'A playbook filled in with your arguments: the steps to follow with its tools, as its upstream wrote them or, for a pack’s own, as the pack wrote them with its variables filled in. Give each argument as its own query parameter (`?topic=tides`), or all of them in `arguments`; a name the playbook doesn’t take, or one given twice, is a 400. Logged like a call.',
     request: {
       params: z.object({ name: playbookName }),
       query: z.object({
-        arguments: z
-          .string()
-          .max(20_000)
-          .optional()
-          .openapi({ description: 'Its arguments as a JSON object of strings.', example: '{"task":"a dinner"}' }),
+        arguments: z.string().max(20_000).optional().openapi({
+          description:
+            'Its arguments as a JSON object of strings. Each can instead be its own query parameter, named as the playbook names it: `?task=a+dinner`.',
+          example: '{"task":"a dinner"}',
+        }),
       }),
     },
     responses: { 200: ok('The filled-in playbook.', MessagesSchema), ...problemResponses(400, 401, 403, 404, 503) },

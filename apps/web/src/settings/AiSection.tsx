@@ -7,7 +7,15 @@
  * TypeSafe decider, chat models otherwise. Smart grouping that isn't set up gets a three-step setup: provider, key,
  * test.
  */
-import { IconCheck, IconExternalLink, IconSearch, IconSparkles, IconWand, IconX } from '@tabler/icons-react'
+import {
+  IconAlertTriangle,
+  IconCheck,
+  IconExternalLink,
+  IconSearch,
+  IconSparkles,
+  IconWand,
+  IconX,
+} from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { type ReactNode, useState } from 'react'
@@ -23,7 +31,7 @@ import { RadioGroup, RadioGroupItem } from '@/ui/shadcn/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/shadcn/select'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/shadcn/tooltip'
-import { BUILDS_CARD_ID, KEY_HELP, ownConnectionUnreachable, sourceLabel } from './ai.rules'
+import { BUILDS_CARD_ID, KEY_HELP, ownConnectionUnreachable, sourceLabel, vectorsLine } from './ai.rules'
 import { ModelPicker } from './ModelPicker'
 import { SettingsGroup } from './SettingsGroup'
 
@@ -440,6 +448,7 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
   const showAddress =
     job.provider.value === 'custom' || job.provider.value === 'local' || job.baseUrl.from !== 'default'
   const Icon = grouping ? IconSparkles : builds ? IconWand : IconSearch
+  const vectors = vectorsLine(job.vectors)
   return (
     <div id={builds ? BUILDS_CARD_ID : undefined} className="scroll-mt-8 border border-border bg-card">
       <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-5">
@@ -454,6 +463,12 @@ const JobCard = ({ job, providers }: { job: Job; providers: Providers }) => {
         </div>
         <Status tone={job.ready ? 'ok' : 'neutral'}>{job.ready ? 'Ready' : 'Not set up'}</Status>
       </div>
+      {vectors ? (
+        <p className="flex gap-2 border-b border-border px-5 py-3 text-sm text-pretty text-muted-foreground">
+          <IconAlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warn" />
+          {vectors}
+        </p>
+      ) : null}
       {setup ? (
         <GroupingSetup providers={providers} onDone={() => setSettingUp(false)} />
       ) : (

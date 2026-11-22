@@ -22,7 +22,12 @@ const PRIVATE = 'private, no-cache'
 
 type PackWords = { name: string; title: string; description: string }
 type ToolLine = { name: string; title: string | null; summary: string; needsWrite: boolean }
-type PlaybookLine = { name: string; title: string; description: string }
+type PlaybookLine = {
+  name: string
+  title: string
+  description: string
+  arguments?: { name: string; required: boolean }[]
+}
 type ManualLine = { name: string; upstream: string; description: string }
 
 /** The routes a pack serves, with the methods its keys use: reading and running, never managing the gateway. */
@@ -128,6 +133,15 @@ export const packOpenApi = ({
 const skillSection = (skillMd: string) =>
   outsideFences(withoutFrontMatter(skillMd), (line) => (/^#{1,5}[ \t]/.test(line) ? `#${line}` : line)).trim()
 
+/** How a playbook with arguments is filled in over REST, after its line: ` \`GET …?guest=<guest>\` (guest required).` */
+const useOf = (url: string, playbook: PlaybookLine) => {
+  const args = playbook.arguments ?? []
+  if (!args.length) return ''
+  const query = args.map((arg) => `${encodeURIComponent(arg.name)}=<${arg.name}>`).join('&')
+  const required = args.filter((arg) => arg.required).map((arg) => arg.name)
+  return ` \`GET ${url}/api/playbooks/${encodeURIComponent(playbook.name)}/messages?${query}\`${required.length ? ` (${required.join(', ')} required)` : ''}.`
+}
+
 /**
  * The pack's guide for agents, as Markdown: what it is for, its skill when it has one, how to connect and work, and
  * everything it holds.
@@ -189,9 +203,11 @@ export const packGuide = ({
           '',
           '## Playbooks',
           '',
-          `Step-by-step ways to do one task with these tools: \`get_playbook\` over MCP, or \`GET ${url}/api/playbooks/{name}/messages\`.`,
+          `Step-by-step ways to do one task with these tools: \`get_playbook\` over MCP, or \`GET ${url}/api/playbooks/{name}/messages\` with each argument as its own query parameter.`,
           '',
-          ...playbooks.map((playbook) => `- \`${playbook.name}\`: ${playbook.title}. ${playbook.description}`),
+          ...playbooks.map(
+            (playbook) => `- \`${playbook.name}\`: ${playbook.title}. ${playbook.description}${useOf(url, playbook)}`,
+          ),
         ]
       : []),
     ...(manuals.length
