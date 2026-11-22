@@ -148,13 +148,10 @@ export const createApp = async ({
   // Six builds an hour per pack and caller, refused ones too: each may spend $1 and run real read calls
   const builds = await dbGuardStore(db)
   app.on('POST', '/api/packs/:name/builds', async (c, next) => {
-    const name = c.req.param('name') ?? ''
-    // By the pack's id, so a rename doesn't give it six more
-    const pack = await services.packs.get(name)
-    return rateLimit({ policy: `builds for ${pack?.id ?? name}`, limit: 6, windowSeconds: 3600, store: builds })(
-      c,
-      next,
-    )
+    // By the pack's id, so a rename doesn't give it six more; a name no pack has is the handler's 404, never a policy
+    const pack = await services.packs.get(c.req.param('name') ?? '')
+    if (!pack) return next()
+    return rateLimit({ policy: `builds for ${pack.id}`, limit: 6, windowSeconds: 3600, store: builds })(c, next)
   })
   // Ten tries a minute per address: owner keys are long, but a guess should still be slow
   app.on(

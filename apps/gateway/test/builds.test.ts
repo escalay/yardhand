@@ -493,7 +493,7 @@ describe('the estimate and the doors', async () => {
       return { done: true, outcome: 'Done.' }
     },
   })
-  const { api, pack, app, settled } = await gateway(model)
+  const { api, pack, app, db, settled } = await gateway(model)
   await pack('desk', 'Desk', 'Greets guests at the desk and echoes their notes.')
 
   it('asks nothing, and says when the cost is not known', async () => {
@@ -579,6 +579,23 @@ describe('the estimate and the doors', async () => {
     expect(
       (await api('/api/packs/desk/builds/estimate', { method: 'POST', body: { mode: 'build', tasks: TASKS } })).status,
     ).toBe(200)
+  })
+
+  it('refuses a name no pack has as the route does, keeping nothing of the name', async () => {
+    const guards = async () =>
+      Number((await db.get<{ count: number }>(sql`select count(*) as count from kit_guards`))?.count)
+    const kept = await guards()
+    // A name the route can't take is a 400, one it can but no pack has a 404: never a 500 from the limit's header
+    for (const [name, status] of [
+      ['a%0d%0ab', 400],
+      ['%E2%82%AC', 400],
+      ['x'.repeat(3000), 400],
+      ['nowhere', 404],
+    ] as const) {
+      const refused = await api(`/api/packs/${name}/builds`, { method: 'POST', body: { mode: 'build', tasks: TASKS } })
+      expect([name.slice(0, 12), refused.status]).toEqual([name.slice(0, 12), status])
+    }
+    expect(await guards()).toBe(kept)
   })
 })
 
