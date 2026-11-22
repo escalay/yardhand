@@ -464,8 +464,9 @@ const touchedBy = (touched: string[], key: string) =>
 /**
  * A change, judged: `findings` is everything wrong with the pack after it; `refused` is what the change itself
  * breaks: an error the pack didn't have before, an error under a place the request sends (`touched`, by stored
- * names), and a variable removed while a value or a text still writes it. An error in a playbook or the skill is
- * refused only when that document is touched: a change elsewhere that breaks it leaves it flagged.
+ * names), a variable removed while a value or a text still writes it, and a variable's value taken away while a text
+ * writes it. An error in a playbook or the skill is refused only when that document is touched: a change elsewhere
+ * that breaks it leaves it flagged.
  */
 export const judge = (before: PackState, after: PackState, touched: string[]) => {
   const had = checkPack(before)
@@ -489,6 +490,23 @@ export const judge = (before: PackState, after: PackState, touched: string[]) =>
       ].join(', ')}: change that first, or keep the variable.`,
     }),
   )
+  // A text is refused only when it is saved, so the value it reads is kept while it still writes the variable
+  const emptied = before.variables
+    .filter(
+      (variable) =>
+        variable.value !== null &&
+        after.variables.some((kept) => kept.name === variable.name && kept.value === null) &&
+        docWritersOf(after, variable.name).length,
+    )
+    .map(
+      ({ name }): Finding => ({
+        level: 'error',
+        code: 'no_value',
+        path: `variables.${name}`,
+        key: `variables.${name}`,
+        message: `{{${name}}} is still written by ${docWritersOf(after, name).join(', ')}, which only the pack’s value can fill: keep a value, or change that first.`,
+      }),
+    )
   // A value left without its variable is that removal's doing: it is said once, as the variable still in use
   const broken = stillWritten.length
     ? checkPack({ ...after, variables: [...after.variables, ...stillWritten] })
@@ -502,6 +520,7 @@ export const judge = (before: PackState, after: PackState, touched: string[]) =>
             !had.some((old) => old.level === 'error' && old.code === finding.code && old.key === finding.key))),
     ),
     ...inUse,
+    ...emptied,
   ]
   return { refused, findings }
 }

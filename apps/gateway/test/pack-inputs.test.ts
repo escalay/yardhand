@@ -781,6 +781,11 @@ describe('Per person: an input each person fills with their own value', () => {
       'greet_city needs city, which has no value for you in Loft: ask the owner to set yours.',
     )
     expect(none.json.detail).not.toContain('from')
+    const adaClient = await mcp(ada.key, '/p/loft/mcp')
+    expect(await said(adaClient, 'greet_city', { to: 'Sam' })).toContain(
+      'greet_city needs city, which has no value for you in Loft: ask the owner to set yours.',
+    )
+    await adaClient.close()
     // Still hidden: the input is the pack's to fill, with or without a value
     expect(Object.keys((await api(ada.key, '/p/loft/api/tools/greet_city')).json.inputSchema.properties)).toEqual([
       'to',
@@ -899,7 +904,13 @@ describe('Per person: an input each person fills with their own value', () => {
     expect((await owner('/api/packs/loft-copy', { method: 'DELETE' })).status).toBe(204)
   })
 
-  it('forgets a person’s values when their key is revoked', async () => {
+  it('forgets a person’s values when their key stops opening the pack, and when it is revoked', async () => {
+    expect((await valuesOf(ada.id, { method: 'PUT', body: { values: { city: 'the boss' } } })).status).toBe(200)
+    const elsewhere = await owner(`/api/clients/${ada.id}`, { method: 'PATCH', body: { packs: ['desk'] } })
+    expect(elsewhere.status).toBe(200)
+    expect((await valuesOf(ada.id)).status).toBe(404)
+    expect((await owner(`/api/clients/${ada.id}`, { method: 'PATCH', body: { packs: ['loft'] } })).status).toBe(200)
+    expect((await valuesOf(ada.id)).json.values[0].value).toBeNull()
     expect((await owner(`/api/clients/${ada.id}`, { method: 'DELETE' })).status).toBe(204)
     expect((await valuesOf(ada.id)).status).toBe(404)
   })

@@ -240,6 +240,27 @@ describe('checkPack on a Per person input', () => {
     )
   })
 
+  it('refuses taking the pack’s value away while a playbook or the skill writes the variable', () => {
+    const before = open({
+      variables: [{ name: 'city', value: 'the desk', description: null }],
+      skill: { markdown: 'Greeting people from {{city}}.', wrote: [] },
+    })
+    const emptied = withVariables(before, [{ name: 'city', value: null, description: null }])
+    expect(judge(before, emptied, ['variables']).refused).toEqual([
+      expect.objectContaining({
+        code: 'no_value',
+        path: 'variables.city',
+        message:
+          '{{city}} is still written by the skill, which only the pack’s value can fill: keep a value, or change that first.',
+      }),
+    ])
+    // Read by the Per person input alone, it can go
+    const read = open({ variables: [{ name: 'city', value: 'the desk', description: null }] })
+    expect(
+      judge(read, withVariables(read, [{ name: 'city', value: null, description: null }]), ['variables']).refused,
+    ).toEqual([])
+  })
+
   it('refuses removing a variable a Per person input reads', () => {
     const before = open()
     expect(codes(judge(before, withVariables(before, []), ['variables']).refused)).toEqual([

@@ -1107,7 +1107,7 @@ export interface paths {
         put?: never;
         /**
          * Run a tool
-         * @description Runs a tool through the gateway with its stored credentials. Read the tool first (GET /api/tools/{name}) for its input schema. Tools that change things need write scope.
+         * @description Runs a tool through the gateway with its stored credentials. Read the tool first (GET /api/tools/{name}) for its input schema. Tools that change things need write scope. Inside a pack, a 409 says a value the pack fills for you per person is missing or no longer fits, and names its variable: ask the owner.
          */
         post: operations["callTool"];
         delete?: never;
@@ -8593,6 +8593,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description `too_many_requests`: Slow down: wait the seconds in `Retry-After`, then retry. `spend_cap`: This operation costs money and its budget is used up. Free operations still work. */
             429: {
                 headers: {
@@ -8672,6 +8681,15 @@ export interface operations {
             };
             /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
