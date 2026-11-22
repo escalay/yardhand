@@ -1,9 +1,10 @@
 /**
  * Settings › AI: the gateway's three AI jobs, search by meaning, smart grouping and Build with AI, as settings cards:
  * each setting with what it is for and where its value comes from (set here, .env, smart grouping's for a build
- * setting left unset, or a default) on the left, its control on the right, and the test in the footer. A key is never shown, only whether it is set. Model pickers offer only models that fit
- * their role: TypeSafe's decision models for a TypeSafe decider, chat models otherwise. Smart grouping that isn't set
- * up gets a three-step setup: provider, key, test.
+ * setting left unset, or a default) on the left, its control on the right, and the test in the footer. A key is never
+ * shown, only whether it is set. Model pickers offer only models that fit their role: TypeSafe's decision models for a
+ * TypeSafe decider, chat models otherwise. Smart grouping that isn't set up gets a three-step setup: provider, key,
+ * test.
  */
 import { IconCheck, IconExternalLink, IconSearch, IconSparkles, IconWand, IconX } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
