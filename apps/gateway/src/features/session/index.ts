@@ -199,8 +199,17 @@ const fromAccess = (request: Request) =>
 /**
  * The session layer: a stand-in owner key that only this process knows joins the kit's key map, and a request with
  * a valid session cookie (and no credential of its own) is sent on carrying it. Writes must come from this site.
+ * With `oauth` on, the way to the consent page gets its own Continue and sign-in pages.
  */
-export const createSessionAuth = ({ keys, sessions }: { keys: Map<string, string>; sessions: SessionsRepo }) => {
+export const createSessionAuth = ({
+  keys,
+  sessions,
+  oauth,
+}: {
+  keys: Map<string, string>
+  sessions: SessionsRepo
+  oauth: boolean
+}) => {
   const standIn = randomBytes(32).toString('base64url')
   keys.set(hashApiKey(standIn), SESSION_KEY_NAME)
   const carrying = async (request: Request) => {
@@ -225,7 +234,7 @@ export const createSessionAuth = ({ keys, sessions }: { keys: Map<string, string
           request = new Request(request, { headers })
         }
         const url = new URL(request.url)
-        const authorizing = request.method === 'GET' && url.pathname === AUTHORIZE
+        const authorizing = oauth && request.method === 'GET' && url.pathname === AUTHORIZE
         if (
           authorizing &&
           request.headers.get('sec-fetch-site') === 'cross-site' &&

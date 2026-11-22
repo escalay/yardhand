@@ -399,6 +399,19 @@ describe('the owner’s session at the approval pages', () => {
     expect(html).not.toContain('<script>')
     expect(hrefsOf(html)[0]).toMatch(/^\/oauth\/authorize\?/)
   })
+
+  it('without OAuth on, there is no approval to continue to or sign in for', async () => {
+    const app = await gateway({ OAUTH_SIGNING_KEY: undefined })
+    for (const query of ['', '&hop=1']) {
+      const page = await app.request(`/oauth/authorize?client_id=sample${query}`, {
+        headers: { 'sec-fetch-site': 'cross-site' },
+      })
+      expect(page.status).not.toBe(200)
+      const text = await page.text()
+      expect(text).not.toContain('Continue to approve this app')
+      expect(text).not.toContain('Sign in to Yardhand first')
+    }
+  })
 })
 
 describe('the sign-in log', () => {

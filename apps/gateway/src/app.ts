@@ -94,7 +94,7 @@ export const createApp = async ({
   const session = sessionFeature({ keys, sessions, access: Boolean(access), unclaimed: waiting })
   const features = [...FEATURES, session]
   for (const feature of features) await migrate(db, feature.name, feature.migrations)
-  const sessionAuth = createSessionAuth({ keys, sessions })
+  const sessionAuth = createSessionAuth({ keys, sessions, oauth: Boolean(env.OAUTH_SIGNING_KEY) })
   const services = await createServices({ db, env, keys, ...(meaning ? { meaning } : {}), ...(model ? { model } : {}) })
   const web = { dir: env.WEB_DIR ?? DEFAULT_WEB_DIR }
   const hasWeb = existsSync(join(web.dir, 'index.html'))
