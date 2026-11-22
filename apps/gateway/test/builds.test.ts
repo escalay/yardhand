@@ -634,6 +634,33 @@ describe('a model that answers the wrong shape', () => {
   })
 })
 
+describe('an input value a model drafts', () => {
+  it('may be any JSON, as a pack’s own values are, and the pack’s checks judge it', async () => {
+    const { api, pack, build } = await gateway(
+      fakeModel({
+        kit: {
+          tools: [{ name: 'fixture.echo', reason: 'Says it back.' }],
+          inputs: [{ tool: 'fixture.echo', input: 'text', mode: 'fixed', value: ['a', 'b'] }],
+        },
+      }),
+    )
+    await pack('desk', 'Desk', 'Greets guests at the desk and echoes their notes.')
+    const done = await build('desk', ['echo a note back'])
+    expect([done.status, done.error]).toEqual(['ready', null])
+    const line = done.proposal.lines.find((entry: { id: string }) => entry.id === 'input:fixture.echo.text')
+    expect(line).toMatchObject({ after: { mode: 'fixed', value: ['a', 'b'] } })
+    expect(done.proposal.findings).toContainEqual(
+      expect.objectContaining({ level: 'error', path: 'tools.fixture.echo.fixed.text' }),
+    )
+    const refused = await api(`/api/packs/desk/builds/${done.id}/accept`, {
+      method: 'POST',
+      body: { lines: ['tool:fixture.echo', 'input:fixture.echo.text'] },
+    })
+    expect(refused.status).toBe(400)
+    expect(refused.json.detail).toMatch(/^Not saved:/)
+  })
+})
+
 describe('a variable a model drafts', () => {
   it('is accepted as the variables route takes it, so the owner can save the pack’s variables back', async () => {
     const { api, pack, build } = await gateway(
