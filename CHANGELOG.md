@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.6.0](https://github.com/escalay/yardhand/compare/v0.5.0...v0.6.0) (2026-11-22)
+
+
+### Features
+
+* **builds:** build and refresh a pack with AI, rehearsed and capped at $1 ([#37](https://github.com/escalay/yardhand/issues/37)) ([4164229](https://github.com/escalay/yardhand/commit/4164229f72f76a053958c4102451517350812158))
+* **packs:** add variables and input modes to a pack's tools ([#31](https://github.com/escalay/yardhand/issues/31)) ([845dc08](https://github.com/escalay/yardhand/commit/845dc08c2f2567a7592f08ecb5b229c2f33b4a6b)), closes [#22](https://github.com/escalay/yardhand/issues/22)
+* **packs:** extend keys, name the pack when access ends, rename packs ([#30](https://github.com/escalay/yardhand/issues/30)) ([6bdcc5f](https://github.com/escalay/yardhand/commit/6bdcc5fe2eb7124535b53629d3968f04f7af1cf9)), closes [#20](https://github.com/escalay/yardhand/issues/20)
+* **packs:** fill a pack input with each person's own value ([#36](https://github.com/escalay/yardhand/issues/36)) ([3370d62](https://github.com/escalay/yardhand/commit/3370d62df03be8a2479eab2aacd1c9adf1638c8f))
+* **packs:** playbooks and a skill written for a pack, served to its keys ([#34](https://github.com/escalay/yardhand/issues/34)) ([05ac508](https://github.com/escalay/yardhand/commit/05ac5087d963457feddc3c9769e79404afd8e1aa))
+* **packs:** share a pack with one person, list its people, nudge before access ends ([#33](https://github.com/escalay/yardhand/issues/33)) ([0ffcba1](https://github.com/escalay/yardhand/commit/0ffcba1b8dbe2ed49fb24223c293794b859288d7))
+
+
+### Fixes
+
+* **clients:** refuse to extend a key whose packs are all gone ([#32](https://github.com/escalay/yardhand/issues/32)) ([48ca442](https://github.com/escalay/yardhand/commit/48ca442e68d2795dcf79150209a2e4be86e813e8)), closes [#20](https://github.com/escalay/yardhand/issues/20)
+
+
+### Documentation
+
+* **decisions:** rename the example pack in the sketches ([#28](https://github.com/escalay/yardhand/issues/28)) ([3d63549](https://github.com/escalay/yardhand/commit/3d63549cb1ec6eaa981d7173b4e60a495460307b))
+* **release:** point Extend at People, which ships in 0.6.0 ([#38](https://github.com/escalay/yardhand/issues/38)) ([7b19273](https://github.com/escalay/yardhand/commit/7b19273b0ba702483695731a45160b4164f638ba))
+
 ## [0.5.0](https://github.com/escalay/yardhand/compare/v0.4.0...v0.5.0) (2026-11-21)
 
 
