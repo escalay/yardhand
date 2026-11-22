@@ -452,10 +452,15 @@ describe('the pack lock, for what is written for a pack', () => {
     await skillOf('shed', skillText('Kept in the shed.', '`fixture.echo` says it back.'))
     const key = await keyFor({ name: 'Shed key', pack: 'shed', expiresIn: '8h' })
     expect(namesOf(await playbooksAt(key.key))).toEqual(['shout-it'])
-    // A pack with a live key can't be removed: its key ends, the pack goes, the key is extended
-    await db.run(sql`update clients set expires_at = ${new Date(Date.now() - 1000).toISOString()} where id = ${key.id}`)
+    // A pack with a live key can't be removed, and a key left with no pack can't be extended: its key ends, the pack
+    // goes, and the key is brought back in the database, as one stored before that refusal would be
+    const endAt = (when: number) =>
+      db.run(sql`update clients set expires_at = ${new Date(when).toISOString()} where id = ${key.id}`)
+    await endAt(Date.now() - 1000)
     expect((await owner('/api/packs/shed', { method: 'DELETE' })).status).toBe(204)
-    expect((await owner(`/api/clients/${key.id}`, { method: 'PATCH', body: { expiresIn: '7d' } })).status).toBe(200)
+    expect((await owner(`/api/clients/${key.id}`, { method: 'PATCH', body: { expiresIn: '7d' } })).status).toBe(409)
+    await endAt(Date.now() + 7 * 24 * 60 * 60 * 1000)
+    expect((await at(key.key, '/api/me')).status).toBe(200)
     await packWith('removed', 'Removed', [{ name: 'fixture.echo' }])
     await write('removed', 'shout-it', SHOUT_IT.replace('`fixture.shout`', '`fixture.echo`'))
     await skillOf('removed', skillText('Not the shed.', '`fixture.echo` says it back.'))
