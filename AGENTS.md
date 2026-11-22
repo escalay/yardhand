@@ -198,8 +198,10 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   every ask; an estimate over it is a 429 `spend_cap`. One running per pack, six an hour per pack and caller.
 - **Rehearsal**: a build trying one example task with the drafted pack: the model picks a tool a step (6 at most);
   one that `rehearses` (its hints say it reads, the owner's setting agrees, not off, its route a read) runs through
-  the pipeline as a read-only owner locked to the draft by `packScopeFrom`, with the pack's own values; any other
-  gets a stand-in and never reaches the pipeline. Results go to the model only.
+  the pipeline as a read-only owner locked to the draft by `packScopeFrom`, with the pack's own values and no
+  person's (`rehearsalPrincipal`); any other gets a stand-in and never reaches the pipeline. Results go to the model
+  only. No person's name or value reaches a build: Refresh reads the pack's flags with no one's values, and a build
+  never proposes a Per person input nor changes one.
 - **Asked**: a call whose upstream asked something mid-call (MCP input requests); the answers come as the next call
   with the sealed `requestState`.
 
