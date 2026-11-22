@@ -123,6 +123,7 @@ describe('a refresh that fails or stops', () => {
   /** A search over sixty tools whose embedder answers from `answers`, one per call, then embeds as it should. */
   const failingFirst = (answers: (() => Promise<never>)[], rows = 60) => {
     let calls = 0
+    const asked: number[] = []
     const search = createMeaningSearch({
       file: join(mkdtempSync(join(tmpdir(), 'meaning-')), 'tools.jsonl'),
       tools: {
@@ -135,6 +136,7 @@ describe('a refresh that fails or stops', () => {
           })),
       } as unknown as ToolsRepo,
       embed: async (inputs) => {
+        asked.push(Date.now())
         const answer = answers[calls++]
         if (answer) return answer()
         return { vectors: inputs.map(() => axis(0)), tokens: 0, cost: 0 }
@@ -143,7 +145,7 @@ describe('a refresh that fails or stops', () => {
       log: () => {},
       retryDelays: [FIRST, THEN],
     })
-    return Object.assign(search, { calls: () => calls })
+    return Object.assign(search, { calls: () => calls, asked })
   }
   const busy = () => Promise.reject(new Error('OpenRouter 503: busy'))
 
@@ -165,9 +167,9 @@ describe('a refresh that fails or stops', () => {
     await search.refresh()
     expect(search.status?.()).toMatchObject({ missing: 60, failed: 'the key’s spend cap was reached' })
     await vi.waitFor(() => expect(search.calls()).toBe(2))
-    await vi.waitFor(() => expect(search.status?.().failed).toBe('OpenRouter 503: busy'), { interval: 1 })
-    const second = Date.parse(search.status?.().retryAt ?? '')
-    expect(second - Date.now()).toBeGreaterThan(FIRST)
+    await vi.waitFor(() => expect(search.status?.().failed).toBe('OpenRouter 503: busy'))
+    // The second wait is the longer one, counted from the second try
+    expect(Date.parse(search.status?.().retryAt ?? '')).toBeGreaterThanOrEqual((search.asked[1] ?? 0) + THEN)
     await vi.waitFor(() => expect(search.has(nameOf(0))).toBe(true))
   })
 
