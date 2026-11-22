@@ -597,4 +597,26 @@ describe('the sign-in log', () => {
       spy.mockRestore()
     }
   })
+
+  it('reads every resource a token request sent as JSON, a list too', async () => {
+    const lines: string[] = []
+    const spy = vi.spyOn(console, 'log').mockImplementation((line: unknown) => void lines.push(String(line)))
+    try {
+      const app = await gateway()
+      await app.request('/oauth/token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'refresh_token',
+          refresh_token: 'not-a-token',
+          resource: ['https://gw.example.com/mcp', 'https://gw.example.com/p/loud/mcp', 7],
+        }),
+      })
+      expect(lines.find((line) => line.startsWith('sign-in token'))).toContain(
+        'resource="https://gw.example.com/mcp","https://gw.example.com/p/loud/mcp" ',
+      )
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })

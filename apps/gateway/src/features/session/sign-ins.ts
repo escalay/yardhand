@@ -70,12 +70,12 @@ const jsonOf = (message: Request | Response) =>
     .json()
     .catch(() => ({})) as Promise<Record<string, unknown>>
 
-/** A token request's fields, form or JSON, as strings. */
+/** A token request's fields, form or JSON, as strings; a JSON list is each of its strings. */
 const formOf = async (request: Request) => {
   if ((request.headers.get('content-type') ?? '').includes('json'))
     return new URLSearchParams(
       Object.entries(await jsonOf(request)).flatMap(([key, value]) =>
-        typeof value === 'string' ? [[key, value]] : [],
+        (Array.isArray(value) ? value : [value]).flatMap((one) => (typeof one === 'string' ? [[key, one]] : [])),
       ),
     )
   return new URLSearchParams(await request.clone().text())
