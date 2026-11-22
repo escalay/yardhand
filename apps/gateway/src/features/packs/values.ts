@@ -6,6 +6,9 @@
 
 /** A variable's name: lowercase words joined by `_`. */
 export const VARIABLE = /^[a-z][a-z0-9_]{0,39}$/
+/** The most variables a pack holds, and the longest description one has. */
+export const VARIABLES_MAX = 100
+export const VARIABLE_DESCRIPTION_MAX = 400
 
 export type Scalar = string | number | boolean
 /** A pack's variables by name. */

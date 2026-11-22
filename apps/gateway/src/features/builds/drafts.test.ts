@@ -57,3 +57,32 @@ describe('a kit answer on a tool the pack holds', () => {
     expect(draft.tools[0]?.wording).toBeNull()
   })
 })
+
+describe('a kit answer’s variables', () => {
+  it('keeps a description to the 400 characters the variables route takes', () => {
+    const { draft } = applyKit(
+      pack([]),
+      { tools: [], variables: [{ name: 'desk_name', value: 'the desk', description: 'w'.repeat(600) }] },
+      [],
+    )
+    expect(draft.variables[0]?.description).toHaveLength(400)
+  })
+
+  it('adds none past the 100 a pack holds, and says which were left out', () => {
+    const variables = Array.from({ length: 95 }, (_, index) => ({
+      name: `held_${index}`,
+      value: index,
+      description: null,
+    }))
+    const proposed = Array.from({ length: 10 }, (_, index) => ({ name: `new_${index}`, value: index }))
+    const { draft, skipped } = applyKit(
+      pack([], variables),
+      { tools: [], variables: [{ name: 'held_0', value: 'changed' }, ...proposed] },
+      [],
+    )
+    expect(draft.variables).toHaveLength(100)
+    expect(draft.variables[0]).toMatchObject({ name: 'held_0', value: 'changed' })
+    expect(skipped.map((entry) => entry.name)).toEqual(['new_5', 'new_6', 'new_7', 'new_8', 'new_9'])
+    expect(skipped[0]?.reason).toBe('A pack holds 100 variables at most, so this variable was not added.')
+  })
+})

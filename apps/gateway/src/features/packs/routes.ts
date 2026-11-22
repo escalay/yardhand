@@ -9,6 +9,7 @@ import { ClientName, SurfaceSchema } from '../clients/routes.js'
 import { APP_IDS, KEY_APPS } from '../clients/setup.js'
 import { ALIAS } from './entries.js'
 import { PACK_REASONS } from './schema.js'
+import { VARIABLE_DESCRIPTION_MAX, VARIABLES_MAX } from './values.js'
 
 export const PATH = '/api/packs'
 export const FLAGS_PATH = '/api/packs/flags'
@@ -445,10 +446,10 @@ const VariablesInputSchema = z
             example: 'since_days',
           }),
           value: VariableValue,
-          description: z.string().max(400).nullable().optional(),
+          description: z.string().max(VARIABLE_DESCRIPTION_MAX).nullable().optional(),
         }),
       )
-      .max(100),
+      .max(VARIABLES_MAX),
   })
   .openapi('PackVariablesInput', {
     description: 'The pack’s variables from now on, in order: this list replaces the one it had.',

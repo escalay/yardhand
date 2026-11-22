@@ -17,6 +17,7 @@ import type { PackRow } from '../packs/schema.js'
 import { SKILL_DOC, SKILL_SECTIONS, skillBodyOf } from '../packs/skill.js'
 import type { PackState } from '../packs/state.js'
 import { withDoc } from '../packs/state.js'
+import { VARIABLE_DESCRIPTION_MAX, VARIABLES_MAX } from '../packs/values.js'
 import { summaryOf } from '../tools/handlers.js'
 import type { MeaningSearch } from '../tools/meaning.js'
 import type { ToolsRepo } from '../tools/repo.js'
@@ -267,10 +268,19 @@ export const applyKit = (before: Draft, json: unknown, candidates: LiveTool[]) =
     }
   let variables = [...before.variables]
   for (const variable of answer.variables) {
-    const next = { name: variable.name, value: variable.value, description: variable.description ?? null }
-    variables = variables.some((entry) => entry.name === variable.name)
-      ? variables.map((entry) => (entry.name === variable.name ? next : entry))
-      : [...variables, next]
+    const next = {
+      name: variable.name,
+      value: variable.value,
+      description: variable.description?.slice(0, VARIABLE_DESCRIPTION_MAX) || null,
+    }
+    if (variables.some((entry) => entry.name === variable.name))
+      variables = variables.map((entry) => (entry.name === variable.name ? next : entry))
+    else if (variables.length < VARIABLES_MAX) variables = [...variables, next]
+    else
+      skipped.push({
+        name: variable.name,
+        reason: `A pack holds ${VARIABLES_MAX} variables at most, so this variable was not added.`,
+      })
   }
   for (const input of answer.inputs) {
     tools = tools.map((tool) => {

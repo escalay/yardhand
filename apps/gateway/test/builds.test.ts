@@ -614,6 +614,30 @@ describe('a model that answers the wrong shape', () => {
   })
 })
 
+describe('a variable a model drafts', () => {
+  it('is accepted as the variables route takes it, so the owner can save the pack’s variables back', async () => {
+    const { api, pack, build } = await gateway(
+      fakeModel({
+        kit: { tools: [], variables: [{ name: 'desk_name', value: 'the desk', description: 'w'.repeat(600) }] },
+      }),
+    )
+    await pack('desk', 'Desk', 'Greets guests at the desk and echoes their notes.')
+    const done = await build('desk', ['greet a guest called Ada'])
+    const accepted = await api(`/api/packs/desk/builds/${done.id}/accept`, {
+      method: 'POST',
+      body: { lines: ['variable:desk_name'] },
+    })
+    expect([accepted.status, accepted.json.detail]).toEqual([200, undefined])
+    const variables = accepted.json.variables.map(({ name, value, description }: Record<string, unknown>) => ({
+      name,
+      value,
+      description,
+    }))
+    const saved = await api('/api/packs/desk/variables', { method: 'PUT', body: { variables } })
+    expect([saved.status, saved.json.detail]).toEqual([200, undefined])
+  })
+})
+
 describe('what a build keeps', () => {
   it('keeps its proposal sealed, and drops builds older than 30 days', async () => {
     const { db, pack, build, app } = await gateway(deskModel())
