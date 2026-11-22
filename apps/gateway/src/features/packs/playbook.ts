@@ -112,6 +112,20 @@ export const parsePlaybook = (name: string, markdown: string): { playbook: OwnPl
   }
 }
 
+/**
+ * What a playbook is for in one line: its description, else its title, with no braces or backticks, so a text that
+ * quotes it reads no variable or tool from it.
+ */
+export const aboutOf = (name: string, markdown: string) => {
+  const read = parsePlaybook(name, markdown)
+  if (!('playbook' in read)) return ''
+  return (read.playbook.description || read.playbook.title)
+    .replace(/[`{}]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300)
+}
+
 /** How many steps a text has: its numbered items at no indent, outside code blocks. */
 export const stepsIn = (body: string) => linesOutsideFences(body).filter((line) => /^\d+[.)]\s/.test(line)).length
 

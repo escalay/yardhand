@@ -1,17 +1,19 @@
 /**
  * Build or Refresh a pack with AI: what it is for (edited where the pack is edited), up to five example tasks, then
- * the estimate before anything runs: the likely cost against the cap, how many real read calls the rehearsal may make
- * and where their answers go. Start waits for the estimate; a start the gateway would refuse is held back here, since
- * every start counts toward six an hour.
+ * whether tools that change things start ticked (for a pack of the owner's own), then the estimate before anything
+ * runs: the likely cost against the cap, how many real read calls the rehearsal may make and where their answers go.
+ * Start waits for the estimate; a start the gateway would refuse is held back here, since every start counts toward
+ * six an hour.
  */
 import { IconPencil, IconPlus, IconSparkles, IconX } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { ApiError, api, type Schemas, unwrap } from '@/api/client'
 import { BUILDS_CARD_ID } from '@/settings/ai.rules'
 import { Field } from '@/ui/Field'
 import { Button } from '@/ui/shadcn/button'
+import { Checkbox } from '@/ui/shadcn/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/ui/shadcn/dialog'
 import { Input } from '@/ui/shadcn/input'
 import { useSettled } from '@/ui/useSettled'
@@ -61,19 +63,26 @@ export const BuildDialog = ({
   onStarted: (id: string) => void
 }) => {
   const queries = useQueryClient()
+  const changesId = useId()
   const [tasks, setTasks] = useState([''])
-  // Opened again, it starts from no tasks, not from what was typed last time
+  const [withChanges, setWithChanges] = useState(false)
+  // Opened again, it starts from no tasks and nothing extra ticked, not from what was chosen last time
   const [shown, setShown] = useState(open)
   if (open !== shown) {
     setShown(open)
-    if (open) setTasks([''])
+    if (open) {
+      setTasks([''])
+      setWithChanges(false)
+    }
   }
   const given = tasks.map((task) => task.trim()).filter(Boolean)
   const problem = tasksProblem(tasks)
+  // Sent only when ticked: the gateway leaves them unticked unless asked
+  const asked = withChanges ? { includeChanges: true } : {}
   // The tasks once typing rests, one a line: a string, so a render that changes nothing doesn't start the wait again
   const settled = useSettled(problem ? '' : given.join('\n'), 400)
   const estimate = useQuery({
-    ...buildEstimateQuery(pack.name, { mode, tasks: settled ? settled.split('\n') : [] }),
+    ...buildEstimateQuery(pack.name, { mode, tasks: settled ? settled.split('\n') : [], ...asked }),
     enabled: open && Boolean(settled) && !problem,
   })
   const start = useMutation({
@@ -115,7 +124,7 @@ export const BuildDialog = ({
           className="flex flex-col gap-5"
           onSubmit={(event) => {
             event.preventDefault()
-            start.mutate({ mode, tasks: given })
+            start.mutate({ mode, tasks: given, ...asked })
           }}
         >
           <div className="flex flex-col gap-1.5">
@@ -182,6 +191,21 @@ export const BuildDialog = ({
               </p>
             ) : null}
           </fieldset>
+          <div className="flex flex-col gap-0.5">
+            <label className="flex cursor-pointer items-start gap-3 text-sm font-medium">
+              <Checkbox
+                className="mt-0.5"
+                checked={withChanges}
+                onCheckedChange={(on) => setWithChanges(on === true)}
+                aria-describedby={`${changesId}-hint`}
+              />
+              Tick tools that change things too
+            </label>
+            <span id={`${changesId}-hint`} className="pl-7 text-sm text-pretty text-muted-foreground">
+              For a pack of your own: lines for tools that change things, and the playbooks and skill that need them,
+              start ticked. The rehearsal still never runs them.
+            </span>
+          </div>
           <div
             role="status"
             aria-live="polite"

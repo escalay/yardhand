@@ -3618,6 +3618,8 @@ export interface components {
         PackBuildEstimate: {
             /** @enum {string} */
             mode: "build" | "refresh";
+            /** @description Tools that change things will be ticked to begin with. */
+            includeChanges: boolean;
             /** @description The likely cost on the model, in US dollars; null when no price is known. */
             usd: number | null;
             /** @description The most a build may spend on the model. */
@@ -3653,6 +3655,8 @@ export interface components {
              *     ]
              */
             tasks: string[];
+            /** @description Tick the lines for tools that change things (and the playbooks and skill that need them) to begin with, as for a pack of your own. Off by default: those lines are unticked. The rehearsal never runs such a tool either way. */
+            includeChanges?: boolean;
         };
         /** @description A Build or Refresh with AI of a pack, and its proposal. */
         PackBuild: {
@@ -3713,8 +3717,12 @@ export interface components {
                         error: string | null;
                     }[];
                     outcome: string;
+                    /** @description Every step really ran and answered. False when a step was handed a stand-in (a tool that changes things, is off, not live or not in the pack), was refused or failed, or none was taken: the outcome then says what would happen, not what did. */
+                    tried: boolean;
                 }[];
                 findings: components["schemas"]["PackFinding"][];
+                /** @description It was asked with `includeChanges`: tools that change things were ticked to begin with. */
+                includeChanges: boolean;
             } | null;
             createdAt: string;
             finishedAt: string | null;

@@ -2,8 +2,8 @@
  * A build's proposal, in place of the pack's parts: every line it would change (tools with their wording and inputs,
  * variables, playbooks, the skill), each with a box, why, and before and after; ticking a line ticks what it needs,
  * and a line a ticked one needs stays until that one is unticked. Then what was left out, the rehearsal a task with
- * each call it made linked to Activity and each step it skipped, and the cost. While it runs, the step it is on; a
- * stopped build says what it didn't do, a failed one why.
+ * each call it made linked to Activity, each step it skipped and whether it was really tried, and the cost. While it
+ * runs, the step it is on; a stopped build says what it didn't do, a failed one why.
  */
 import { IconArrowLeft, IconCheck, IconSparkles } from '@tabler/icons-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -45,6 +45,7 @@ import {
   skippedLine,
   stoppedLine,
   toggled,
+  untriedLine,
 } from './build.rules'
 import { buildQuery, packQuery } from './queries'
 
@@ -148,38 +149,50 @@ const Rehearsal = ({ rehearsal }: { rehearsal: Proposed['rehearsal'] }) => (
   <Section title={`Rehearsal · ${rehearsal.length} ${rehearsal.length === 1 ? 'task' : 'tasks'}`}>
     {rehearsal.length ? (
       <ul className="border border-border bg-card">
-        {rehearsal.map((task) => (
-          <li key={task.task} className="flex flex-col gap-2 border-b border-border px-4 py-4 last:border-b-0 sm:px-5">
-            <p className="text-sm font-medium text-pretty">{rehearsalLine(task)}</p>
-            <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
-              {task.steps.map((step, index) => (
-                <li
-                  // biome-ignore lint/suspicious/noArrayIndexKey: a step is its place in the rehearsal
-                  key={index}
-                  className="break-words"
-                >
-                  {!step.ran ? (
-                    skippedLine(step)
-                  ) : step.callId ? (
-                    <>
-                      <Link
-                        to="/activity"
-                        search={{ outcome: 'all', via: 'rehearsal', call: step.callId }}
-                        className="rounded-xs text-foreground underline underline-offset-4 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
-                      >
-                        {step.tool} ran
-                      </Link>
-                      {step.error ? `: it failed, ${step.error}` : null}
-                    </>
-                  ) : (
-                    `${step.tool} was refused: ${step.error ?? 'no reason given'}`
-                  )}
-                </li>
-              ))}
-              {task.steps.length ? null : <li>No tool was tried.</li>}
-            </ul>
-          </li>
-        ))}
+        {rehearsal.map((task) => {
+          const untried = untriedLine(task)
+          return (
+            <li
+              key={task.task}
+              className="flex flex-col gap-2 border-b border-border px-4 py-4 last:border-b-0 sm:px-5"
+            >
+              <p className="text-sm font-medium text-pretty">{rehearsalLine(task)}</p>
+              {untried ? (
+                <Status tone="warn" className="items-baseline text-pretty">
+                  {untried}
+                </Status>
+              ) : null}
+              {task.steps.length ? (
+                <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+                  {task.steps.map((step, index) => (
+                    <li
+                      // biome-ignore lint/suspicious/noArrayIndexKey: a step is its place in the rehearsal
+                      key={index}
+                      className="break-words"
+                    >
+                      {!step.ran ? (
+                        skippedLine(step)
+                      ) : step.callId ? (
+                        <>
+                          <Link
+                            to="/activity"
+                            search={{ outcome: 'all', via: 'rehearsal', call: step.callId }}
+                            className="rounded-xs text-foreground underline underline-offset-4 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+                          >
+                            {step.tool} ran
+                          </Link>
+                          {step.error ? `: it failed, ${step.error}` : null}
+                        </>
+                      ) : (
+                        `${step.tool} was refused: ${step.error ?? 'no reason given'}`
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </li>
+          )
+        })}
       </ul>
     ) : (
       <p className="border border-border bg-card px-4 py-4 text-sm text-muted-foreground">
@@ -256,8 +269,10 @@ const Ready = ({ pack, build, onClose }: { pack: Pack; build: Build; onClose: ()
             <h2 className="text-2xl tracking-tight text-balance">Proposal for {pack.title}</h2>
             <p className="text-sm text-pretty text-muted-foreground">
               Drafted by <Mono className="text-xs">{proposal.model}</Mono> from {build.tasks.length} example{' '}
-              {build.tasks.length === 1 ? 'task' : 'tasks'}. Nothing changes in {pack.title} until you accept lines.
-              Accept all takes the lines ticked to begin with; a tool that changes things is yours to tick.
+              {build.tasks.length === 1 ? 'task' : 'tasks'}. Nothing changes in {pack.title} until you accept lines.{' '}
+              {proposal.includeChanges
+                ? 'Accept all takes the lines ticked to begin with, tools that change things among them, as you asked.'
+                : 'Accept all takes the lines ticked to begin with; a tool that changes things is yours to tick.'}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">

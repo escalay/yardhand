@@ -1259,6 +1259,11 @@ test('Build and Refresh with AI: the estimate first, a proposal with its rehears
     /\/app\/activity\?.*call=call_/,
   )
   await expect(rehearsal.getByText('shout skipped: it changes things, so it was not tried')).toBeVisible()
+  // A step got a stand-in, so the outcome is what would happen: the task is not marked as tried
+  await expect(
+    rehearsal.getByText('Not tried: a step did not run, so this says what would happen, not what did.'),
+  ).toBeVisible()
+  await expect(page.getByText(/a tool that changes things is yours to tick\.$/)).toBeVisible()
   const cost = page.locator('section', { has: page.getByRole('heading', { name: 'Cost' }) })
   await expect(cost.getByText(/^(\$0\.\d\d|Under \$0\.01) of \$1\.00$/)).toBeVisible()
   // On a phone the proposal stays within the window
@@ -1314,11 +1319,22 @@ test('Build and Refresh with AI: the estimate first, a proposal with its rehears
   await page.setViewportSize({ width: 390, height: 844 })
   const box = await build.boundingBox()
   expect(box && box.x >= 0 && box.x + box.width <= 390, `the dialog at ${JSON.stringify(box)}`).toBe(true)
+  // A pack of the owner's own: tools that change things start ticked, chosen from the keyboard
+  const withChanges = build.getByRole('checkbox', { name: 'Tick tools that change things too' })
+  await withChanges.focus()
+  await page.keyboard.press('Space')
+  await expect(withChanges).toBeChecked()
+  await expect(withChanges).toBeInViewport()
   await build.getByRole('button', { name: 'Build', exact: true }).scrollIntoViewIfNeeded()
   await expect(build.getByRole('button', { name: 'Build', exact: true })).toBeInViewport()
   await page.setViewportSize({ width: 1280, height: 720 })
+  const started = page.waitForRequest(
+    (sent) => sent.method() === 'POST' && new URL(sent.url()).pathname === '/api/packs/hush/builds',
+  )
   await build.getByRole('button', { name: 'Build', exact: true }).click()
+  expect((await started).postDataJSON()).toMatchObject({ mode: 'build', includeChanges: true })
   await expect(page.getByRole('heading', { name: 'Proposal for Hush' })).toBeVisible()
+  await expect(page.getByText(/tools that change things among them, as you asked\.$/)).toBeVisible()
   await expect(
     page.getByRole('listitem', { name: 'Playbook count-to-three-slowly' }).getByText('Needs Tool echo.count_slowly'),
   ).toBeVisible()

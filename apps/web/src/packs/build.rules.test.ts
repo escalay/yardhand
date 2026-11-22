@@ -18,6 +18,7 @@ import {
   stoppedLine,
   tasksProblem,
   toggled,
+  untriedLine,
   withNeeds,
 } from './build.rules'
 
@@ -253,6 +254,27 @@ describe('the rehearsal and the cost', () => {
       'send skipped: it is not in the pack, so it was not tried',
     )
     expect(skippedLine(step('[Something new.]'))).toBe('send skipped: Something new.')
+    // The stand-in as 0.6.1 words it
+    expect(
+      skippedLine(
+        step(
+          '[Not run in rehearsal: mail.send changes things, so nothing happened. Say what it would do, never that it was done.]',
+        ),
+      ),
+    ).toBe('send skipped: it changes things, so it was not tried')
+  })
+
+  it('says when a task was not really tried, and why', () => {
+    const ran = { tool: 'mail.draft', ran: true, callId: 'call_1', standIn: null, error: null }
+    const skipped = { tool: 'mail.send', ran: false, callId: null, standIn: '[Not run]', error: null }
+    expect(untriedLine({ tried: true, steps: [ran] })).toBeNull()
+    expect(untriedLine({ tried: false, steps: [ran, skipped] })).toBe(
+      'Not tried: a step did not run, so this says what would happen, not what did.',
+    )
+    expect(untriedLine({ tried: false, steps: [{ ...ran, callId: null, error: 'mail.draft: refused' }] })).toBe(
+      'Not tried: a step was refused or failed, so this says what would happen, not what did.',
+    )
+    expect(untriedLine({ tried: false, steps: [] })).toBe('Not tried: no tool ran.')
   })
 
   it('says what a build spent against the cap', () => {

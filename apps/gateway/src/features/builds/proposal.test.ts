@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { judge } from '../packs/checks.js'
+import { withPlaybookList } from '../packs/skill.js'
 import { applyLines, type Draft, type DraftTool, linesOf, missingNeeds, touchedOf } from './proposal.js'
 
 const live = (name: string, inputs: string[], readOnly = true) => ({
@@ -106,14 +107,17 @@ describe('a proposal’s lines', () => {
     expect(judge(before, applied, touchedOf(chosen)).refused).toEqual([])
     const all = applyLines(before, after, lines)
     expect(all.variables).toEqual(after.variables)
-    expect(all.skill?.markdown).toBe(SKILL)
+    // Accepted, the skill lists the playbooks the pack then has
+    expect(all.skill?.markdown).toBe(withPlaybookList(SKILL, after.playbooks))
     expect(judge(before, all, touchedOf(lines)).refused).toEqual([])
   })
 
   it('applies a removed tool a kept playbook names, and leaves the playbook flagged, not refused', () => {
     const without: Draft = { ...before, tools: [] }
     const removing = linesOf(before, without, {})
-    expect(removing.map((line) => [line.id, line.change])).toEqual([['tool:fixture.echo', 'remove']])
+    expect(removing.map((line) => [line.id, line.change, line.suggested])).toEqual([
+      ['tool:fixture.echo', 'remove', false],
+    ])
     const applied = applyLines(before, without, removing)
     const judged = judge(before, applied, touchedOf(removing))
     expect(judged.refused).toEqual([])

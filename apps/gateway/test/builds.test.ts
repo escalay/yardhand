@@ -179,8 +179,11 @@ describe('a build', async () => {
     expect(first).toMatchObject({
       task: TASKS[0],
       outcome: 'Greeted Ada from the front desk.',
+      tried: true,
       steps: [{ tool: 'fixture.greet', ran: true, standIn: null }],
     })
+    // A task done without running anything was not tried
+    expect(done.proposal.rehearsal[1]).toMatchObject({ steps: [], tried: false })
     const payload = await api(`/api/calls/${first.steps[0].callId}/payload`)
     expect(JSON.stringify(payload.json.result)).toContain('Hello Ada, from the front desk')
     // The model was shown the tool as the pack's keys see it: the fixed input hidden
@@ -292,7 +295,10 @@ describe('a build', async () => {
 
   it('says when a tool it tried was refused, without its result', async () => {
     const tried = await build('desk-quiet', ['greet a guest called Ada, from the boss'])
-    const [step] = tried.proposal.rehearsal[0].steps
+    const [task] = tried.proposal.rehearsal
+    // A step that never answered leaves its task not tried
+    expect(task.tried).toBe(false)
+    const [step] = task.steps
     expect(step).toEqual({
       tool: 'fixture.greet',
       ran: true,
@@ -352,10 +358,16 @@ describe('a rehearsal', async () => {
         tool: 'fixture.shout',
         ran: false,
         callId: null,
-        standIn: '[Not run in rehearsal: fixture.shout changes things. Assume it worked.]',
+        standIn:
+          '[Not run in rehearsal: fixture.shout changes things, so nothing happened. Say what it would do, never that it was done.]',
         error: null,
       },
     ])
+    // The outcome is marked as not tried, and the model is told a stand-in did nothing
+    expect(rehearsal).toMatchObject({ outcome: 'Said it, then shouted it.', tried: false })
+    const ask = model.asks.find((entry) => entry.step === 'rehearse')
+    expect(ask?.system).toContain('nothing happens: your outcome says what it would do, never that it was done')
+    expect(ask?.system).not.toContain('assume it worked')
     // What the tool returned went to the model only
     expect(JSON.stringify(done)).not.toContain('zebra-crossing-7')
     const logged = await api('/api/calls?via=rehearsal')
@@ -427,6 +439,46 @@ describe('a rehearsal', async () => {
     })
     expect(upstream.state.calls).toBe(calls)
     await api('/api/tools/fixture.echo', { method: 'PATCH', body: { access: null } })
+  })
+
+  it('ticks tools that change things when asked to, and still never runs them', async () => {
+    await pack('loud-own', 'Loud own', 'Says things back, loudly: echo and shout.')
+    const body = { mode: 'build', tasks: ['shout a word back'], includeChanges: true }
+    const estimate = await api('/api/packs/loud-own/builds/estimate', { method: 'POST', body })
+    expect(estimate.json).toMatchObject({ includeChanges: true, realCalls: 6 })
+    const calls = upstream.state.calls
+    const started = await api('/api/packs/loud-own/builds', { method: 'POST', body })
+    expect(started.status).toBe(202)
+    let own = started.json
+    for (let tries = 0; own.status === 'running' && tries < 250; tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      own = (await api(`/api/packs/loud-own/builds/${started.json.id}`)).json
+    }
+    expect(upstream.state.calls - calls).toBe(1)
+    expect(own.proposal.includeChanges).toBe(true)
+    expect(own.proposal.rehearsal[0].steps.map((step: { ran: boolean }) => step.ran)).toEqual([true, false])
+    expect(
+      own.proposal.lines.map((line: { id: string; changesThings: boolean; suggested: boolean }) => [
+        line.id,
+        line.changesThings,
+        line.suggested,
+      ]),
+    ).toEqual([
+      ['tool:fixture.echo', false, true],
+      ['tool:fixture.shout', true, true],
+      ['playbook:say-it-loud', false, true],
+      ['skill', false, true],
+    ])
+    // Left out, it is off
+    expect(done.proposal.includeChanges).toBe(false)
+    expect(
+      (
+        await api('/api/packs/loud-own/builds/estimate', {
+          method: 'POST',
+          body: { ...body, includeChanges: undefined },
+        })
+      ).json.includeChanges,
+    ).toBe(false)
   })
 })
 
@@ -799,6 +851,239 @@ describe('a variable a model drafts', () => {
     }))
     const saved = await api('/api/packs/desk/variables', { method: 'PUT', body: { variables } })
     expect([saved.status, saved.json.detail]).toEqual([200, undefined])
+  })
+})
+
+describe('a Refresh’s removals', async () => {
+  /** A model that takes out every tool of the pack, as one did for two narrow tasks. */
+  const model = fakeModel({
+    kit: (ask: Ask) => ({
+      tools: [],
+      remove: (JSON.parse(ask.user).pack_as_it_is.tools as { name: string }[]).map((tool) => ({
+        name: tool.name,
+        reason: 'No task needs it.',
+      })),
+    }),
+  })
+  const { api, pack, build } = await gateway(model)
+  await pack('desk-kept', 'Desk kept', 'Greets guests and echoes their notes.', ['fixture.greet', 'fixture.echo'])
+
+  it('keeps every tool that is live and switched on, and tells the model the tasks add to the pack', async () => {
+    const done = await build('desk-kept', ['greet a guest called Ada'], 'refresh')
+    expect(done.proposal.lines.filter((line: { kind: string }) => line.kind === 'tool')).toEqual([])
+    expect(done.proposal.skipped.map((entry: { name: string }) => entry.name)).toEqual([
+      'fixture.greet',
+      'fixture.echo',
+    ])
+    const kit = model.asks.find((ask) => ask.step === 'kit')
+    expect(kit?.system).toContain('The tasks add to the pack')
+    expect(JSON.parse(kit?.user ?? '{}').pack_as_it_is.tools).toEqual([
+      expect.objectContaining({ name: 'fixture.greet', live: true, off: false }),
+      expect.objectContaining({ name: 'fixture.echo', live: true, off: false }),
+    ])
+  })
+
+  it('proposes taking out one the owner switched off, unticked', async () => {
+    await api('/api/tools/fixture.echo', { method: 'PATCH', body: { access: 'off' } })
+    const done = await build('desk-kept', ['greet a guest called Ada'], 'refresh')
+    await api('/api/tools/fixture.echo', { method: 'PATCH', body: { access: null } })
+    expect(
+      done.proposal.lines
+        .filter((line: { kind: string }) => line.kind === 'tool')
+        .map((line: { id: string; change: string; suggested: boolean }) => [line.id, line.change, line.suggested]),
+    ).toEqual([['tool:fixture.echo', 'remove', false]])
+  })
+})
+
+describe('a playbook a build names', async () => {
+  const PRICING = '---\ntitle: Compare pricing\ndescription: Compares two pricing pages.\n---\n\n1. Read both pages.\n'
+  /** Every playbook named `task`, as a model did; one that revises says so when the task asks it. */
+  const model = fakeModel({
+    playbook: (ask: Ask) => ({
+      name: 'task',
+      ...(said(ask).task.startsWith('revise') ? { revises: true } : {}),
+      markdown: `---\ntitle: ${JSON.stringify(said(ask).task)}\ndescription: One of the tasks.\n---\n\n1. Do it.\n`,
+    }),
+  })
+  const { api, pack, build } = await gateway(model)
+  await pack('shelf', 'Shelf', 'Finds screens and compares pricing.')
+  expect(
+    (await api('/api/packs/shelf/playbooks', { method: 'POST', body: { name: 'task', markdown: PRICING } })).status,
+  ).toBe(201)
+  const playbookLines = (done: { proposal: { lines: { kind: string; id: string; change: string }[] } }) =>
+    done.proposal.lines.filter((line) => line.kind === 'playbook').map((line) => [line.id, line.change])
+
+  it('names each for its task, never `task`, and never onto a playbook the pack has', async () => {
+    const built = await build('shelf', ['find onboarding screens', 'find onboarding screens of banks'])
+    expect(playbookLines(built)).toEqual([
+      ['playbook:find-onboarding-screens', 'add'],
+      ['playbook:find-onboarding-screens-banks', 'add'],
+    ])
+    const refreshed = await build('shelf', ['find onboarding screens'], 'refresh')
+    expect(playbookLines(refreshed)).toEqual([['playbook:find-onboarding-screens', 'add']])
+    // Accepted whole, the owner's own playbook is as it was
+    const accepted = await api(`/api/packs/shelf/builds/${refreshed.id}/accept`, {
+      method: 'POST',
+      body: { lines: refreshed.proposal.lines.map((line: { id: string }) => line.id) },
+    })
+    expect([accepted.status, accepted.json.detail]).toEqual([200, undefined])
+    expect((await api('/api/packs/shelf/playbooks/task')).json.markdown).toBe(PRICING)
+  })
+
+  it('revises one of the pack’s own when the model says so, by its name', async () => {
+    const revised = await build('shelf', ['revise the pricing comparison'], 'refresh')
+    expect(playbookLines(revised)).toEqual([['playbook:task', 'change']])
+    expect(revised.proposal.lines.find((line: { id: string }) => line.id === 'playbook:task').before).toBe(PRICING)
+    // It was shown what each of the pack's own playbooks is for, to know which it revises
+    const ask = model.asks.filter((entry) => entry.step === 'playbook').at(-1)
+    expect(JSON.parse(ask?.user ?? '{}').playbooks).toContainEqual({
+      name: 'task',
+      about: 'Compares two pricing pages.',
+    })
+  })
+})
+
+describe('the skill a build writes', async () => {
+  /** A skill whose Playbooks section names playbooks the pack will never have, as a model wrote one. */
+  const WRONG = [
+    '## What it is for',
+    'Greeting guests.',
+    '## Which tool for which job',
+    'Greet with `fixture.greet`.',
+    '## Values already set',
+    'None.',
+    '## Playbooks',
+    '- task',
+    '- turn: says hello',
+    '## Gotchas',
+    'None known.',
+    "## What it can't do",
+    'Anything else.',
+  ].join('\n')
+  const model = deskModel({ skill: { markdown: WRONG } })
+  const { api, pack, build } = await gateway(model)
+  await pack('desk-told', 'Desk told', 'Greets guests at the desk and echoes their notes.')
+  await pack('desk-kept', 'Desk kept', 'Greets guests at the desk and echoes their notes.', [
+    'fixture.greet',
+    'fixture.echo',
+  ])
+
+  it('leaves a blank skill blank, so it is still found empty and refused on accept', async () => {
+    const blank = deskModel({ skill: { markdown: '' } })
+    const other = await gateway(blank)
+    await other.pack('desk-blank', 'Desk blank', 'Greets guests at the desk and echoes their notes.')
+    const done = await other.build('desk-blank', TASKS)
+    const findings = (done.proposal.findings ?? []).map(
+      (finding: { code: string; path: string }) => `${finding.path}:${finding.code}`,
+    )
+    expect(findings).toContain('skill:empty')
+    const accepted = await other.api(`/api/packs/desk-blank/builds/${done.id}/accept`, {
+      method: 'POST',
+      body: { lines: ['skill'] },
+    })
+    expect(accepted.status).toBe(400)
+  })
+
+  it('lists the draft’s own playbooks, and on accept only those the pack has', async () => {
+    const done = await build('desk-told', TASKS)
+    const skill = done.proposal.lines.find((line: { id: string }) => line.id === 'skill')
+    expect(skill.after).toContain(
+      '## Playbooks\n\n- `greet-guest`: Greets a guest by name, from the desk.\n- `echo-note`: Says a note back.\n\n## Gotchas',
+    )
+    expect(skill.after).not.toContain('- task')
+    const lines = done.proposal.lines
+      .map((line: { id: string }) => line.id)
+      .filter((id: string) => id !== 'playbook:echo-note')
+    const accepted = await api(`/api/packs/desk-told/builds/${done.id}/accept`, { method: 'POST', body: { lines } })
+    expect([accepted.status, accepted.json.detail]).toEqual([200, undefined])
+    const stored = (await api('/api/packs/desk-told/skill')).json.markdown
+    expect(stored).toContain('## Playbooks\n\n- `greet-guest`: Greets a guest by name, from the desk.\n\n## Gotchas')
+    expect(stored).not.toContain('echo-note')
+  })
+
+  it('in a Refresh, is asked with the whole pack and the skill as it is, to keep what it says of the rest', async () => {
+    const KEPT = WRONG.replace('Greet with `fixture.greet`.', 'Greet with `fixture.greet`; echo with `fixture.echo`.')
+    expect((await api('/api/packs/desk-kept/skill', { method: 'PUT', body: { markdown: KEPT } })).status).toBe(200)
+    const asked = model.asks.length
+    await build('desk-kept', ['greet a guest called Ada'], 'refresh')
+    const ask = model.asks.slice(asked).find((entry) => entry.step === 'skill')
+    expect(ask?.system).toContain('cover every tool under `tools`')
+    const said = JSON.parse(ask?.user ?? '{}')
+    expect(said.skill_as_it_is).toBe(KEPT)
+    expect(said.tools.map((tool: { name: string }) => tool.name)).toEqual(['fixture.greet', 'fixture.echo'])
+  })
+})
+
+describe('a proposal made before 0.6.1', () => {
+  it('reads as not tried where a step got a stand-in or was refused', async () => {
+    const { api, pack, app } = await gateway(deskModel())
+    await pack('desk', 'Desk', 'Greets guests at the desk and echoes their notes.')
+    const packId = String((await app.services.packs.get('desk'))?.id)
+    const id = await app.services.builds.create({
+      packId,
+      mode: 'build',
+      tasks: ['greet a guest'],
+      estimate: { usd: null, tokens: 0, modelCalls: { likely: 0, max: 0 } },
+      packUpdatedAt: new Date().toISOString(),
+    })
+    const step = (ran: boolean, error: string | null = null) => ({
+      tool: 'fixture.greet',
+      ran,
+      callId: null,
+      standIn: null,
+      error,
+    })
+    const rehearsal = [
+      { task: 'greet a guest', steps: [step(true)], outcome: 'Greeted.' },
+      { task: 'shout at a guest', steps: [step(true), step(false)], outcome: 'Shouted.' },
+      { task: 'wave at a guest', steps: [step(true, 'fixture.greet: refused')], outcome: 'Waved.' },
+    ]
+    await app.services.builds.finish(id, {
+      status: 'ready',
+      proposal: { mode: 'build', model: 'fake/writer', lines: [], skipped: [], rehearsal, findings: [] } as never,
+      spent: { usd: 0, tokens: 0, modelCalls: 0, known: false },
+    })
+    const read = await api(`/api/packs/desk/builds/${id}`)
+    expect(read.json.proposal.rehearsal.map((entry: { tried: boolean }) => entry.tried)).toEqual([true, false, false])
+  })
+
+  it('never ticks taking a tool out, as a proposal made now never does', async () => {
+    const { api, pack, app } = await gateway(deskModel())
+    await pack('desk', 'Desk', 'Greets guests at the desk and echoes their notes.')
+    const packId = String((await app.services.packs.get('desk'))?.id)
+    const id = await app.services.builds.create({
+      packId,
+      mode: 'refresh',
+      tasks: ['greet a guest'],
+      estimate: { usd: null, tokens: 0, modelCalls: { likely: 0, max: 0 } },
+      packUpdatedAt: new Date().toISOString(),
+    })
+    const line = (target: string, change: 'add' | 'remove') => ({
+      id: `tool:${target}`,
+      kind: 'tool',
+      target,
+      change,
+      before: change === 'add' ? null : { tool: target },
+      after: change === 'add' ? { tool: target } : null,
+      reason: null,
+      changesThings: false,
+      suggested: true,
+      needs: [],
+    })
+    // As 0.6.0 sealed it: no `includeChanges`, a removal ticked
+    const lines = [line('fixture.greet', 'add'), line('fixture.echo', 'remove')]
+    await app.services.builds.finish(id, {
+      status: 'ready',
+      proposal: { mode: 'refresh', model: 'fake/writer', lines, skipped: [], rehearsal: [], findings: [] } as never,
+      spent: { usd: 0, tokens: 0, modelCalls: 0, known: false },
+    })
+    const read = await api(`/api/packs/desk/builds/${id}`)
+    expect(
+      read.json.proposal.lines.map((entry: { id: string; suggested: boolean }) => [entry.id, entry.suggested]),
+    ).toEqual([
+      ['tool:fixture.greet', true],
+      ['tool:fixture.echo', false],
+    ])
   })
 })
 

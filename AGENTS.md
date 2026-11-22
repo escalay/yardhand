@@ -194,13 +194,17 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Build**: Build or Refresh with AI of one pack (`POST /api/packs/{name}/builds`, 202, polled): a model drafts its
   tools, wording, variables, input modes, playbooks and skill from its purpose and one to five example tasks, then
   rehearses each, and keeps one sealed **proposal**: lines (`tool:`, `wording:`, `input:`, `variable:`,
-  `playbook:`, `skill`), each with before, after and the lines it `needs`. Accepted once, line by line, onto the pack
-  as it was when the build started, through `judge`. `$1` at most on the model (`BUILD_CAP_USD`), checked before
+  `playbook:`, `skill`), each with before, after and the lines it `needs`. A tool that changes things is unticked
+  unless asked with `includeChanges`, a tool taken out always is, and a tool leaves only when it is not live or is
+  off. A playbook is named for its task and never onto one the pack holds, unless the model says it `revises` one of
+  the pack's own; the skill's Playbooks list is written from the draft, and again from the pack at accept. Accepted
+  once, line by line, onto the pack as it was when the build started, through `judge`. `$1` at most on the model (`BUILD_CAP_USD`), checked before
   every ask; an estimate over it is a 429 `spend_cap`. One running per pack, six an hour per pack and caller.
 - **Rehearsal**: a build trying one example task with the drafted pack: the model picks a tool a step (6 at most);
   one that `rehearses` (its hints say it reads, the owner's setting agrees, not off, its route a read) runs through
   the pipeline as a read-only owner locked to the draft by `packScopeFrom`, with the pack's own values and no
-  person's (`rehearsalPrincipal`); any other gets a stand-in and never reaches the pipeline. Results go to the model
+  person's (`rehearsalPrincipal`); any other gets a stand-in saying nothing happened, never reaches the pipeline, and
+  leaves its task not `tried`, as a refused or failed step does. Results go to the model
   only. No person's name or value reaches a build: Refresh reads the pack's flags with no one's values, and a build
   never proposes a Per person input nor changes one.
 - **Asked**: a call whose upstream asked something mid-call (MCP input requests); the answers come as the next call

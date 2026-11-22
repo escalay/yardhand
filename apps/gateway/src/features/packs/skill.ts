@@ -2,7 +2,8 @@
  * A pack's skill: one `SKILL.md`, "Working with <Title>", in six sections. The pack stores the text only; the front
  * matter and the heading are written here from the pack, so a rename or a new title never leaves them stale.
  */
-import { linesOutsideFences, withoutFrontMatter } from './frontmatter.js'
+import { fenced, linesOutsideFences, withoutFrontMatter } from './frontmatter.js'
+import { aboutOf } from './playbook.js'
 import { resolveText, type Variables } from './values.js'
 
 /** The name a pack's skill is stored under: a pack has one. */
@@ -40,6 +41,54 @@ export const sectionLinesOf = (body: string, section: (typeof SKILL_SECTIONS)[nu
     else if (inside) lines.push(line)
   }
   return lines
+}
+
+const headingOf = ({ line, code }: { line: string; code: boolean }) =>
+  code ? null : (/^##[ \t]+(.+?)[ \t#]*$/.exec(line)?.[1] ?? null)
+
+/**
+ * A skill's text with its Playbooks section listing these playbooks and nothing else: the pack's own, each by name
+ * with what it is for (`aboutOf`), then those it holds from its connections. The section goes before Gotchas when the
+ * text has none. A build writes the list, so the skill names only playbooks the pack has. CRLF endings stay CRLF. A
+ * blank text stays blank, so the check that refuses an empty skill still sees it.
+ */
+export const withPlaybookList = (
+  body: string,
+  playbooks: { name: string; markdown: string }[],
+  held: string[] = [],
+) => {
+  const own = playbooks.map((doc) => {
+    const about = aboutOf(doc.name, doc.markdown)
+    return `- \`${doc.name}\`${about ? `: ${about}` : ''}`
+  })
+  if (!body.trim()) return body
+  const list = [...own, ...held.map((name) => `- \`${name}\`: from a connection`)]
+  if (!list.length) list.push('None yet.')
+  const eol = body.includes('\r\n') ? '\r\n' : '\n'
+  const lines = fenced(body)
+  const text = lines.map((entry) => entry.line)
+  const isHeading = (section: string) => (entry: (typeof lines)[number]) => {
+    const heading = headingOf(entry)
+    return heading !== null && plain(heading) === plain(section)
+  }
+  const start = lines.findIndex(isHeading('Playbooks'))
+  if (start < 0) {
+    const gotchas = lines.findIndex(isHeading('Gotchas'))
+    const at = gotchas < 0 ? text.length : gotchas
+    const gap = at > 0 && text[at - 1]?.trim() ? [''] : []
+    return [
+      ...text.slice(0, at),
+      ...gap,
+      '## Playbooks',
+      '',
+      ...list,
+      ...(gotchas < 0 ? [] : ['']),
+      ...text.slice(at),
+    ].join(eol)
+  }
+  const next = lines.findIndex((entry, at) => at > start && headingOf(entry) !== null)
+  const end = next < 0 ? text.length : next
+  return [...text.slice(0, start + 1), '', ...list, ...(next < 0 ? [] : ['']), ...text.slice(end)].join(eol)
 }
 
 /**
