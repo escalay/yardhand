@@ -11,6 +11,8 @@ const HANDED_MS = 24 * 60 * 60 * 1000
 const hashOf = (link: string) => createHash('sha256').update(link).digest('base64url')
 /** The owner's principal id in the log. */
 const OWNER_ID = 'owner'
+/** A build trying an example task: in the log, never counted as use. */
+const notRehearsal = ne(calls.via, 'rehearsal')
 
 export type CallFilter = {
   clientId?: string
@@ -69,7 +71,7 @@ export const callsRepo = (db: Db, key: Buffer) => ({
       .orderBy(desc(calls.createdAt), desc(calls.id))
       .limit(limit)
   },
-  /** Every tool call matching the filter, the fields the stats need (the log keeps 90 days). */
+  /** Every tool call matching the filter, the fields the stats need (the log keeps 90 days); rehearsals only when asked. */
   window: (filter: CallFilter) =>
     db
       .select({
@@ -82,7 +84,13 @@ export const callsRepo = (db: Db, key: Buffer) => ({
         upstreamId: calls.upstreamId,
       })
       .from(calls)
-      .where(and(eq(calls.kind, 'tool'), ...(filtersOf(filter).filter(Boolean) as SQL[]))),
+      .where(
+        and(
+          eq(calls.kind, 'tool'),
+          ...(filter.via === 'rehearsal' ? [] : [notRehearsal]),
+          ...(filtersOf(filter).filter(Boolean) as SQL[]),
+        ),
+      ),
   /** The first of these tools the client called in the window, if any. */
   firstCallOf: async (clientId: string, toolNames: string[], from: string, to: string) =>
     toolNames.length
@@ -120,7 +128,7 @@ export const callsRepo = (db: Db, key: Buffer) => ({
     const rows = await db
       .select({ upstreamId: calls.upstreamId, status: calls.status, durationMs: calls.durationMs })
       .from(calls)
-      .where(and(gte(calls.createdAt, since), eq(calls.kind, 'tool')))
+      .where(and(gte(calls.createdAt, since), eq(calls.kind, 'tool'), notRehearsal))
     const byId = new Map<string, { count: number; failed: number; durations: number[] }>()
     for (const row of rows) {
       if (!row.upstreamId) continue
@@ -142,7 +150,7 @@ export const callsRepo = (db: Db, key: Buffer) => ({
     db
       .select({ tool: calls.tool, count: sql<number>`count(*)` })
       .from(calls)
-      .where(and(gte(calls.createdAt, since), eq(calls.kind, 'tool')))
+      .where(and(gte(calls.createdAt, since), eq(calls.kind, 'tool'), notRehearsal))
       .groupBy(calls.tool)
       .orderBy(desc(sql`count(*)`))
       .limit(limit),
@@ -152,7 +160,7 @@ export const callsRepo = (db: Db, key: Buffer) => ({
     return db
       .select({ at, status: calls.status, count: sql<number>`count(*)` })
       .from(calls)
-      .where(and(gte(calls.createdAt, since), eq(calls.kind, 'tool')))
+      .where(and(gte(calls.createdAt, since), eq(calls.kind, 'tool'), notRehearsal))
       .groupBy(at, calls.status)
   },
   /** The first call made by anyone but the owner, and the owner's first run from the app: the activation marks. */
@@ -160,11 +168,11 @@ export const callsRepo = (db: Db, key: Buffer) => ({
     const agent = await db
       .select({ at: sql<string | null>`min(${calls.createdAt})` })
       .from(calls)
-      .where(ne(calls.clientId, OWNER_ID))
+      .where(and(ne(calls.clientId, OWNER_ID), notRehearsal))
     const tried = await db
       .select({ at: sql<string | null>`min(${calls.createdAt})` })
       .from(calls)
-      .where(and(eq(calls.clientId, OWNER_ID), inArray(calls.status, ['ok', 'tool_error'])))
+      .where(and(eq(calls.clientId, OWNER_ID), inArray(calls.status, ['ok', 'tool_error']), notRehearsal))
     return { agentCallAt: agent[0]?.at ?? null, ownerRunAt: tried[0]?.at ?? null }
   },
   /** Did this client call any of these tools in the window (after a search that found them)? */
@@ -173,7 +181,15 @@ export const callsRepo = (db: Db, key: Buffer) => ({
     db
       .select({ kind: calls.kind, tool: calls.tool, upstreamId: calls.upstreamId, count: sql<number>`count(*)` })
       .from(calls)
-      .where(and(gte(calls.createdAt, since), ne(calls.kind, 'tool'), ne(calls.via, 'app'), eq(calls.status, 'ok')))
+      .where(
+        and(
+          gte(calls.createdAt, since),
+          ne(calls.kind, 'tool'),
+          ne(calls.via, 'app'),
+          notRehearsal,
+          eq(calls.status, 'ok'),
+        ),
+      )
       .groupBy(calls.kind, calls.tool, calls.upstreamId),
   calledAnyOf: async (clientId: string, toolNames: string[], from: string, to: string) =>
     (

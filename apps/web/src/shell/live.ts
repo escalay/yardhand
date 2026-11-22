@@ -12,7 +12,7 @@ export type CallEvent = {
   clientId: string
   tool: string
   upstream: string | null
-  via: 'rest' | 'mcp' | 'passthrough' | 'app'
+  via: 'rest' | 'mcp' | 'passthrough' | 'app' | 'rehearsal'
   status: 'ok' | 'tool_error' | 'refused' | 'failed' | 'asked'
   kind?: string
   durationMs: number

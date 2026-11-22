@@ -3487,10 +3487,10 @@ export interface components {
             kind: "tool" | "manual" | "playbook" | "link";
             upstream: string | null;
             /**
-             * @description The door it came in by; `app` is the owner trying a tool in /app.
+             * @description The door it came in by; `app` is the owner trying a tool in /app, `rehearsal` a build trying an example task.
              * @enum {string}
              */
-            via: "rest" | "mcp" | "passthrough" | "app";
+            via: "rest" | "mcp" | "passthrough" | "app" | "rehearsal";
             /**
              * @description `tool_error`: the tool ran and said no. `refused`: the gateway said no. `failed`: the upstream did not answer. `asked`: the upstream asked the caller something mid-call.
              * @enum {string}
@@ -8233,8 +8233,8 @@ export interface operations {
                  * @example tool_error,failed
                  */
                 status?: string;
-                /** @description Only this door. */
-                via?: "rest" | "mcp" | "passthrough" | "app";
+                /** @description Only this door (`rehearsal`: a build trying an example task). */
+                via?: "rest" | "mcp" | "passthrough" | "app" | "rehearsal";
                 /**
                  * @description Only these kinds, comma-separated (all when absent).
                  * @example manual,playbook
@@ -8479,8 +8479,8 @@ export interface operations {
                  * @example tool_error,failed
                  */
                 status?: string;
-                /** @description Only this door. */
-                via?: "rest" | "mcp" | "passthrough" | "app";
+                /** @description Only this door (`rehearsal`: a build trying an example task). */
+                via?: "rest" | "mcp" | "passthrough" | "app" | "rehearsal";
                 /**
                  * @description Only these kinds, comma-separated (all when absent).
                  * @example manual,playbook
@@ -8899,8 +8899,8 @@ export interface operations {
             query?: {
                 /** @description The window. */
                 range?: "24h" | "7d" | "30d";
-                /** @description Only this door. */
-                via?: "rest" | "mcp" | "passthrough" | "app";
+                /** @description Only this door. Rehearsal calls (a build trying an example task) count only when asked for. */
+                via?: "rest" | "mcp" | "passthrough" | "app" | "rehearsal";
                 /** @description Only this agent’s calls. */
                 client?: string;
                 /** @description Only calls by keys locked to this pack. */

@@ -10,7 +10,7 @@ export type ActivitySearch = {
   upstream?: string
   client?: string
   tool?: string
-  via?: 'rest' | 'mcp' | 'passthrough' | 'app'
+  via?: 'rest' | 'mcp' | 'passthrough' | 'app' | 'rehearsal'
   /** Only calls in this window (the log's whole 90 days when absent). */
   range?: Range
   /** Only calls by keys locked to this pack. */
@@ -21,7 +21,7 @@ export type ActivitySearch = {
 
 const OUTCOMES: Outcome[] = ['all', 'problems', 'ok', 'refused']
 const KINDS: KindFilter[] = ['manual', 'playbook', 'link', 'all']
-const VIAS = ['rest', 'mcp', 'passthrough', 'app'] as const
+const VIAS = ['rest', 'mcp', 'passthrough', 'app', 'rehearsal'] as const
 const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim().slice(0, 160) : undefined)
 
 export const parseActivitySearch = (raw: Record<string, unknown>): ActivitySearch => ({
@@ -73,6 +73,7 @@ export const VIA_LABEL: Record<string, string> = {
   mcp: 'MCP',
   passthrough: 'Passthrough',
   app: 'This app',
+  rehearsal: 'Rehearsal',
 }
 
 /** How many filters narrow the view (the outcome counts when it isn't "all"). */

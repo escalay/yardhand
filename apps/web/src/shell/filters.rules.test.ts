@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { changeOf, parseDoor, parseRange, percent, shareOf, sinceOf } from './filters.rules'
+import { changeOf, DOORS, parseDoor, parseRange, percent, shareOf, sinceOf } from './filters.rules'
 
 describe('filter bar', () => {
   it('reads ranges and doors from the address', () => {
@@ -7,6 +7,8 @@ describe('filter bar', () => {
     expect(parseRange('1y', '7d')).toBe('7d')
     expect(parseDoor('mcp')).toBe('mcp')
     expect(parseDoor('ftp')).toBeUndefined()
+    expect(parseDoor('rehearsal')).toBe('rehearsal')
+    expect(DOORS.find((door) => door.value === 'rehearsal')?.label).toBe('Rehearsal')
   })
 
   it('starts a window that far back', () => {

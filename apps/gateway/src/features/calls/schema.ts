@@ -4,6 +4,9 @@
  */
 import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
+/** The doors a call comes in by; `rehearsal` is a build trying an example task, never counted as use. */
+export const VIAS = ['rest', 'mcp', 'passthrough', 'app', 'rehearsal'] as const
+
 export const calls = sqliteTable('calls', {
   id: text('id').primaryKey(),
   clientId: text('client_id').notNull(),
@@ -15,7 +18,7 @@ export const calls = sqliteTable('calls', {
     .default('tool'),
   upstreamId: text('upstream_id'),
   versionId: text('version_id'),
-  via: text('via', { enum: ['rest', 'mcp', 'passthrough', 'app'] }).notNull(),
+  via: text('via', { enum: VIAS }).notNull(),
   /** `asked`: the upstream asked the caller something mid-call; the answers come as the next call. */
   status: text('status', { enum: ['ok', 'tool_error', 'refused', 'failed', 'asked'] }).notNull(),
   error: text('error'),

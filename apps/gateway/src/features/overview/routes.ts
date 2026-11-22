@@ -1,6 +1,7 @@
 /** Overview routes (owner only): Home in one call, and the gateway's own state for Settings. */
 import { createRoute, z } from '@hono/zod-openapi'
 import { HAL_JSON, LinksSchema, problemResponses } from '../../kit/index.js'
+import { VIAS } from '../calls/schema.js'
 import { UnansweredSchema } from '../searches/routes.js'
 
 export const PATH = '/api/overview'
@@ -226,7 +227,9 @@ export const routes = {
     request: {
       query: z.object({
         range: z.enum(['24h', '7d', '30d']).default('7d').openapi({ description: 'The window.' }),
-        via: z.enum(['rest', 'mcp', 'passthrough', 'app']).optional().openapi({ description: 'Only this door.' }),
+        via: z.enum(VIAS).optional().openapi({
+          description: 'Only this door. Rehearsal calls (a build trying an example task) count only when asked for.',
+        }),
         client: z.string().max(40).optional().openapi({ description: 'Only this agent’s calls.' }),
         pack: z.string().max(40).optional().openapi({ description: 'Only calls by keys locked to this pack.' }),
       }),
