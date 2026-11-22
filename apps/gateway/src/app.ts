@@ -107,8 +107,8 @@ export const createApp = async ({
           name: 'Yardhand',
           signingKey: env.OAUTH_SIGNING_KEY,
           store: oauthStore,
-          // The owner's own session approves an app's sign-in too; claims and device codes need Access
-          owner: async (c) => (await kitOwner(sessions)(c)) ?? (access ? await accessOwner(access)(c) : null),
+          // Access first, so one approval reads one owner; the owner's own session approves an app's sign-in too
+          owner: async (c) => (access ? await accessOwner(access)(c) : null) ?? (await kitOwner(sessions)(c)),
         })
       : undefined
   const app = createAgentApi({

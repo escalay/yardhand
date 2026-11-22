@@ -251,6 +251,31 @@ describe('an app signing in to the gateway', () => {
     await useAndRevoke(app, client, code)
   })
 
+  it('behind Access, an approval begun cross-site with Access alone is allowed when the click also carries the session', async () => {
+    const app = await gateway({ ACCESS_TEAM: ACCESS.team, ACCESS_AUD: ACCESS.audience })
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    const client = await register(app)
+    // Arriving from the app's site: the strict session cookie stays behind, Access comes along
+    const consent = await app.request(client.authorize, {
+      headers: { 'cf-access-jwt-assertion': accessToken, 'sec-fetch-site': 'cross-site' },
+    })
+    expect(consent.status).toBe(200)
+    const { action, body } = allowFormOf(await consent.text())
+    // The click is same-origin: the session cookie and Access both arrive
+    const allowed = await browser.send(action, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'sec-fetch-site': 'same-origin',
+        'cf-access-jwt-assertion': accessToken,
+      },
+      body,
+    })
+    expect(allowed.status).toBe(302)
+    expect(new URL(allowed.headers.get('location') ?? '').searchParams.get('code')).toBeTruthy()
+  })
+
   it('also takes the session where Access is in front', async () => {
     const app = await gateway({ ACCESS_TEAM: ACCESS.team, ACCESS_AUD: ACCESS.audience })
     const browser = browserOn(app)
