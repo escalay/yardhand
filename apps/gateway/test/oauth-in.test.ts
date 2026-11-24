@@ -207,9 +207,35 @@ const beforeTheUpdate = async () => {
     },
     /** A kit marker: `revoked-family` by grant (a 1.7.0 refresh row's is the sha256 of its token), `revoked-client`. */
     revoked: (kind: 'revoked-family' | 'revoked-client', id: string) => store.put(kind, id, {}, hourFromNow),
-    /** An agent registration the owner claimed, as the kit keeps it. */
-    claimedRow: (name: string, id: string) =>
-      store.put('registration', id, { name, type: 'agent', claimed: true, owner: 'owner@example.test' }, hourFromNow),
+    /**
+     * An agent registration the owner claimed, as kit 1.7.0 kept it: with its claim token until the agent collected
+     * the claim, which took the token (returned when it is still held).
+     */
+    claimedRow: async (name: string, id: string, { collected = false } = {}) => {
+      await store.put(
+        'registration',
+        id,
+        { name, type: 'agent', claimed: true, owner: 'owner@example.test' },
+        hourFromNow,
+      )
+      if (collected) return undefined
+      const token = `clm_${randomBytes(24).toString('base64url')}`
+      await store.put(
+        'claim-token',
+        createHash('sha256').update(token).digest('hex'),
+        { registration: id },
+        hourFromNow,
+      )
+      return token
+    },
+    /** The identity assertion kit 1.7.0 gave an agent with its claim. */
+    assertion: async (id: string) =>
+      new SignJWT({ sub: id, typ: 'agent_identity', email: 'owner@example.test', email_verified: true })
+        .setProtectedHeader({ alg: 'ES256' })
+        .setIssuer('http://localhost')
+        .setIssuedAt()
+        .setExpirationTime(hourFromNow)
+        .sign(await importJWK(JSON.parse(env.OAUTH_SIGNING_KEY), 'ES256')),
     /** The ids in the vault, never their values. */
     secretIds: async () => (await db.select({ id: secrets.id }).from(secrets)).map((row) => row.id),
     update: (keys: Partial<Env> = {}) => createApp({ db, env: { ...env, ...keys } }),
@@ -675,6 +701,49 @@ describe('an app is known by its sign-in, not the name it gives', () => {
     expect(await oauthRows(app)).toEqual([])
     const refreshed = await refresh(app, replayed)
     expect([refreshed.status, refreshed.json.error]).toEqual([400, 'invalid_grant'])
+  })
+
+  it('a pre-update agent claimed but not yet collected is mapped at start, and collecting reaches that row', async () => {
+    const before = await beforeTheUpdate()
+    const claim = await before.claimedRow('Agent', 'reg_waiting')
+    const app = await before.update()
+    const [row] = await oauthRows(app)
+    expect(row?.name).toBe('Agent')
+    const collected = await tokenFor(app, {
+      grant_type: 'urn:workos:agent-auth:grant-type:claim',
+      claim_token: claim ?? '',
+    })
+    expect(collected.status).toBe(200)
+    expect((await meOf(app, collected.json.access_token)).json.id).toBe(row?.id)
+    expect((await meOf(app, (await refresh(app, collected.json.refresh_token)).json.access_token)).json.id).toBe(
+      row?.id,
+    )
+    expect((await oauthRows(app)).map((one) => one.id)).toEqual([row?.id])
+  })
+
+  it('a pre-update agent whose claim was collected gets no row: its identity assertion is refused', async () => {
+    const before = await beforeTheUpdate()
+    await before.claimedRow('Agent', 'reg_collected', { collected: true })
+    const app = await before.update()
+    expect(await oauthRows(app)).toEqual([])
+    const asserted = await tokenFor(app, {
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: await before.assertion('reg_collected'),
+    })
+    expect([asserted.status, asserted.json.error]).toEqual([400, 'invalid_grant'])
+    expect(await oauthRows(app)).toEqual([])
+  })
+
+  it('a refresh token of the same name as a collected agent still maps, to one row', async () => {
+    const before = await beforeTheUpdate()
+    await before.claimedRow('Agent', 'reg_collected', { collected: true })
+    const old = await before.refreshRow('Agent', 'client_agent')
+    const app = await before.update()
+    const [row, ...more] = await oauthRows(app)
+    expect([row?.name, more]).toEqual(['Agent', []])
+    const refreshed = await refresh(app, old)
+    expect(refreshed.status).toBe(200)
+    expect((await meOf(app, refreshed.json.access_token)).json.id).toBe(row?.id)
   })
 
   it('a start under another master key still comes up, and the mapping leaves nothing in the vault', async () => {

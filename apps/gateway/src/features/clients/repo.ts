@@ -148,24 +148,32 @@ export const clientsRepo = (db: Db) => {
     legacyMapped: async () => (await db.select().from(clientLegacyMapping).limit(1)).length > 0,
     markLegacyMapped: (signIns: number) =>
       db.insert(clientLegacyMapping).values({ at: new Date().toISOString(), signIns }),
-    /** The sign-ins the kit still takes (unused refresh tokens, claimed registrations, neither revoked). */
+    /**
+     * The sign-ins the kit still takes, neither revoked: unused refresh tokens, and claimed registrations whose claim
+     * token is still held (one collected under 1.7.0 lost it, and its identity assertion is refused under `onGrant`).
+     */
     kitSignIns: async () => {
       const rows = await db
         .select()
         .from(oauthKeys)
         .where(
           and(
-            inArray(oauthKeys.kind, ['refresh', 'registration', 'revoked-family', 'revoked-client']),
+            inArray(oauthKeys.kind, ['refresh', 'registration', 'claim-token', 'revoked-family', 'revoked-client']),
             gt(oauthKeys.expiresAt, nowSeconds()),
           ),
         )
       const revoked = new Set(
         rows.filter((row) => row.kind.startsWith('revoked-')).map((row) => `${row.kind}:${row.id}`),
       )
+      const uncollected = new Set(
+        rows
+          .filter((row) => row.kind === 'claim-token')
+          .map((row) => String((JSON.parse(row.value) as Record<string, unknown>).registration)),
+      )
       return rows.flatMap((row) => {
         if (row.kind !== 'refresh' && row.kind !== 'registration') return []
         const value = JSON.parse(row.value) as Record<string, unknown>
-        const live = row.kind === 'refresh' ? !value.used : value.claimed === true
+        const live = row.kind === 'refresh' ? !value.used : value.claimed === true && uncollected.has(row.id)
         const client = row.kind === 'refresh' ? String(value.client) : row.id
         const grant = String(value.family ?? row.id)
         if (!live || revoked.has(`revoked-family:${grant}`) || revoked.has(`revoked-client:${client}`)) return []
