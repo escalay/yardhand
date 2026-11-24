@@ -9,8 +9,9 @@ import type { AddressInfo } from 'node:net'
 import sharp from 'sharp'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
-import { monogramOf, PALETTE, renderedMonogram } from '../src/features/packs/icon.js'
-import { hashApiKey, testDb } from '../src/kit/index.js'
+import { monogramOf, PALETTE, renderedMonogram, renderedUpload } from '../src/features/packs/icon.js'
+import { hashApiKey, ProblemError, testDb } from '../src/kit/index.js'
+import { sizeless } from './fixtures/svg.js'
 
 const OWNER = 'owner-key-for-pack-icons'
 const PNG = 'image/png'
@@ -303,6 +304,33 @@ describe('setting an icon', () => {
     // Picking a colour is not an upload
     expect((await at(gateway, OWNER, '/api/packs/desk/icon', { method: 'DELETE' })).status).toBe(200)
   })
+})
+
+describe('an SVG that is slow to measure', () => {
+  it('is stopped at its limit in a process of its own, while the gateway answers other requests', async () => {
+    const order: string[] = []
+    const started = Date.now()
+    const refused = renderedUpload(Buffer.from(sizeless('<svg xmlns="http://www.w3.org/2000/svg">')), {
+      seconds: 1,
+    }).then(
+      () => null,
+      (error: unknown) => {
+        order.push('upload')
+        return error
+      },
+    )
+    // A name no monogram was drawn for yet, so its answer needs sharp too
+    const answered = await at(app, null, '/p/zed/icon-96.png')
+    order.push('icon')
+    const pack = await owner('/api/packs/desk')
+    order.push('pack')
+    const problem = await refused
+    expect([answered.status, pack.status]).toEqual([200, 200])
+    expect(order).toEqual(['icon', 'pack', 'upload'])
+    expect(Date.now() - started).toBeLessThan(4000)
+    expect(problem).toBeInstanceOf(ProblemError)
+    expect((problem as ProblemError).message).toMatch(/took more than 1 second to draw.*simpler/)
+  }, 30_000)
 })
 
 describe('an upload sent with no length', () => {

@@ -1,5 +1,6 @@
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
+import { sizeless } from '../../../test/fixtures/svg.js'
 import { ProblemError } from '../../kit/index.js'
 import {
   type IconSet,
@@ -205,6 +206,18 @@ describe('an uploaded icon', () => {
     const problem = await refusal(Buffer.from(svg), { seconds: 1 })
     expect(Date.now() - started).toBeLessThan(4000)
     expect(problem.message).toMatch(/took more than 1 second to draw.*simpler/)
+  }, 30_000)
+
+  it('stops reading an SVG’s size at the same limit, when it gives none and librsvg must walk the drawing for it', async () => {
+    for (const head of [
+      '<svg xmlns="http://www.w3.org/2000/svg">',
+      '<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">',
+    ]) {
+      const started = Date.now()
+      const problem = await refusal(Buffer.from(sizeless(head)), { seconds: 1 })
+      expect([head, Date.now() - started < 4000]).toEqual([head, true])
+      expect(problem.message).toMatch(/took more than 1 second to draw.*simpler/)
+    }
   }, 30_000)
 
   it('refuses an SVG or a PNG it cannot read, saying what to do', async () => {

@@ -101,10 +101,20 @@ const OUTSIDE = [
 const IMAGE = [/<(?:\w+:)?(?:image|feImage)[\s>/]/i, /(?:\bhref\s*=\s*["']|url\(\s*["']?)\s*data:/i]
 
 const refused = (detail: string) => new ProblemError('bad_request', { detail })
+/** The widest an icon's sides may differ: within 4:5 of each other. */
+const [RATIO_MIN, RATIO_MAX] = [0.8, 1.25]
 const tooFarFromSquare = (width: number, height: number) => {
   const ratio = width / height
-  return ratio < 0.8 || ratio > 1.25
+  return ratio < RATIO_MIN || ratio > RATIO_MAX
 }
+const notSquare = (width: number, height: number) =>
+  refused(
+    `The icon is ${width} × ${height}, too far from square (its sides within 4:5 of each other). Crop it square and send it again.`,
+  )
+const unreadable = (kind: 'PNG' | 'SVG', error: unknown) =>
+  refused(
+    `The ${kind} couldn’t be read (${error instanceof Error ? error.message : String(error)}): open it in an editor, export it again, and send that.`,
+  )
 
 /**
  * Checks what an SVG holds before anything reads it: no DOCTYPE or entities, no CSS escapes, nothing outside itself
@@ -142,36 +152,60 @@ const checkSvg = (source: string) => {
     )
 }
 
-/** Draws an SVG (stdin) at a density into a 512 PNG (stdout); run as `node -e` with sharp's path and the density. */
+/**
+ * Reads an SVG (stdin) and draws it into a 512 PNG (stdout); run as `node -e` with sharp's path. Its size is read here
+ * too: librsvg walks the whole drawing to measure one that gives none. What stops it goes to stderr as JSON, for the
+ * gateway to word: the size it read (`{ width, height }`) or why it couldn't (`{ unreadable }`).
+ */
 const DRAW_SCRIPT = `const chunks = []
+const stop = (report) => {
+  process.stderr.write(JSON.stringify(report))
+  process.exitCode = 1
+}
 process.stdin.on('data', (chunk) => chunks.push(chunk)).on('end', async () => {
   try {
     const sharp = require(process.argv[1])
-    const drawn = await sharp(Buffer.concat(chunks), { density: Number(process.argv[2]) })
+    const svg = Buffer.concat(chunks)
+    const meta = await sharp(svg, { limitInputPixels: false }).metadata()
+    const { width = 0, height = 0 } = meta
+    if (meta.format !== 'svg' || !width || !height) return stop({ unreadable: 'it reads as ' + (meta.format ?? 'nothing') })
+    if (width / height < ${RATIO_MIN} || width / height > ${RATIO_MAX}) return stop({ width, height })
+    // Drawn at the density that makes its longer side 512, whatever size it declares
+    const density = Math.min(100000, Math.max(1, (72 * 512) / Math.max(width, height)))
+    const drawn = await sharp(svg, { density })
       .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
       .toBuffer()
     process.stdout.write(drawn)
   } catch (error) {
-    process.stderr.write(error instanceof Error ? error.message : String(error))
-    process.exitCode = 1
+    stop({ unreadable: error instanceof Error ? error.message : String(error) })
   }
 })`
+
+/** The refusal for what the drawing process reported on stderr. */
+const refusalOf = (reported: string, code: number | null) => {
+  try {
+    const report = JSON.parse(reported) as { width?: number; height?: number; unreadable?: string }
+    if (report.width && report.height) return notSquare(report.width, report.height)
+    if (report.unreadable) return unreadable('SVG', report.unreadable)
+  } catch {}
+  return unreadable('SVG', reported || `the drawing stopped (${code})`)
+}
 
 /** The draw running now: SVGs are drawn one at a time. */
 let drawing: Promise<unknown> = Promise.resolve()
 
 /**
- * Draws an SVG in a process of its own with no environment, killed once it runs past its time: librsvg draws in one
- * step that sharp's own timeout can't stop, and a small SVG can ask for minutes of drawing.
+ * Reads and draws an SVG in a process of its own with no environment, killed once it runs past its time: librsvg
+ * measures and draws in steps that sharp's own timeout can't stop, and a small SVG can ask for minutes of either.
  */
-const drawnApart = (svg: Buffer, density: number, seconds: number): Promise<Buffer> => {
+const drawnApart = (svg: Buffer, seconds: number): Promise<Buffer> => {
   const drawn = drawing.then(async () => {
     const { spawn } = await import('node:child_process')
     const { createRequire } = await import('node:module')
     const sharpPath = createRequire(import.meta.url).resolve('sharp')
     return new Promise<Buffer>((resolve, reject) => {
-      const child = spawn(process.execPath, ['-e', DRAW_SCRIPT, sharpPath, String(density)], { env: {} })
+      const child = spawn(process.execPath, ['-e', DRAW_SCRIPT, sharpPath], { env: {} })
       const [out, err]: [Buffer[], Buffer[]] = [[], []]
       let late = false
       const timer = setTimeout(() => {
@@ -194,7 +228,7 @@ const drawnApart = (svg: Buffer, density: number, seconds: number): Promise<Buff
             ),
           )
         else if (code === 0) resolve(Buffer.concat(out))
-        else reject(new Error(Buffer.concat(err).toString('utf8') || `the drawing stopped (${code})`))
+        else reject(refusalOf(Buffer.concat(err).toString('utf8'), code))
       })
       child.stdin.end(svg)
     })
@@ -225,42 +259,38 @@ export const renderedUpload = async (bytes: Uint8Array, { seconds = 10 } = {}): 
       detail:
         'That file is not a PNG or an SVG (JPEG, WebP and GIF are not taken): export the icon as a PNG or an SVG and send it again.',
     })
-  if (!png) checkSvg(text)
-  const kind = png ? 'PNG' : 'SVG'
-  const sharp = await sharpOf()
-  const unreadable = (error: unknown) =>
-    refused(
-      `The ${kind} couldn’t be read (${error instanceof Error ? error.message : String(error)}): open it in an editor, export it again, and send that.`,
+  if (!png) {
+    checkSvg(text)
+    // Read, measured and drawn apart: nothing in this process reads an SVG
+    return setOf(
+      await drawnApart(input, seconds).catch((error: unknown) => {
+        throw error instanceof ProblemError ? error : unreadable('SVG', error)
+      }),
     )
+  }
+  const sharp = await sharpOf()
   const meta = await sharp(input, { limitInputPixels: false })
     .metadata()
     .catch((error: unknown) => {
-      throw unreadable(error)
+      throw unreadable('PNG', error)
     })
   const { width = 0, height = 0 } = meta
-  if (meta.format !== (png ? 'png' : 'svg') || !width || !height)
-    throw unreadable(`it reads as ${meta.format ?? 'nothing'}`)
-  if (png && width * height > PIXELS_MAX)
+  if (meta.format !== 'png' || !width || !height) throw unreadable('PNG', `it reads as ${meta.format ?? 'nothing'}`)
+  if (width * height > PIXELS_MAX)
     throw refused(`The PNG is ${width} × ${height}: more than 4096 × 4096. Send it at 512 × 512.`)
-  if (png && (width < 96 || height < 96))
+  if (width < 96 || height < 96)
     throw refused(
       `The PNG is ${width} × ${height}; an icon needs at least 96 × 96. Send a larger one (512 × 512 is best), or an SVG.`,
     )
-  if (tooFarFromSquare(width, height))
-    throw refused(
-      `The icon is ${width} × ${height}, too far from square (its sides within 4:5 of each other). Crop it square and send it again.`,
-    )
-  const master = await (png
-    ? sharp(input, { limitInputPixels: PIXELS_MAX })
-        .timeout({ seconds })
-        .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-        .png()
-        .toBuffer()
-    : // Drawn at the density that makes its longer side 512, whatever size it declares
-      drawnApart(input, Math.min(100_000, Math.max(1, (72 * 512) / Math.max(width, height))), seconds)
-  ).catch((error: unknown) => {
-    throw error instanceof ProblemError ? error : unreadable(error)
-  })
+  if (tooFarFromSquare(width, height)) throw notSquare(width, height)
+  const master = await sharp(input, { limitInputPixels: PIXELS_MAX })
+    .timeout({ seconds })
+    .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .png()
+    .toBuffer()
+    .catch((error: unknown) => {
+      throw unreadable('PNG', error)
+    })
   return setOf(master)
 }
 
