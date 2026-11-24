@@ -396,6 +396,19 @@ describe('a renamed pack', () => {
     expect((await served(gateway, 'front')).map((file) => file.bytes)).toEqual(await monogramFiles('front'))
   })
 
+  it('keeps a picked colour to its new name: its old name serves that name’s own monogram, letter and colour', async () => {
+    const picked = PALETTE.find(
+      (colour) => colour !== monogramOf('front').colour && colour !== monogramOf('desk').colour,
+    )
+    const recoloured = await at(gateway, OWNER, '/api/packs/desk/icon', { method: 'PATCH', body: { colour: picked } })
+    expect(recoloured.json).toMatchObject({ source: 'monogram', letter: 'D', colour: picked, set: true })
+    expect(await colourAt((await at(gateway, null, '/p/desk/icon-512.png')).bytes, 256, 40)).toBe(picked)
+    expect((await served(gateway, 'front')).map((file) => file.bytes)).toEqual(await monogramFiles('front'))
+    // Served as a name no pack has would be, headers and all
+    const unheld = await made()
+    expect(await served(gateway, 'front')).toEqual(await served(unheld, 'front'))
+  })
+
   it('serves the icon the owner set at its old name too', async () => {
     expect((await upload(gateway, 'desk', await square(128, '#aa00aa'))).status).toBe(200)
     expect(await served(gateway, 'front')).toEqual(await served(gateway, 'desk'))

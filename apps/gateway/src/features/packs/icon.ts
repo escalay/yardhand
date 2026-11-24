@@ -358,13 +358,16 @@ export const createPackIcons = ({ packs }: { packs: PacksRepo }) => {
   return {
     of,
     /**
-     * What `/p/<name>/` serves: the icon of the pack named so now, or of the pack a former name leads to when the
-     * owner set it one; any other name, its own monogram. A pack the owner never gave an icon looks like no pack.
+     * What `/p/<name>/` serves: the icon of the pack named so now, or the upload of the pack a former name leads to;
+     * any other name, its own monogram. A monogram is never served at a former name, since its letter and a picked
+     * colour follow the name now. A pack the owner never gave an icon looks like no pack.
      */
     at: async (name: string): Promise<IconSet> => {
       const holder = await packs.holderOf(name)
-      if (holder && (holder.until === null || (await packs.iconOf(holder.pack.id))))
-        return (await of(holder.pack)).files
+      if (holder) {
+        const icon = await of(holder.pack)
+        if (holder.until === null || icon.source === 'upload') return icon.files
+      }
       const { letter, colour } = monogramOf(name)
       return monogram(letter, colour)
     },
