@@ -60,7 +60,8 @@ on this machine is `GATEWAY_PORT`.
 or nginx, `cf-connecting-ip` behind a Cloudflare tunnel. Sign-in and tool calls are limited per address. Left empty
 with an https `PUBLIC_HOST`, the gateway reads `x-forwarded-for`, the value the proxy wrote last: the gateway itself
 serves plain HTTP only, so an https address always has a proxy in front, and Caddy with `--profile https` needs
-nothing more (`GATEWAY_ADDRESS_HEADER=x-forwarded-for` says the same out loud). Set it to `cf-connecting-ip` behind a
+nothing more (`GATEWAY_ADDRESS_HEADER=x-forwarded-for` says the same out loud). Your own nginx must append the
+caller's address: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`. Set it to `cf-connecting-ip` behind a
 Cloudflare tunnel. Left empty with a plain-HTTP address, the connection's own address counts: behind a proxy, every
 caller then counts as the proxy, and anyone can use up the one limit they all share; the gateway's log says so once
 when it sees a proxy's header. Nothing in front, leave it empty: a caller could write the header themselves.
