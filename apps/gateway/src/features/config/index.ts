@@ -226,11 +226,12 @@ export const feature: Feature = {
                 description: variable.description,
               })),
               // Only an icon the owner set: none is the monogram of the name, wherever it is imported
-              icon: !icon
-                ? null
-                : icon.source === 'upload'
-                  ? { png: (await packIcons.of(pack)).files.png512.toString('base64') }
-                  : { colour: icon.colour },
+              icon:
+                icon?.source === 'upload' && icon.png512
+                  ? { png: icon.png512.toString('base64') }
+                  : icon?.colour
+                    ? { colour: icon.colour }
+                    : null,
             }
           }),
         ),
