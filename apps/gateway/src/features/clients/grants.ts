@@ -6,11 +6,15 @@
 import type { SignInGrant } from '../../kit/index.js'
 import type { ClientsRepo } from './repo.js'
 
-/** The kit's `onGrant`: makes the row for this grant; false (nothing is issued) when it can't. */
+/**
+ * The kit's `onGrant`: makes the row for this grant; false (nothing is issued) when it can't. A grant the start
+ * already mapped (a claim approved before the update and collected after it) keeps its row.
+ */
 export const onGrantFor =
   ({ clients }: { clients: ClientsRepo }) =>
-  async (grant: SignInGrant): Promise<boolean> =>
-    clients
+  async (grant: SignInGrant): Promise<boolean> => {
+    if (await clients.byGrant(grant.grant)) return true
+    return clients
       .create({
         name: grant.client.name,
         kind: 'oauth',
@@ -23,3 +27,4 @@ export const onGrantFor =
         () => true,
         () => false,
       )
+  }
