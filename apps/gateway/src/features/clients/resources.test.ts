@@ -113,7 +113,7 @@ describe('whether a token is taken here', () => {
       expect([url, await acceptedAt(judge, caller, `${ORIGIN}${url}`)]).toEqual([url, elsewhere])
   })
 
-  it('on the compose default, a pack token from one host name is taken at the same pack by another', async () => {
+  it('compares no host: a pack token from one host name fits the same pack by another', async () => {
     const { judge } = await setUp()
     const caller = callerFor('http://127.0.0.1:8080/p/desk/mcp')
     expect(await acceptedAt(judge, caller, 'http://localhost:8080/p/desk/mcp')).toBe(true)

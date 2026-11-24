@@ -1409,6 +1409,41 @@ describe('a pack address asks for sign-in at its own resource', () => {
     expect((await knock(app, '/api/calls', refreshed.json.access_token)).status).toBe(200)
   })
 
+  it('with PUBLIC_HOST naming a reachable host, a pack sign-in is issued and checked under that origin', async () => {
+    const app = await withDesk({ PUBLIC_HOST: 'gw.example.test' })
+    const { tokens } = await signInFor(app, 'https://gw.example.test/p/desk/mcp')
+    expect(decodeJwt(tokens.access_token)).toMatchObject({
+      iss: 'https://gw.example.test',
+      aud: 'https://gw.example.test/p/desk/mcp',
+    })
+    expect((await knock(app, '/p/desk/mcp', tokens.access_token)).status).toBe(200)
+    const refused = await knock(app, '/mcp', tokens.access_token)
+    expect([refused.status, await detailOf(refused)]).toEqual([
+      401,
+      'This sign-in opens Front desk only: connect at https://gw.example.test/p/desk/mcp.',
+    ])
+    // Links a tool hands out are under the gateway's own address, not the pack's: a pack's sign-in isn't taken there
+    const link = await app.request('/u/sample/r/recipes/1', { headers: bearer(tokens.access_token) })
+    expect([link.status, await detailOf(link)]).toEqual([
+      401,
+      'This sign-in opens Front desk only: connect at https://gw.example.test/p/desk/mcp.',
+    ])
+  })
+
+  it('on the compose default, a token issued at one host name is refused at another by the sign-in’s issuer check', async () => {
+    const app = await withDesk({ PUBLIC_HOST: 'http://localhost:8080' })
+    for (const resource of ['http://localhost/p/desk/mcp', 'http://localhost/mcp']) {
+      const { tokens } = await signInFor(app, resource)
+      expect((await knock(app, '/p/desk/mcp', tokens.access_token)).status).not.toBe(401)
+      const other = await knock(app, '/p/desk/mcp', tokens.access_token, { 'x-forwarded-host': '127.0.0.1' })
+      expect([resource, other.status, await detailOf(other)]).toEqual([
+        resource,
+        401,
+        expect.stringMatching(/^This token or API key is not valid/),
+      ])
+    }
+  })
+
   it('a forged x-forwarded-host changes no document or check when PUBLIC_HOST names a reachable host', async () => {
     const app = await withDesk({ PUBLIC_HOST: 'gw.example.test' })
     const forged = { 'x-forwarded-host': 'evil.example.test', 'x-forwarded-proto': 'https' }
