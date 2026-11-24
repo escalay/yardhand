@@ -1,6 +1,6 @@
 # Yardhand
 
-An agent-ready HTTP API built on agent-api-kit, vendored into `src/kit`. Every route is documented OpenAPI, every answer HAL, every error problem+json, and every route
+An agent-ready HTTP API built on api-kit, vendored into `src/kit`. Every route is documented OpenAPI, every answer HAL, every error problem+json, and every route
 an MCP tool.
 
 ## Commands

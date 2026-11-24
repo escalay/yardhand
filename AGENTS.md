@@ -3,7 +3,7 @@
 A self-hosted gateway: one endpoint for every tool its owner connects. Agents connect once over MCP (`/mcp`), scripts
 call the same tools over REST (`POST /api/calls`, `GET /api` links to everything), and every upstream's credentials
 live once, encrypted, in the gateway. Single owner; it runs anywhere Docker does (`deploy/compose`). The owner's
-browser app is at `/app`. Built on agent-api-kit, vendored into `apps/gateway/src/kit` (never edited in place).
+browser app is at `/app`. Built on api-kit, vendored into `apps/gateway/src/kit` (never edited in place).
 
 How it fits together, with diagrams: `docs/architecture.md`. Releases and what changed: `CHANGELOG.md`.
 
