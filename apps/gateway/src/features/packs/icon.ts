@@ -105,13 +105,23 @@ const tooFarFromSquare = (width: number, height: number) => {
 }
 
 /**
- * Checks what an SVG holds before anything reads it: no DOCTYPE or entities, nothing outside itself (librsvg
- * fetches nothing remote, and this keeps it that way), and no text, which the server has no fonts to draw.
+ * Checks what an SVG holds before anything reads it: no DOCTYPE or entities, no CSS escapes, nothing outside itself
+ * however it is spelt (librsvg fetches nothing remote, and this keeps it that way), and no text, which the server has
+ * no fonts to draw.
  */
-const checkSvg = (text: string) => {
-  if (/<!DOCTYPE|<!ENTITY/i.test(text))
+const checkSvg = (source: string) => {
+  if (/<!DOCTYPE|<!ENTITY/i.test(source))
     throw refused(
       'The SVG declares a DOCTYPE or entities, which an icon doesn’t take: remove the <!DOCTYPE …> and send it again.',
+    )
+  // Read as librsvg reads it: a character reference is the character it names
+  const text = source.replace(/&#(x[0-9a-f]+|\d+);/gi, (written, code: string) => {
+    const point = code.startsWith('x') || code.startsWith('X') ? Number.parseInt(code.slice(1), 16) : Number(code)
+    return point <= 0x10ffff ? String.fromCodePoint(point) : written
+  })
+  if (/\\[0-9a-f]/i.test(text))
+    throw refused(
+      'The SVG writes CSS escapes (a backslash and a code), which an icon doesn’t take: write the CSS plainly and send it again.',
     )
   if (/<(text|tspan|textPath)[\s>/]/.test(text))
     throw refused(

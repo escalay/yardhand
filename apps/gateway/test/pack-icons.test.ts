@@ -24,6 +24,7 @@ const made = async () =>
 // Uploads are limited to ten an hour: each part that uploads has a gateway of its own
 const app = await made()
 const uploads = await made()
+const fetches = await made()
 const renames = await made()
 
 type Init = { method?: string; body?: unknown; headers?: Record<string, string>; raw?: Uint8Array }
@@ -125,6 +126,7 @@ beforeAll(async () => {
   unbranded = await served(app, 'desk')
   await makePack(app, 'desk', 'Desk')
   await makePack(app, 'loud', 'Loud')
+  await makePack(fetches, 'desk', 'Desk')
 })
 
 describe('the monogram every pack starts with', () => {
@@ -258,10 +260,14 @@ describe('setting an icon', () => {
       for (const svg of [
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><image href="http://127.0.0.1:${port}/a.png" width="10" height="10"/></svg>`,
         `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="url(http://127.0.0.1:${port}/p.svg#x)"/></svg>`,
+        // Written with character references, which XML reads as the letters they name
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" style="fill:&#117;rl(http://127.0.0.1:${port}/p.svg#x)"/></svg>`,
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><style>&#64;import "http://127.0.0.1:${port}/a.css";</style><rect width="10" height="10"/></svg>`,
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" style="fill:u\\72l(http://127.0.0.1:${port}/p.svg#x)"/></svg>`,
       ]) {
-        const answer = await upload(gateway, 'desk', Buffer.from(svg), SVG)
-        expect(answer.status).toBe(400)
-        expect(answer.json.detail).toContain(`points outside itself (http://127.0.0.1:${port}/`)
+        const answer = await upload(fetches, 'desk', Buffer.from(svg), SVG)
+        expect([svg, answer.status]).toEqual([svg, 400])
+        expect(answer.json.detail).toMatch(/points outside itself|CSS escapes/)
       }
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(connections).toBe(0)
@@ -288,9 +294,9 @@ describe('setting an icon', () => {
   })
 
   it('takes ten uploads an hour', async () => {
-    // Every upload above counted, refused ones too: eight so far
-    expect((await upload(gateway, 'desk', await square(128, '#0000ff'))).status).toBe(200)
-    expect((await upload(gateway, 'desk', await square(128, '#0000ff'))).status).toBe(200)
+    // Every upload above counted, refused ones too: six so far
+    for (let left = 4; left > 0; left--)
+      expect((await upload(gateway, 'desk', await square(128, '#0000ff'))).status).toBe(200)
     const over = await upload(gateway, 'desk', await square(128, '#0000ff'))
     expect(over.status).toBe(429)
     expect(over.json.detail).toMatch(/Try again in \d+ seconds/)
