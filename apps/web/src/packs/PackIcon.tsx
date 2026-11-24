@@ -23,6 +23,20 @@ export const PackIcon = ({ icon, className }: { icon: Schemas['PackIcon']; class
   />
 )
 
+/** What each palette colour is called, for whoever hears the swatches read out. */
+const COLOUR_NAMES: Record<string, string> = {
+  '#006ad9': 'Blue',
+  '#6d28d9': 'Violet',
+  '#a21caf': 'Magenta',
+  '#be185d': 'Pink',
+  '#b91c1c': 'Red',
+  '#c2410c': 'Orange',
+  '#a16207': 'Amber',
+  '#15803d': 'Green',
+  '#0f766e': 'Teal',
+  '#475569': 'Grey',
+}
+
 const TYPES = { svg: 'image/svg+xml', png: 'image/png' } as const
 
 /** The type to send a picked file as: the browser's, else its extension's. */
@@ -64,23 +78,23 @@ export const IconSection = ({ pack }: { pack: Pack }) => {
               : `The letter ${icon.letter} on a colour: what MCP clients show until you upload an icon.`}
           </p>
         </div>
-        <div className="flex flex-col gap-2">
-          <span className="text-xs text-muted-foreground">Monogram colour</span>
+        <fieldset>
+          <legend className="mb-2 text-xs text-muted-foreground">Monogram colour</legend>
           <div className="flex flex-wrap gap-2">
-            {pack.palette.map((colour) => (
+            {pack.palette.map((colour, place) => (
               <button
                 key={colour}
                 type="button"
-                aria-label={`Colour ${colour}`}
+                aria-label={COLOUR_NAMES[colour] ?? `Colour ${place + 1} of ${pack.palette.length}`}
                 aria-pressed={icon.source === 'monogram' && icon.colour === colour}
                 disabled={change.isPending}
                 onClick={() => change.mutate({ colour })}
                 style={{ backgroundColor: colour }}
-                className="size-7 rounded-full ring-offset-2 ring-offset-card transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:opacity-60 aria-pressed:ring-2 aria-pressed:ring-foreground motion-reduce:transition-none motion-reduce:hover:scale-100"
+                className="size-9 rounded-full ring-offset-2 ring-offset-card transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-primary/60 disabled:opacity-60 aria-pressed:ring-2 aria-pressed:ring-foreground motion-reduce:transition-none motion-reduce:hover:scale-100"
               />
             ))}
           </div>
-        </div>
+        </fieldset>
         <input
           ref={picker}
           type="file"

@@ -81,13 +81,24 @@ describe('a pack’s icon', () => {
     const user = userEvent.setup()
     PATCH.mockResolvedValue(answer({}))
     show(packOf({}))
-    expect(screen.getByRole('button', { name: 'Colour #6d28d9' }).getAttribute('aria-pressed')).toBe('true')
-    await user.click(screen.getByRole('button', { name: 'Colour #0f766e' }))
+    expect(screen.getByRole('button', { name: 'Violet' }).getAttribute('aria-pressed')).toBe('true')
+    await user.click(screen.getByRole('button', { name: 'Teal' }))
     await waitFor(() => expect(PATCH).toHaveBeenCalled())
     expect(PATCH).toHaveBeenCalledWith('/api/packs/{name}/icon', {
       params: { path: { name: 'desk' } },
       body: { colour: '#0f766e' },
     })
+  })
+
+  it('names each colour as a person would say it, and one it has no name for by its place', () => {
+    show({ ...packOf({}), palette: [...PALETTE, '#123456'] } as Pack)
+    const swatches = screen.getByRole('group', { name: 'Monogram colour' }).querySelectorAll('button')
+    expect([...swatches].map((swatch) => swatch.getAttribute('aria-label'))).toEqual([
+      'Blue',
+      'Violet',
+      'Teal',
+      'Colour 4 of 4',
+    ])
   })
 
   it('goes back to the monogram only from an icon the owner set', async () => {
@@ -102,7 +113,7 @@ describe('a pack’s icon', () => {
     cleanup()
     show(packOf({ source: 'upload', colour: null, set: true }))
     // No colour is pressed while an uploaded icon is shown
-    expect(screen.getByRole('button', { name: 'Colour #6d28d9' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByRole('button', { name: 'Violet' }).getAttribute('aria-pressed')).toBe('false')
     await user.click(screen.getByRole('button', { name: 'Back to the monogram' }))
     await waitFor(() =>
       expect(DELETE).toHaveBeenCalledWith('/api/packs/{name}/icon', { params: { path: { name: 'desk' } } }),
