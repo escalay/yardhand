@@ -84,6 +84,28 @@ const FORWARDING = ['x-forwarded-for', 'forwarded', 'x-real-ip', 'cf-connecting-
 /** This machine or a private network: where a proxy in front of the gateway connects from. */
 const PRIVATE_PEER = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|::1$|f[cd][0-9a-f]{2}:|fe80:)/
 
+type Fetch = (request: Request, ...rest: never[]) => Response | Promise<Response>
+
+/**
+ * Says once that a proxy forwards requests while their address is read from the connection: every caller then shares
+ * the proxy's limit. Around the app, so the first request counts whichever route or refusal answers it.
+ */
+const warnOfUnnamedProxy = <F extends Fetch>(fetch: F): F => {
+  let warned = false
+  return ((request: Request, ...rest: never[]) => {
+    const forwarded = warned ? undefined : FORWARDING.find((header) => request.headers.has(header))
+    // The connection as the kit reads it: an IPv4 peer Node reports as `::ffff:…` counts as its IPv4 address
+    const peer = forwarded ? addressOf({ env: rest[0] } as unknown as Context, 'socket') : ''
+    if (forwarded && PRIVATE_PEER.test(peer)) {
+      warned = true
+      console.warn(
+        `A proxy at ${peer} forwards requests (${forwarded}), but GATEWAY_ADDRESS_HEADER is empty: every caller counts as ${peer} and shares one sign-in and call limit, which anyone can use up. Set GATEWAY_ADDRESS_HEADER to the header your proxy writes (x-forwarded-for behind Caddy or nginx, cf-connecting-ip behind Cloudflare).`,
+      )
+    }
+    return fetch(request, ...rest)
+  }) as F
+}
+
 export const createApp = async ({
   db,
   env,
@@ -168,21 +190,6 @@ export const createApp = async ({
     // redirect holding a sign-in code (invites, from 0.7.0): never kept
     guards: { store: await sealedGuardStore(db, parseMasterKey(env.GATEWAY_MASTER_KEY)), skip: ['/join/*'] },
   })
-  // Read from the connection, a proxy's forwarding header means every caller shares the proxy's limit: said once
-  if (address === 'socket') {
-    let warned = false
-    app.use('*', async (c, next) => {
-      const forwarded = warned ? undefined : FORWARDING.find((header) => c.req.header(header))
-      const peer = forwarded ? addressOf(c, 'socket') : ''
-      if (forwarded && PRIVATE_PEER.test(peer)) {
-        warned = true
-        console.warn(
-          `A proxy at ${peer} forwards requests (${forwarded}), but GATEWAY_ADDRESS_HEADER is empty: every caller counts as ${peer} and shares one sign-in and call limit, which anyone can use up. Set GATEWAY_ADDRESS_HEADER to the header your proxy writes (x-forwarded-for behind Caddy or nginx, cf-connecting-ip behind Cloudflare).`,
-        )
-      }
-      await next()
-    })
-  }
   // An OAuth caller the gateway refuses is pointed where the kit's own 401 would point it, by the address it asked
   if (oauth) {
     app.use('*', async (c, next) => {
@@ -262,5 +269,7 @@ export const createApp = async ({
   app.fetch = withPackAddresses(sessionAuth.wrap(withPlaybookQuery(app.fetch) as never) as typeof app.fetch)
   // Around everything, until 0.7.0: what each app sends as it signs in, measured before OAuth's rules are settled
   if (oauthStore) app.fetch = signInLog({ store: oauthStore })(app.fetch as never) as typeof app.fetch
+  // Read from the connection, a proxy's forwarding header means every caller shares the proxy's limit: said once
+  if (address === 'socket') app.fetch = warnOfUnnamedProxy(app.fetch)
   return Object.assign(app, { services })
 }

@@ -1526,6 +1526,31 @@ describe('the address a caller is counted by', () => {
       const named = await listen(await gateway({ GATEWAY_ADDRESS_HEADER: 'x-forwarded-for' }))
       await fetch(`${named}/llms.txt`, { headers: { 'x-forwarded-for': '203.0.113.7' } })
       expect(lines).toHaveLength(1)
+      // The first callers of a new instance are often apps registering, or a token the kit refuses: said for those too
+      for (const [knock, status] of [
+        [
+          (at: string) =>
+            fetch(`${at}/oauth/register`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.9' },
+              body: JSON.stringify({ client_name: 'Sample', redirect_uris: [REDIRECT] }),
+            }),
+          201,
+        ],
+        [
+          (at: string) =>
+            fetch(`${at}/api/calls`, {
+              method: 'POST',
+              headers: { authorization: 'Bearer not-a-key', 'x-forwarded-for': '203.0.113.9' },
+            }),
+          401,
+        ],
+      ] as const) {
+        const at = await listen(await gateway())
+        expect((await knock(at)).status).toBe(status)
+        expect(lines).toHaveLength(2)
+        lines.pop()
+      }
     } finally {
       spy.mockRestore()
       for (const server of servers) await new Promise<void>((resolve) => server.close(() => resolve()))
