@@ -17,6 +17,7 @@ A new feature: a folder under `src/features/<plural-name>/` with its schema, rep
 | Path | What |
 |---|---|
 | `src/server.ts` | Node: env → `openDb` → `createApp` → listen |
+| `brand/` | Yardhand's brand for the kit's `brand` part: `brand.ts` and `icon.svg` (the app's own mark, `apps/web/public/favicon.svg`). After editing either, `npx @escalay/kit@<version> brand --app .` renders `src/brand.gen.ts` (committed; `kit doctor` says when it is stale) |
 | `src/guide.gen.ts` | `guide/` as a module (`pnpm guide`), served the same on both runtimes; a test fails when it is older than `guide/` |
 | `src/app.ts` | the wiring only: auth and OAuth, every feature, the guide, MCP |
 | `src/features/index.ts` | `FEATURES`, the one list of features, and the `Feature` shape |

@@ -8,6 +8,8 @@
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import BRAND from '../brand/brand.js'
+import { BRAND_ASSETS } from './brand.gen.js'
 import type { Model } from './features/ai/model.js'
 import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { withPlaybookQuery } from './features/catalog/query.js'
@@ -26,6 +28,7 @@ import { GUIDE_VARS } from './guide.vars.js'
 import {
   accessOwner,
   createAgentApi,
+  createBrand,
   createOAuth,
   type Db,
   dbGuardStore,
@@ -118,6 +121,9 @@ export const createApp = async ({
     description: DESCRIPTION,
     tags: features.map((feature) => feature.tag),
     home: hasWeb ? false : 'docs',
+    // Yardhand's icon on MCP, the Server Card, OpenAPI and the OAuth pages, and its favicon, icons and manifest at the
+    // root where the app serves none of its own (brand/, rendered into brand.gen.ts by `kit brand`)
+    brand: createBrand(BRAND, BRAND_ASSETS),
     // Client keys join `keys` at boot and when made; /api/calls checks write scope per tool, so read tokens may POST it
     auth: {
       realm: 'gateway',

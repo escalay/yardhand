@@ -1,6 +1,7 @@
-# The vendored kit lists its files' checksums in kit.json; they look like keys and are not.
+# The vendored kit lists its files' checksums in kit.json, and src/brand.gen.ts holds the brand's PNGs as base64:
+# they look like keys and are not.
 [extend]
 useDefault = true
 
 [allowlist]
-paths = ['''apps/gateway/src/kit/kit\.json''']
+paths = ['''apps/gateway/src/kit/kit\.json''', '''apps/gateway/src/brand\.gen\.ts''']
