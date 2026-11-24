@@ -27,3 +27,4 @@ const similar = nearest(space, vectorOf(space, 'note:1')!, { limit: 12 })
 - Builds run off the request path (a job, or a larger machine), start with a pilot (`limit: 200`), always carry a `budget`.
 - Ledgers are data: gitignored, kept offsite (object storage), baked into the image or synced in. A newer ledger left in another
   checkout means live search runs on stale vectors: keep one copy current.
+- Standard: `docs/STANDARD.md` §15.

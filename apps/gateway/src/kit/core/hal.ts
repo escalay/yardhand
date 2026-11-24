@@ -5,8 +5,8 @@
  *
  * @example
  * const origin = originOf(c)
- * linksOf(origin, { self: '/api/v1/cooks/123', recipes: { path: '/api/v1/cooks/123/recipes', title: 'Its 12 steps' } })
- * // { self: { href: 'https://cookbook.example.com/api/v1/cooks/123' }, recipes: { href: '…/recipes', title: 'Its 12 steps' } }
+ * linksOf(origin, { self: '/api/v1/cooks/123', recipes: { path: '/api/v1/cooks/123/recipes', title: 'Its 12 recipes' } })
+ * // { self: { href: 'https://cookbook.example.com/api/v1/cooks/123' }, recipes: { href: '…/recipes', title: 'Its 12 recipes' } }
  * pathWith('/api/v1/search/recipes', { q: 'soup', platform: undefined }) // '/api/v1/search/recipes?q=soup'
  */
 import { z } from '@hono/zod-openapi'

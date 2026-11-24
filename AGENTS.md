@@ -3,7 +3,7 @@
 A self-hosted gateway: one endpoint for every tool its owner connects. Agents connect once over MCP (`/mcp`), scripts
 call the same tools over REST (`POST /api/calls`, `GET /api` links to everything), and every upstream's credentials
 live once, encrypted, in the gateway. Single owner; it runs anywhere Docker does (`deploy/compose`). The owner's
-browser app is at `/app`. Built on agent-api-kit, vendored into `apps/gateway/src/kit` (never edited in place).
+browser app is at `/app`. Built on api-kit, vendored into `apps/gateway/src/kit` (never edited in place).
 
 How it fits together, with diagrams: `docs/architecture.md`. Releases and what changed: `CHANGELOG.md`.
 
@@ -97,7 +97,7 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Pack**: a curated kit for one kind of work (`features/packs`): tools from any upstreams, each with an optional
   pack wording, alias, fixed inputs and defaults, the pack's variables, plus playbooks and manuals from its
   connections, and the playbooks and one skill written for it. Starting from a playbook brings in the tools it names or calls by route
-  (a server publishes a tool's route in `_meta` under a `<vendor>/route` key, the kit as `agent-api-kit/route`; stored on the tool row, never versioned).
+  (a server publishes a tool's route in `_meta` under a `<vendor>/route` key, the kit as `api-kit/route`; stored on the tool row, never versioned).
 - **Pack key**: a key locked to one or more packs, optionally expiring (8 h, 1 day, 7 days, 30 days). Each pack is its own
   server at `/p/<pack>/`: MCP at `/p/<pack>/mcp` and REST under `/p/<pack>/api` (rewritten to `/mcp` and `/api` up
   front, the choice carried in `features/clients/pack-choice.ts`), with its own guide, OpenAPI document and docs page
@@ -118,8 +118,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Extend**: sets a key's end anew, counted from today (`PATCH /api/clients/{id}` with `expiresIn`: 7 days, 30 days
   or never), also for a key that has ended: it works again with the same key. A revoked key does not come back, and
   a pack key none of whose packs is left is refused (409) unless the same change gives it one.
-  The kit's `Idempotency-Key` store knows nothing of it: a request refused while the key had ended is answered that
-  refusal for a day, until it is sent with a new `Idempotency-Key`.
+  The kit keeps no refusal for an `Idempotency-Key`: a request refused while the key had ended runs once it is sent
+  again, with the same key or a new one.
 - **Ended**: a key past its end. Every route a pack serves (`PACK_PATHS` and the pack's pages) refuses it with a 403
   that names its pack, the day and whom to ask (`refusalOf`), but for a request repeated with an `Idempotency-Key`
   it sent while it worked: the kit answers that with what the key was already given, before any route, and nothing
@@ -219,8 +219,8 @@ Copy is plain and specific; every error says where, why and what to do (the prob
    hold a key shown once, so the store it is given seals every answer (`features/vault/answers.ts`).
 3. Third-party upstreams (`trust = review`) never change a live tool by themselves: a changed description or schema is
    a `pending` version until the owner approves it.
-4. `src/kit/` is vendored from agent-api-kit. Its behaviour is never edited in place; its examples, comments and the
-   route key (`agent-api-kit/route`) are this repo's own, so an update is reviewed line by line, never copied over whole.
+4. `src/kit/` is vendored from api-kit and never edited, examples and comments included: a change goes upstream, then
+   `kit update`. An update is still reviewed part by part against the kit's CHANGELOG.
 5. Tool names use only letters, digits, `_`, `-`, `.`.
 6. Access is per upstream, then per tool: the link proxy `GET /u/{id}/r/*` lets any client allowed on an upstream
    read any path on that upstream's own origin with the gateway's credential (reads only, never other hosts).

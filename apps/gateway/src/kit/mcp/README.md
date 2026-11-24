@@ -8,22 +8,27 @@ Needs: `core`, `@modelcontextprotocol/server`.
 ```ts
 import { inProcess, mcpServerFactory, mcpTool, mountMcp } from './kit/mcp/index.js'
 
-const getLogo = mcpTool({
-  name: 'get_note', title: 'One note', description: 'A note with its designer, year and tags. Use after a search.',
+const getNote = mcpTool({
+  name: 'get_note', title: 'One note', description: 'A note with its author, year and tags. Use after a search.',
   input: z.object({ slug: z.string().describe('From a search result.') }),
   annotations: { readOnlyHint: true, openWorldHint: false },
   call: ({ slug }) => ({ path: `/api/notes/${encodeURIComponent(slug)}` }),
-  summarize: (note) => `${note.client} (${note.year}) · ${note._links.self.href}`,
+  summarize: (note) => `${note.title} (${note.year}) · ${note._links.self.href}`,
 })
-mountMcp(app, { factory: mcpServerFactory({ info, instructions, tools: [getLogo], callApi: inProcess(app) }), allowedHostnames: [host, 'localhost'] })
+mountMcp(app, { factory: mcpServerFactory({ info, instructions, tools: [getNote], callApi: inProcess(app) }), allowedHostnames: [host, 'localhost'] })
 ```
 
 | Export | What |
 |---|---|
 | `mcpTool`, `mcpResource` | a tool (route call + summary) and an attachable resource |
-| `routeOf`, `ROUTE_META` | a tool's route (`GET /api/v1/recipes/{id}`), published in `tools/list` as `_meta["agent-api-kit/route"]`; set `route` on a tool whose path is built in steps |
-| `mcpServerFactory` | the server: info, instructions, tools, resources, prompts, skills; `toolsTtlMs` sets how long clients cache `tools/list` (default an hour) |
-| `mountMcp` | `/mcp` (Streamable HTTP, MCP 2026-07-28 with a fallback for older clients) and the Server Card |
+| `routeOf`, `ROUTE_META` | a tool's route (`GET /api/v1/recipes/{id}`), published in `tools/list` as `_meta["api-kit/route"]`; set `route` on a tool whose path is built in steps |
+| `cli` on a tool or resource, `cliOf`, `CLI_META` | its command on the app's CLI, noun then verb (`cli: { name: 'note view', examples: [{ run: 'note view n_1', about: 'One note' }] }`), published with its positional arguments (the route's path parameters) as `_meta["api-kit/cli"]` |
+| `PROBLEM_META`, `PENDING_META` | a failed call carries its problem (with `status`) in `_meta["api-kit/problem"]`; one still working names its run in `_meta["api-kit/pending"]` |
+| `mountedMcp(app)` | the tools and resources `mountMcp` serves, for `cliGaps` and `cliSnapshot` |
+| `guideSkills({ files, fill })` | the guide's skill folders as the factory's `skills` and `prompts` (one prompt per playbook); `fill` renders a file first when a skill uses placeholders. Served so a plain MCP client finds them (below) |
+| `mcpServerFactory` | the server: info, instructions, tools, resources, prompts, skills; `toolsTtlMs` sets how long clients cache `tools/list` (default an hour); `structured` says when a tool's JSON rides as `structuredContent`: `'always'` (the default) or `'withOutput'` (only for a tool with an `output` schema; the others answer text only, so the app's CLI prints `{ text }` for their `--json`) |
+| `mountMcp` | `/mcp` (Streamable HTTP, MCP 2026-07-28 with a fallback for older clients) and the Server Card; the app's brand (`createAgentApi({ brand })`) fills `title`, `description`, `websiteUrl` and `icons` where `info` leaves them out |
+| `serverInfoOf(info, brand, origin, { inline })` | that identity: the inline PNG icon first (2025's `initialize`, `server/discover`, the card), left out of the serverInfo 2026-07-28 stamps on every other answer; a stdio factory takes `brand` itself |
 | `inProcess(app)` / `overHttp(origin, key)` | how tools reach the routes: in the same process, or over HTTP for a stdio entry |
 | `callWaiting` | follows a 202 run until it finishes, so a slow route still answers the tool |
 
@@ -31,4 +36,15 @@ mountMcp(app, { factory: mcpServerFactory({ info, instructions, tools: [getLogo]
 
 - One tool per task-sized route, `snake_case` verbs, a description that says when to use it; arguments named like the
   route's parameters. The summary is what an agent reads first: a few lines per result with ids and links.
-- Every tool runs in the app's tests: `toolsRun` (testing module).
+- Every tool names its command (`cli`) with an example: `cliGaps` (testing module). Read-only is the default only for a
+  `GET`; a destructive tool says `destructiveHint: true`.
+- A resource template's query variables (`{?format}`) may be left out of a URI.
+- A tool's `authInfo.clientId` is an OAuth agent's client_id (never the name it registered), else the key's name or
+  the person's email; `authInfo.extra` adds the agent's `grant` and `name` beside the forwarded `headers`.
+- Skills are findable from `resources/list` alone, without the extension's methods: each `SKILL.md` is listed as
+  `<name> skill: start here` with its frontmatter description, and its `references/*.md` too while a skill has at
+  most 20; the `skill://{+path}` template's description names the start URI; reading a folder (`skill://`, `skill://postbox`,
+  `skill://postbox/references`) answers a Markdown list of its files as `skill://` URIs; a miss names the start URI;
+  the server's `instructions` get one line naming each `SKILL.md`. `skills/list`, `skills/get` and
+  `resources/directory/read` work as the extension defines them.
+- Every tool runs in the app's tests: `toolsRun` (testing module). Standard: `docs/STANDARD.md` §11 and §19.

@@ -9,12 +9,12 @@
  *                                                                                 (`drizzle-orm/libsql`), D1 `drizzle(env.DB)`
  * The module imports on Workers: node:sqlite loads only when a path asks for it. Raw `db.all(sql…)` rows are arrays
  * on node:sqlite and objects on D1, so repos read rows through the query builder or name their columns.
- * Each feature brings its tables and its migrations: `migrate(db, 'menus', MENUS_MIGRATIONS)` applies the steps it
+ * Each feature brings its tables and its migrations: `migrate(db, 'boards', BOARDS_MIGRATIONS)` applies the steps it
  * hasn't yet, in order, and records them in `kit_migrations`. A step never changes once shipped; a change is a new step.
  *
  * @example
  * const db = await openDb(`file:${join(env.STATE_DIR, 'state.sqlite')}`)
- * registerMenus(app, { db, … })                  // migrates its own tables
+ * registerBoards(app, { db, … })                  // migrates its own tables
  * const rows = await db.select().from(notes).where(eq(notes.owner, id))
  */
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'

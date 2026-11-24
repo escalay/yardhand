@@ -50,7 +50,7 @@ export const startUpstream = async ({
       { name: 'fixture', version: '1.0.0' },
       {
         instructions: 'Fixture upstream: echo reads, shout writes.',
-        // As agent-api-kit servers do: clients may keep the lists for an hour
+        // As api-kit servers do: clients may keep the lists for an hour
         cacheHints: {
           'tools/list': { ttlMs: 3_600_000, cacheScope: 'private' },
           'prompts/list': { ttlMs: 3_600_000, cacheScope: 'private' },
@@ -64,7 +64,7 @@ export const startUpstream = async ({
         description: state.echoDescription,
         inputSchema: z.object({ text: z.string() }),
         annotations: { readOnlyHint: true },
-        // The route behind it, as agent-api-kit 1.7.0 publishes it
+        // The route behind it, under a vendor's own `/route` key as api-kit servers publish theirs
         _meta: { 'com.example.server/route': state.echoRoute },
       },
       // Readable text and typed JSON beside it, as the archives answer
