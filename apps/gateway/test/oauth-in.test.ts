@@ -404,7 +404,7 @@ describe('an app signing in to the gateway', () => {
     expect(again.status).toBe(200)
   })
 
-  it('an app that names a pack’s address as its resource signs in as before, to the whole gateway', async () => {
+  it('an app the owner approves at a pack’s address is locked to that pack, its token to that address', async () => {
     const app = await gateway()
     const made = await app.request('/api/packs', {
       method: 'POST',
@@ -432,13 +432,15 @@ describe('an app signing in to the gateway', () => {
       resource: pack,
     })
     expect(first.status).toBe(200)
-    // The gateway names no resource of its own yet, so the token is for all of it, and its client opens no pack
-    expect(decodeJwt(first.json.access_token).aud).toBe('http://localhost')
-    expect((await roll(app, first.json.access_token)).status).toBe(200)
+    // Before, the gateway named no resource of its own: the token was for all of it and its client opened no pack
+    expect(decodeJwt(first.json.access_token).aud).toBe(pack)
     const atPack = await app.request('/p/loud/api/me', { headers: bearer(first.json.access_token) })
-    expect(atPack.status).toBe(403)
-    expect(((await atPack.json()) as { detail: string }).detail).toBe(
-      "This key isn't locked to packs: connect to /mcp, which serves everything it may reach.",
+    expect(atPack.status).toBe(200)
+    expect(((await atPack.json()) as { pack: { name: string } }).pack.name).toBe('loud')
+    const refused = await roll(app, first.json.access_token)
+    expect(refused.status).toBe(401)
+    expect(((await refused.json()) as { detail: string }).detail).toBe(
+      'This sign-in opens Loud only: connect at http://localhost/p/loud/mcp.',
     )
     const refreshed = await tokenFor(app, {
       grant_type: 'refresh_token',
@@ -447,6 +449,7 @@ describe('an app signing in to the gateway', () => {
       resource: pack,
     })
     expect(refreshed.status).toBe(200)
+    expect(decodeJwt(refreshed.json.access_token).aud).toBe(pack)
   })
 
   it('also takes the session where Access is in front', async () => {
@@ -1168,33 +1171,285 @@ describe('the sign-in log', () => {
 })
 
 describe('a pack address asks for sign-in at its own resource', () => {
-  it('points the 401 at the pack address’s metadata, whose resource is the address asked', async () => {
-    const app = await gateway()
-    const made = await app.request('/api/packs', {
+  /** An MCP initialize or a call, as an app connecting at `path` sends it. */
+  const knock = (app: App, path: string, token?: string, headers: Record<string, string> = {}) =>
+    app.request(path, {
       method: 'POST',
-      headers: bearer(OWNER),
-      body: JSON.stringify({ name: 'loud', title: 'Loud' }),
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+      body: JSON.stringify(
+        path.endsWith('/calls')
+          ? { tool: 'sample.roll_dice', arguments: { count: 1, sides: 6 } }
+          : { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+      ),
     })
-    expect(made.status).toBe(201)
+  const pointerOf = (response: Response) =>
+    /resource_metadata="([^"]+)"/.exec(response.headers.get('www-authenticate') ?? '')?.[1]
+  const detailOf = async (response: Response) => ((await response.json()) as { detail?: string }).detail
+  const owner = (app: App, path: string, method = 'GET', body?: unknown) =>
+    app.request(path, { method, headers: bearer(OWNER), ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+  /** A gateway with the pack `desk` (Front desk) holding the dice, and `loud` beside it. */
+  const withDesk = async (env: Partial<Env> = {}) => {
+    const app = await gateway(env)
+    expect((await owner(app, '/api/packs', 'POST', { name: 'desk', title: 'Front desk' })).status).toBe(201)
+    expect((await owner(app, '/api/packs', 'POST', { name: 'loud', title: 'Loud' })).status).toBe(201)
+    const added = await owner(app, '/api/packs/desk', 'PATCH', { add: { tools: [{ name: 'sample.roll_dice' }] } })
+    expect(added.status).toBe(200)
+    return app
+  }
+  /** The owner approves an app that asked for `resource`: the tokens of that one sign-in. */
+  const signInFor = async (app: App, resource: string, scope = 'read write') => {
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    const client = await register(app)
+    const authorize = client.authorize
+      .replace(`resource=${encodeURIComponent('http://localhost/mcp')}`, `resource=${encodeURIComponent(resource)}`)
+      .replace('scope=read+write', `scope=${encodeURIComponent(scope)}`)
+    const code = await approve(browser, authorize)
+    const answer = await app.request('/oauth/token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: REDIRECT,
+        client_id: client.clientId,
+        code_verifier: client.verifier,
+        resource,
+      }).toString(),
+    })
+    expect(answer.status).toBe(200)
+    return { ...client, tokens: (await answer.json()) as Tokens }
+  }
+  /** The app's MCP connection at a pack's address, answered in-process. */
+  const mcpAt = async (app: App, url: string, token: string) => {
+    const client = new Client({ name: 'Sample', version: '1.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(url), {
+        requestInit: { headers: { authorization: `Bearer ${token}` } },
+        fetch: async (to, init) => app.request(new Request(to, init)),
+      }),
+    )
+    return client
+  }
+
+  it('the 401 at /p/desk/mcp points at metadata whose resource is that URL and whose server is the root', async () => {
+    const app = await withDesk()
     for (const [address, metadata] of [
-      ['/p/loud/mcp', '/.well-known/oauth-protected-resource/p/loud/mcp'],
+      ['/p/desk/mcp', '/.well-known/oauth-protected-resource/p/desk/mcp'],
+      // A pack's REST is the same resource as its MCP
+      ['/p/desk/api/calls', '/.well-known/oauth-protected-resource/p/desk/mcp'],
       ['/mcp', '/.well-known/oauth-protected-resource/mcp'],
+      ['/mcp/p/desk', '/.well-known/oauth-protected-resource/mcp'],
     ] as const) {
-      const refused = await app.request(address, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
-      })
-      expect(refused.status).toBe(401)
-      const pointer = /resource_metadata="([^"]+)"/.exec(refused.headers.get('www-authenticate') ?? '')?.[1] ?? ''
-      expect(new URL(pointer).pathname).toBe(metadata)
-      const document = (await (await app.request(new URL(pointer).pathname)).json()) as { resource: string }
-      expect(new URL(document.resource).pathname).toBe(address)
+      const refused = await knock(app, address)
+      expect([address, refused.status]).toEqual([address, 401])
+      const pointer = pointerOf(refused) ?? ''
+      expect([address, new URL(pointer).pathname]).toEqual([address, metadata])
+      const document = (await (await app.request(new URL(pointer).pathname)).json()) as {
+        resource: string
+        authorization_servers: string[]
+      }
+      expect([address, document.resource]).toEqual([address, `http://localhost${metadata.slice(37)}`])
+      expect(document.authorization_servers).toEqual(['http://localhost'])
     }
+  })
+
+  it('without a signing key, the 401 carries no metadata pointer', async () => {
+    const app = await gateway({ OAUTH_SIGNING_KEY: undefined })
+    expect((await owner(app, '/api/packs', 'POST', { name: 'desk', title: 'Front desk' })).status).toBe(201)
+    for (const address of ['/p/desk/mcp', '/p/desk/api/calls', '/mcp']) {
+      const refused = await knock(app, address)
+      expect([address, refused.status]).toEqual([address, 401])
+      expect([address, pointerOf(refused)]).toEqual([address, undefined])
+    }
+  })
+
+  it('metadata for /p/<any valid name>/mcp answers alike for a pack that exists and one that does not; an invalid name is 404', async () => {
+    const app = await withDesk()
+    const documentAt = async (path: string) => {
+      const answer = await app.request(`/.well-known/oauth-protected-resource${path}`)
+      return { status: answer.status, body: answer.status === 200 ? ((await answer.json()) as object) : null }
+    }
+    const desk = await documentAt('/p/desk/mcp')
+    const nowhere = await documentAt('/p/nowhere/mcp')
+    expect(desk.status).toBe(200)
+    expect(JSON.stringify(nowhere.body).replaceAll('nowhere', 'desk')).toBe(JSON.stringify(desk.body))
+    for (const path of ['/p/Desk/mcp', '/p/desk', '/p/desk/api', '/p/desk/mcp/x', '/p/-desk/mcp'])
+      expect([path, (await documentAt(path)).status]).toEqual([path, 404])
+  })
+
+  it('an owner-approved token for desk works at /p/desk/mcp and /p/desk/api, a tool’s in-process call included, and is refused at /mcp, /api, with x-gateway-pack, at /mcp/p/desk and at another pack, naming desk’s address', async () => {
+    const app = await withDesk()
+    const { tokens } = await signInFor(app, 'http://localhost/p/desk/mcp')
+    const token = tokens.access_token
+    const mcp = await mcpAt(app, 'http://localhost/p/desk/mcp', token)
+    expect((await mcp.listTools()).tools.map((tool) => tool.name)).toContain('sample.roll_dice')
+    const rolled = await mcp.callTool({
+      name: 'call_tool',
+      arguments: { name: 'sample.roll_dice', arguments: { count: 1, sides: 6 } },
+    })
+    expect(rolled.isError).toBeFalsy()
+    const described = await mcp.callTool({ name: 'describe_tool', arguments: { name: 'sample.roll_dice' } })
+    expect(described.isError).toBeFalsy()
+    await mcp.close()
+    const called = await app.request('/p/desk/api/calls', {
+      method: 'POST',
+      headers: bearer(token),
+      body: JSON.stringify({ tool: 'sample.roll_dice', arguments: { count: 1, sides: 6 } }),
+    })
+    expect(called.status).toBe(200)
+    const elsewhere = 'This sign-in opens Front desk only: connect at http://localhost/p/desk/mcp.'
+    for (const [path, headers] of [
+      ['/mcp', {}],
+      ['/api/calls', {}],
+      ['/mcp', { 'x-gateway-pack': 'desk' }],
+      ['/api/calls', { 'x-gateway-pack': 'desk' }],
+      ['/mcp/p/desk', {}],
+      ['/p/loud/mcp', {}],
+      ['/p/loud/api/calls', {}],
+    ] as const) {
+      const refused = await knock(app, path, token, headers)
+      expect([path, headers, refused.status, await detailOf(refused)]).toEqual([path, headers, 401, elsewhere])
+    }
+    // Read only: MCP's door is a relay at a pack's address too, so the read token initializes there
+    const reader = await signInFor(app, 'http://localhost/p/desk/mcp', 'read')
+    expect((await knock(app, '/p/desk/mcp', reader.tokens.access_token)).status).toBe(200)
+  })
+
+  it('a pack token survives a rename; after the old name is freed and taken by another pack, it works at the new address, is refused at the retaken one, and is never told the other pack’s title', async () => {
+    const app = await withDesk()
+    const { tokens } = await signInFor(app, 'http://localhost/p/desk/mcp')
+    const token = tokens.access_token
+    expect((await owner(app, '/api/packs/desk', 'PATCH', { name: 'front' })).status).toBe(200)
+    for (const path of ['/p/front/mcp', '/p/desk/mcp'])
+      expect([path, (await knock(app, path, token)).status]).toEqual([path, 200])
+    expect((await owner(app, '/api/packs/front/names/desk', 'DELETE')).status).toBe(204)
+    expect((await owner(app, '/api/packs', 'POST', { name: 'desk', title: 'Secret plans' })).status).toBe(201)
+    expect((await knock(app, '/p/front/mcp', token)).status).toBe(200)
+    const retaken = await knock(app, '/p/desk/mcp', token)
+    expect(retaken.status).toBe(401)
+    const detail = await detailOf(retaken)
+    expect(detail).toBe('This sign-in opens Front desk only: connect at http://localhost/p/front/mcp.')
+    expect(detail).not.toContain('Secret')
+  })
+
+  it('a root token and an aud-less token are taken at a pack’s own address and with the header, where the gateway answers them as before', async () => {
+    const before = await beforeTheUpdate()
+    // The ones from before: one known by its grant, one access token known by its name for its last hour
+    await before.oauthClient('Older')
+    const old = await before.refreshRow('Older', 'client_older')
+    const app = await before.update()
+    expect((await owner(app, '/api/packs', 'POST', { name: 'desk', title: 'Front desk' })).status).toBe(201)
+    const root = (await signInFor(app, 'http://localhost/mcp')).tokens.access_token
+    expect(decodeJwt(root).aud).toBe('http://localhost/mcp')
+    const older = await tokenFor(app, { grant_type: 'refresh_token', refresh_token: old })
+    expect(older.status).toBe(200)
+    const audless = [older.json.access_token, await before.accessToken('Older', 'client_older')]
+    for (const token of [root, ...audless]) {
+      expect((await knock(app, '/api/calls', token)).status).toBe(200)
+      // Past the sign-in, the gateway answers as it always has: an app not locked to packs opens none
+      for (const [path, headers] of [
+        ['/p/desk/mcp', {}],
+        ['/p/desk/api/calls', {}],
+        ['/mcp', { 'x-gateway-pack': 'desk' }],
+        ['/api/calls', { 'x-gateway-pack': 'desk' }],
+      ] as const) {
+        const answer = await knock(app, path, token, headers)
+        expect([path, answer.status, await detailOf(answer)]).toEqual([
+          path,
+          403,
+          "This key isn't locked to packs: connect to /mcp, which serves everything it may reach.",
+        ])
+      }
+    }
+  })
+
+  it('an app connected at /p/desk/mcp before the update, refreshing with resource=<origin>/mcp, is answered there as before', async () => {
+    const before = await beforeTheUpdate()
+    await before.oauthClient('Sample')
+    const old = await before.refreshRow('Sample', 'client_sample')
+    const app = await before.update()
+    expect((await owner(app, '/api/packs', 'POST', { name: 'desk', title: 'Front desk' })).status).toBe(201)
+    const refreshed = await tokenFor(app, {
+      grant_type: 'refresh_token',
+      refresh_token: old,
+      client_id: 'client_sample',
+      resource: 'http://localhost/mcp',
+    })
+    expect(refreshed.status).toBe(200)
+    expect(decodeJwt(refreshed.json.access_token).aud).toBeUndefined()
+    const there = await knock(app, '/p/desk/mcp', refreshed.json.access_token)
+    expect([there.status, await detailOf(there)]).toEqual([
+      403,
+      "This key isn't locked to packs: connect to /mcp, which serves everything it may reach.",
+    ])
+    expect((await knock(app, '/mcp', refreshed.json.access_token)).status).toBe(200)
+  })
+
+  it('an app connected at /mcp/p/desk that sends that address as its resource signs in and refreshes as a root grant', async () => {
+    const app = await withDesk()
+    const { clientId, tokens } = await signInFor(app, 'http://localhost/mcp/p/desk')
+    expect(decodeJwt(tokens.access_token).aud).toBe('http://localhost/mcp/p/desk')
+    expect((await knock(app, '/api/calls', tokens.access_token)).status).toBe(200)
+    expect((await knock(app, '/mcp', tokens.access_token)).status).toBe(200)
+    const me = await app.request('/api/me', { headers: bearer(tokens.access_token) })
+    expect(await me.json()).toMatchObject({ scope: 'write', upstreams: 'all', pack: null })
+    const refreshed = await tokenFor(app, {
+      grant_type: 'refresh_token',
+      refresh_token: tokens.refresh_token,
+      client_id: clientId,
+      resource: 'http://localhost/mcp/p/desk',
+    })
+    expect(refreshed.status).toBe(200)
+    expect((await knock(app, '/api/calls', refreshed.json.access_token)).status).toBe(200)
+  })
+
+  it('a forged x-forwarded-host changes no document or check when PUBLIC_HOST names a reachable host', async () => {
+    const app = await withDesk({ PUBLIC_HOST: 'gw.example.test' })
+    const forged = { 'x-forwarded-host': 'evil.example.test', 'x-forwarded-proto': 'https' }
+    const metadata = await app.request('/.well-known/oauth-protected-resource/p/desk/mcp', { headers: forged })
+    expect(await metadata.json()).toMatchObject({
+      resource: 'https://gw.example.test/p/desk/mcp',
+      authorization_servers: ['https://gw.example.test'],
+    })
+    expect(metadata.headers.get('cache-control')).toBe('public, max-age=300')
+    const server = await app.request('/.well-known/oauth-authorization-server', { headers: forged })
+    expect(((await server.json()) as { issuer: string }).issuer).toBe('https://gw.example.test')
+    const refused = await knock(app, '/p/desk/mcp', undefined, forged)
+    expect(pointerOf(refused)).toBe('https://gw.example.test/.well-known/oauth-protected-resource/p/desk/mcp')
+    // A sign-in asked for the forged host's address is refused before the owner is asked to approve it
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    const client = await register(app)
+    const asked = client.authorize.replace(
+      encodeURIComponent('http://localhost/mcp'),
+      encodeURIComponent('https://evil.example.test/p/desk/mcp'),
+    )
+    expect((await browser.send(asked, { headers: forged })).status).toBe(400)
+  })
+
+  it('with the compose default PUBLIC_HOST, metadata follows the request’s host as today', async () => {
+    const app = await withDesk({ PUBLIC_HOST: 'http://localhost:8080' })
+    const metadata = await app.request('/.well-known/oauth-protected-resource/p/desk/mcp', {
+      headers: { 'x-forwarded-host': 'nas.example.test:8080' },
+    })
+    expect(((await metadata.json()) as { resource: string }).resource).toBe('http://nas.example.test:8080/p/desk/mcp')
+    expect(metadata.headers.get('cache-control')).toBe('no-store')
   })
 })
 
 describe('the address a caller is counted by', () => {
+  const register = (app: App, address?: string) =>
+    app.request('/oauth/register', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(address ? { 'x-forwarded-for': address } : {}) },
+      body: JSON.stringify({ client_name: 'Sample', redirect_uris: [REDIRECT] }),
+    })
   const signInWith = (app: App, address: string) =>
     app.request('/api/session', {
       method: 'POST',
@@ -1202,8 +1457,13 @@ describe('the address a caller is counted by', () => {
       body: JSON.stringify({ key: 'not-the-owner-key' }),
     })
 
-  it('is the one the proxy wrote, for the owner’s sign-in', async () => {
+  it('is the one the proxy wrote, for the sign-in endpoints and the owner’s sign-in alike', async () => {
     const app = await gateway({ GATEWAY_ADDRESS_HEADER: 'x-forwarded-for' })
+    // A caller's own value comes first; the proxy appends the address it saw
+    for (let index = 0; index < 20; index++)
+      expect((await register(app, `198.51.100.${index}, 203.0.113.1`)).status).toBe(201)
+    expect((await register(app, '198.51.100.99, 203.0.113.1')).status).toBe(429)
+    expect((await register(app, '203.0.113.2')).status).toBe(201)
     for (let index = 0; index < 10; index++) expect((await signInWith(app, '203.0.113.3')).status).not.toBe(429)
     expect((await signInWith(app, '203.0.113.3')).status).toBe(429)
     expect((await signInWith(app, '203.0.113.4')).status).not.toBe(429)

@@ -15,8 +15,9 @@ import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { withPlaybookQuery } from './features/catalog/query.js'
 import { onGrantFor } from './features/clients/grants.js'
 import { mapLegacySignIns } from './features/clients/legacy.js'
-import { packBaseOf, packChoice, withPackAddresses } from './features/clients/pack-choice.js'
+import { packChoice, withPackAddresses } from './features/clients/pack-choice.js'
 import { callerOf, isOwner } from './features/clients/principals.js'
+import { accepts, issuesFor, resourceOf } from './features/clients/resources.js'
 import { FEATURES } from './features/index.js'
 import { mountPackDocs } from './features/packs/docs.js'
 import { createSessionAuth, kitOwner, sessionFeature, type Unclaimed } from './features/session/index.js'
@@ -37,7 +38,6 @@ import {
   dbOAuthStore,
   frontDoorOpen,
   migrate,
-  type OAuth,
   originOf,
   parseApiKeys,
   rateLimit,
@@ -79,13 +79,6 @@ const APP_PAGES = [
 ]
 const DEFAULT_WEB_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../web/dist')
 
-/** Where a 401 points: at a pack's address, that address's own metadata, whose `resource` is the URL asked (RFC 9728). */
-const resourceMetadataOf = (oauth: OAuth) => (c: Context) => {
-  const base = packBaseOf()
-  if (!base) return oauth.resourceMetadataFor(c)
-  return `${originOf(c)}/.well-known/oauth-protected-resource${base}${c.req.path.startsWith('/mcp') ? '/mcp' : ''}`
-}
-
 /** Headers a proxy writes the caller's address in: seen from a proxy, they mean GATEWAY_ADDRESS_HEADER is missing. */
 const FORWARDING = ['x-forwarded-for', 'forwarded', 'x-real-ip', 'cf-connecting-ip']
 /** This machine or a private network: where a proxy in front of the gateway connects from. */
@@ -121,6 +114,8 @@ export const createApp = async ({
   const pages = APP_PAGES.flatMap((page) => (page ? [`/app/${page}`, `/app/${page}/*`] : ['/app', '/app/']))
   // Where each caller's address is read, for every limit: the proxy's header when one is named, else the connection
   const address = addressTrustOf(env)
+  // The root as the sign-in signs it (`publicOrigin`, else the request's own), once it is made
+  const rootOf = (c: Context) => services.oauth.current?.rootOf(c) ?? originOf(c)
   const oauthStore = env.OAUTH_SIGNING_KEY ? await dbOAuthStore(db) : undefined
   const oauth =
     env.OAUTH_SIGNING_KEY && oauthStore
@@ -132,6 +127,15 @@ export const createApp = async ({
           owner: async (c) => (access ? await accessOwner(access)(c) : null) ?? (await kitOwner(sessions)(c)),
           // Every new sign-in is its own client row, made here and nowhere else
           onGrant: (grant) => onGrantFor(services)(grant),
+          // What a sign-in is for: the root or one pack's address, read by `classOf` alone (features/clients/resources)
+          mcpPath: '/mcp',
+          resources: issuesFor,
+          resourceOf: resourceOf(rootOf),
+          accepts: accepts(services, rootOf),
+          listResources: (origin) => [origin, `${origin}/mcp`],
+          // The one origin of every sign-in document and check, when the owner named one others reach
+          ...(services.statedOrigin ? { publicOrigin: services.statedOrigin } : {}),
+          limits: { store: await dbGuardStore(db), address },
         })
       : undefined
   if (oauth) {
@@ -159,9 +163,10 @@ export const createApp = async ({
         ...(hasWeb ? [...frontDoorOpen(web), ...pages] : []),
       ],
     },
-    oauth: oauth && { ...oauth, resourceMetadataFor: resourceMetadataOf(oauth) },
-    // An answer kept for an `Idempotency-Key` can hold a key shown once: it is kept sealed
-    guards: { store: await sealedGuardStore(db, parseMasterKey(env.GATEWAY_MASTER_KEY)) },
+    oauth,
+    // An answer kept for an `Idempotency-Key` can hold a key shown once: it is kept sealed. `/join/*` answers a
+    // redirect holding a sign-in code (invites, from 0.7.0): never kept
+    guards: { store: await sealedGuardStore(db, parseMasterKey(env.GATEWAY_MASTER_KEY)), skip: ['/join/*'] },
   })
   // Read from the connection, a proxy's forwarding header means every caller shares the proxy's limit: said once
   if (address === 'socket') {
@@ -180,10 +185,10 @@ export const createApp = async ({
   }
   // An OAuth caller the gateway refuses is pointed where the kit's own 401 would point it, by the address it asked
   if (oauth) {
-    const metadataOf = resourceMetadataOf(oauth)
     app.use('*', async (c, next) => {
       const caller = callerOf(c)
-      if (caller?.kind === 'agent') c.set('caller' as never, { ...caller, resourceMetadata: metadataOf(c) } as never)
+      if (caller?.kind === 'agent')
+        c.set('caller' as never, { ...caller, resourceMetadata: oauth.resourceMetadataFor(c) } as never)
       await next()
     })
   }
@@ -210,7 +215,6 @@ export const createApp = async ({
     store: await dbGuardStore(db),
     address,
   })
-
   app.on('POST', ['/api/calls', '/api/tools/:name/calls', '/u/:upstream/mcp'], runs)
   // Six builds an hour per pack and caller, refused ones too: each may spend $1 and run real read calls
   const builds = await dbGuardStore(db)
