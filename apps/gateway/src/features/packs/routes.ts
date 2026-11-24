@@ -230,6 +230,10 @@ export const PackIconSchema = z
     colour: IconColourSchema.nullable().openapi({
       description: 'The monogram’s colour, the one picked or else its name’s; null while an uploaded icon is shown.',
     }),
+    set: z.boolean().openapi({
+      description:
+        'Whether the owner set it, by an upload or a colour: false is the monogram any pack gets from its name, and `DELETE /api/packs/{name}/icon` goes back to it.',
+    }),
     etag: z.string().openapi({ description: 'Changes whenever the icon does.' }),
     url: z.string().openapi({
       description:

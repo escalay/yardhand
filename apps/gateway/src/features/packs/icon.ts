@@ -208,6 +208,8 @@ export type PackIcon = {
   letter: string
   /** The monogram's colour; null while an uploaded icon is shown. */
   colour: IconColour | null
+  /** Whether the owner set it: false is the monogram every name gets. */
+  set: boolean
   etag: string
 }
 
@@ -230,16 +232,16 @@ export const createPackIcons = ({ packs }: { packs: PacksRepo }) => {
     return monograms.get(key) as Promise<IconSet>
   }
   /** A pack's icon and its files: its upload, else its monogram in the colour the owner picked or its name's. */
-  const of = async (pack: PackRow): Promise<PackIcon & { set: IconSet }> => {
+  const of = async (pack: PackRow): Promise<PackIcon & { files: IconSet }> => {
     const row = await packs.iconOf(pack.id)
     const own = monogramOf(pack.name)
     if (row?.source === 'upload' && row.png96 && row.png192 && row.png512 && row.ico && row.etag) {
       const set = { png96: row.png96, png192: row.png192, png512: row.png512, ico: row.ico, etag: row.etag }
-      return { source: 'upload', letter: own.letter, colour: null, etag: row.etag, set }
+      return { source: 'upload', letter: own.letter, colour: null, set: true, etag: row.etag, files: set }
     }
     const colour = (PALETTE as readonly string[]).includes(row?.colour ?? '') ? (row?.colour as IconColour) : own.colour
-    const set = await monogram(own.letter, colour)
-    return { source: 'monogram', letter: own.letter, colour, etag: set.etag, set }
+    const files = await monogram(own.letter, colour)
+    return { source: 'monogram', letter: own.letter, colour, set: Boolean(row), etag: files.etag, files }
   }
   return {
     of,
@@ -249,7 +251,8 @@ export const createPackIcons = ({ packs }: { packs: PacksRepo }) => {
      */
     at: async (name: string): Promise<IconSet> => {
       const holder = await packs.holderOf(name)
-      if (holder && (holder.until === null || (await packs.iconOf(holder.pack.id)))) return (await of(holder.pack)).set
+      if (holder && (holder.until === null || (await packs.iconOf(holder.pack.id))))
+        return (await of(holder.pack)).files
       const { letter, colour } = monogramOf(name)
       return monogram(letter, colour)
     },

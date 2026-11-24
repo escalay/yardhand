@@ -34,6 +34,7 @@ export const iconView = (origin: string, pack: PackRow, icon: PackIcon) => ({
   source: icon.source,
   letter: icon.letter,
   colour: icon.colour,
+  set: icon.set,
   etag: icon.etag,
   url: `${origin}/p/${pack.name}/icon-96.png?v=${icon.etag}`,
 })

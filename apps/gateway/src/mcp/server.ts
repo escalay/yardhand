@@ -477,7 +477,7 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
       websiteUrl: `${services.publicOrigin}/p/${pack.name}/llms.txt`,
     }
     return {
-      info: icon ? { ...info, icons: packMcpIcons(info, origin, icon.set, inline) } : info,
+      info: icon ? { ...info, icons: packMcpIcons(info, origin, icon.files, inline) } : info,
       tools: metaToolsFor(pack),
       prompts: promptsFor(pack),
     }

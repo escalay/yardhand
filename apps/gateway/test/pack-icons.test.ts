@@ -131,7 +131,7 @@ describe('the monogram every pack starts with', () => {
   it('is the first letter of its name on its name’s colour, in the pack and in its files', async () => {
     const { json } = await owner('/api/packs/desk')
     const { letter, colour } = monogramOf('desk')
-    expect(json.icon).toMatchObject({ source: 'monogram', letter, colour })
+    expect(json.icon).toMatchObject({ source: 'monogram', letter, colour, set: false })
     expect(json.icon.url).toBe(`http://localhost/p/desk/icon-96.png?v=${json.icon.etag}`)
     expect(json.palette).toEqual([...PALETTE])
     const card = (await owner('/api/packs')).json._embedded.packs.find((pack: { name: string }) => pack.name === 'desk')
@@ -196,7 +196,7 @@ describe('setting an icon', () => {
   it('takes a PNG, and serves it in place of the monogram', async () => {
     const answer = await upload(gateway, 'desk', await square(256, '#cc2200'))
     expect(answer.status).toBe(200)
-    expect(answer.json).toMatchObject({ source: 'upload', letter: 'D', colour: null })
+    expect(answer.json).toMatchObject({ source: 'upload', letter: 'D', colour: null, set: true })
     expect(answer.json._links.icon512.href).toBe('http://localhost/p/desk/icon-512.png')
     const file = await at(gateway, null, '/p/desk/icon-512.png')
     expect(await colourAt(file.bytes, 256, 256)).toBe('#cc2200')
@@ -305,12 +305,12 @@ describe('the monogram’s colour', () => {
     const other = PALETTE.find((colour) => colour !== own) as string
     const picked = await owner('/api/packs/loud/icon', { method: 'PATCH', body: { colour: other } })
     expect(picked.status).toBe(200)
-    expect(picked.json).toMatchObject({ source: 'monogram', letter: 'L', colour: other })
+    expect(picked.json).toMatchObject({ source: 'monogram', letter: 'L', colour: other, set: true })
     expect(await colourAt((await at(app, null, '/p/loud/icon-512.png')).bytes, 256, 40)).toBe(other)
     const refused = await owner('/api/packs/loud/icon', { method: 'PATCH', body: { colour: '#123456' } })
     expect(refused.status).toBe(400)
     const reset = await owner('/api/packs/loud/icon', { method: 'DELETE' })
-    expect(reset.json).toMatchObject({ source: 'monogram', colour: own })
+    expect(reset.json).toMatchObject({ source: 'monogram', colour: own, set: false })
     expect((await served(app, 'loud')).map((file) => file.bytes)).toEqual(await monogramFiles('loud'))
   })
 })

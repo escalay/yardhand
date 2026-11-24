@@ -229,7 +229,7 @@ export const feature: Feature = {
               icon: !icon
                 ? null
                 : icon.source === 'upload'
-                  ? { png: (await packIcons.of(pack)).set.png512.toString('base64') }
+                  ? { png: (await packIcons.of(pack)).files.png512.toString('base64') }
                   : { colour: icon.colour },
             }
           }),
