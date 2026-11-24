@@ -70,8 +70,9 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Tool**: `<upstream>.<tool>`, e.g. `cookbook.research_recipes`. A tool has versions; only a `live` version is served.
 - **Client**: who calls the gateway (an API key or an OAuth client): an allowlist of upstreams, read/write scope, pins.
   An OAuth client is made with its sign-in (the kit's `onGrant`, `features/clients/grants.ts`) and known by the kit's
-  grants (`client_grants`), never by the name its app gives: a token whose grant has no row is a 401, and nothing
-  makes one on use. Sign-ins from before 0.6.4 were mapped once by that name (`legacy.ts`, recorded in the plain
+  grants (`client_grants`), never by the name its app gives: a token whose grant has no row is a 401 pointing where
+  the kit's own would (`resourceMetadata` on the caller), its grant is ended at the kit, and nothing makes one on
+  use. Sign-ins from before 0.6.4 were mapped once by that name (`legacy.ts`, recorded in the plain
   `client_legacy_mapping`, never the vault, so a start under another master key still comes up); an access token
   from then, which carries no grant, still finds its row by name for its last hour. Revoking one ends each of its
   grants at the kit (`revokeGrant`, never `revokeClient`).

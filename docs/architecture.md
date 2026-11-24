@@ -60,7 +60,8 @@ The kit's OAuth server; you approve as the signed-in owner; the new client start
 Each sign-in is its own client, made as its first token is issued (the kit's `onGrant`, `features/clients/grants.ts`)
 and known from then on by the kit's grant (`client_grants`), never by the name its app gives. Sign-ins from before
 0.6.4 were mapped once, at the first start of that version, to the row their name used (`features/clients/legacy.ts`).
-Revoking a client ends every sign-in it stands for at once.
+Revoking a client ends every sign-in it stands for at once. A token whose sign-in has no client is refused with a 401
+that points at the sign-in metadata, and that sign-in is ended, so the app signs in again.
 Signed in to the app, you can approve an app's sign-in (claude.ai, Cursor) without Cloudflare Access: the session
 counts at `/oauth/authorize` only, so agent claims (`/oauth/claim`) still need Access. Arriving from the app's site,
 the browser leaves the `SameSite=Strict` session cookie out, so a Continue page repeats the request from Yardhand's own

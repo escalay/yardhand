@@ -615,38 +615,82 @@ describe('an app is known by its sign-in, not the name it gives', () => {
     expect((await oauthRows(app)).map((row) => [row.name, Boolean(row.revokedAt)])).toEqual([['Gone', true]])
   })
 
+  /** A request at one of the gateway's doors, as an app connecting there sends it. */
+  const knock = (app: App, [path, method]: readonly [string, 'GET' | 'POST'], authorization: string) =>
+    app.request(path, {
+      method,
+      headers: { authorization, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      ...(method === 'POST'
+        ? {
+            body: JSON.stringify(
+              path.endsWith('/calls')
+                ? { tool: 'sample.roll_dice', arguments: { count: 2, sides: 6 } }
+                : { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+            ),
+          }
+        : {}),
+    })
+  /** A sign-in the start never saw, refreshed once: the kit takes it, the gateway knows no row for it. */
+  const unseenSignIn = async (app: App, before: Awaited<ReturnType<typeof beforeTheUpdate>>) => {
+    const refreshed = await refresh(app, await before.refreshRow('Sample', 'client_unseen'))
+    expect(refreshed.status).toBe(200)
+    return refreshed.json
+  }
+  const challengeOf = (response: Response) => {
+    const header = response.headers.get('www-authenticate') ?? ''
+    return {
+      error: /error="([^"]+)"/.exec(header)?.[1],
+      pointer: /resource_metadata="([^"]+)"/.exec(header)?.[1],
+      scope: /scope="([^"]+)"/.exec(header)?.[1],
+    }
+  }
+
   it('a token whose grant has no row is refused and makes none', async () => {
     const before = await beforeTheUpdate()
     const app = await before.update()
-    // A sign-in the start never saw: the kit refreshes it, the gateway knows no row for it
-    const refreshed = await refresh(app, await before.refreshRow('Sample', 'client_unseen'))
-    expect(refreshed.status).toBe(200)
-    const refused = await roll(app, refreshed.json.access_token)
-    expect(refused.status).toBe(401)
-    expect(refused.headers.get('www-authenticate')).toMatch(/^Bearer /)
-    expect(((await refused.json()) as { detail: string }).detail).toBe(UNKNOWN)
-    const mcp = await app.request('/mcp', {
-      method: 'POST',
-      headers: { ...bearer(refreshed.json.access_token), accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
-    })
-    expect(mcp.status).toBe(401)
-    expect(((await mcp.json()) as { detail: string }).detail).toBe(UNKNOWN)
-    // The passthrough and the link proxy ask it to connect again too
-    for (const [path, method] of [
+    // Each door gets its own sign-in: the first refusal ends the sign-in at the kit
+    for (const door of [
+      ['/api/calls', 'POST'],
+      ['/mcp', 'POST'],
+      // The passthrough and the link proxy ask it to connect again too
       ['/u/sample/mcp', 'POST'],
       ['/u/sample/r/recipes/1', 'GET'],
     ] as const) {
-      const door = await app.request(path, {
-        method,
-        headers: { ...bearer(refreshed.json.access_token), accept: 'application/json, text/event-stream' },
-        ...(method === 'POST'
-          ? { body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) }
-          : {}),
-      })
-      expect([path, door.status]).toEqual([path, 401])
-      expect(door.headers.get('www-authenticate')).toMatch(/^Bearer /)
-      expect(((await door.json()) as { detail: string }).detail).toBe(UNKNOWN)
+      const tokens = await unseenSignIn(app, before)
+      const refused = await knock(app, door, `Bearer ${tokens.access_token}`)
+      expect([door[0], refused.status]).toEqual([door[0], 401])
+      expect(refused.headers.get('www-authenticate')).toMatch(/^Bearer /)
+      expect(((await refused.json()) as { detail: string }).detail).toBe(UNKNOWN)
+    }
+    expect(await oauthRows(app)).toEqual([])
+  })
+
+  it('the 401 for an unknown sign-in points where the kit’s own does, and its refresh is then invalid_grant', async () => {
+    const before = await beforeTheUpdate()
+    const app = await before.update()
+    const made = await app.request('/api/packs', {
+      method: 'POST',
+      headers: bearer(OWNER),
+      body: JSON.stringify({ name: 'loud', title: 'Loud' }),
+    })
+    expect(made.status).toBe(201)
+    for (const door of [
+      ['/api/calls', 'POST'],
+      ['/mcp', 'POST'],
+      ['/p/loud/mcp', 'POST'],
+      ['/p/loud/api/calls', 'POST'],
+    ] as const) {
+      const tokens = await unseenSignIn(app, before)
+      const refused = await knock(app, door, `Bearer ${tokens.access_token}`)
+      expect([door[0], refused.status]).toEqual([door[0], 401])
+      expect(((await refused.json()) as { detail: string }).detail).toBe(UNKNOWN)
+      const kits = challengeOf(await knock(app, door, 'Bearer not-a-token'))
+      expect(kits.pointer).toBeTruthy()
+      expect([door[0], challengeOf(refused)]).toEqual([door[0], { ...kits, error: 'invalid_token' }])
+      expect(kits.scope).toBe('read write')
+      // Ended at the kit: the app's next refresh is refused, so it authorizes again
+      const again = await refresh(app, tokens.refresh_token)
+      expect([door[0], again.status, again.json.error]).toEqual([door[0], 400, 'invalid_grant'])
     }
     expect(await oauthRows(app)).toEqual([])
   })

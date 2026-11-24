@@ -11,7 +11,7 @@
  * The owner asking for a pack (its address or the header) is answered as a write key of that pack would be.
  */
 import type { Context } from 'hono'
-import { type Caller, mintApiKey, ProblemError } from '../../kit/index.js'
+import { type Caller, mintApiKey, type OAuth, ProblemError, SCOPES } from '../../kit/index.js'
 import type { CatalogRepo } from '../catalog/repo.js'
 import { type PackEntry, presented, resolveEntry } from '../packs/entries.js'
 import { noPack } from '../packs/names.js'
@@ -88,7 +88,15 @@ export type Principal = {
 
 const CLIENT_KEY = 'client:'
 const UNKNOWN_SIGN_IN = 'This sign-in is not known here: connect again.'
-const CHALLENGE = `Bearer realm="gateway", error="invalid_token", error_description="${UNKNOWN_SIGN_IN}"`
+/** The kit's Bearer challenge for a refused token: its metadata pointer and the scopes to ask for. */
+const challengeOf = (pointer: string | undefined) =>
+  [
+    'Bearer realm="gateway"',
+    'error="invalid_token"',
+    `error_description="${UNKNOWN_SIGN_IN}"`,
+    ...(pointer ? [`resource_metadata="${pointer}"`] : []),
+    `scope="${SCOPES.join(' ')}"`,
+  ].join(', ')
 
 export const OWNER: Principal = {
   id: 'owner',
@@ -105,10 +113,11 @@ export const OWNER: Principal = {
 
 /**
  * The caller, with the pack its address or `x-gateway-pack` header asked for (see `packChoice`): by the name the
- * pack has now, with the former name that was asked as `cameBy` when it came by one.
+ * pack has now, with the former name that was asked as `cameBy` when it came by one. An OAuth caller carries where
+ * its 401 points (`resourceMetadata`).
  */
 export const callerOf = (c: Context) =>
-  c.get('caller' as never) as (Caller & { pack?: string; cameBy?: string }) | undefined
+  c.get('caller' as never) as (Caller & { pack?: string; cameBy?: string; resourceMetadata?: string }) | undefined
 
 export const isOwner = (caller: Caller | undefined) =>
   caller?.kind === 'person' || (caller?.kind === 'key' && !caller.name.startsWith(CLIENT_KEY))
@@ -235,11 +244,14 @@ export const createPrincipals = ({
   packs,
   catalog,
   keys,
+  oauth,
 }: {
   clients: ClientsRepo
   packs: PacksRepo
   catalog: CatalogRepo
   keys: Map<string, string>
+  /** The gateway's own OAuth server, once made: a sign-in with no row is ended there. */
+  oauth: { current: OAuth | null }
 }) => {
   /** The lock for a pack, with the Per person inputs filled from this client's own values when one is given. */
   const packScopeOf = async (packId: string, clientId?: string): Promise<PackScope | null> => {
@@ -315,15 +327,23 @@ export const createPrincipals = ({
       packs: byDefault.map((opened) => ({ name: opened.name, title: opened.title })),
     }
   }
-  /** The client row behind a caller and its scope cap: by grant, else (a pre-0.6.4 access token) by name, else 401. */
-  const rowOf = async (caller: Caller): Promise<{ row: ClientRow | undefined; scopeCap?: 'read' | 'write' }> => {
+  /**
+   * The client row behind a caller and its scope cap: by grant, else (a pre-0.6.4 access token) by name, else 401. A
+   * grant with no row is ended at the kit, so its refresh is refused and the app signs in again.
+   */
+  const rowOf = async (
+    caller: NonNullable<ReturnType<typeof callerOf>>,
+  ): Promise<{ row: ClientRow | undefined; scopeCap?: 'read' | 'write' }> => {
     if (caller.kind === 'key') return { row: await clients.get(caller.name.slice(CLIENT_KEY.length)) }
     if (caller.kind !== 'agent') return { row: undefined }
     const scopeCap = caller.scopes.includes('write') ? 'write' : 'read'
     const row = caller.grant ? await clients.byGrant(caller.grant) : await clients.byOAuthName(caller.name)
-    if (!row)
-      throw new ProblemError('unauthorized', { detail: UNKNOWN_SIGN_IN, headers: { 'www-authenticate': CHALLENGE } })
-    return { row, scopeCap }
+    if (row) return { row, scopeCap }
+    if (caller.grant) await oauth.current?.revokeGrant(caller.grant)
+    throw new ProblemError('unauthorized', {
+      detail: UNKNOWN_SIGN_IN,
+      headers: { 'www-authenticate': challengeOf(caller.resourceMetadata) },
+    })
   }
   /** The owner inside a pack: what a write key of that pack would see and run; why not when there is no such pack. */
   const inPack = async (name: string): Promise<Principal | string> => {

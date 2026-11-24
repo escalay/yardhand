@@ -200,7 +200,7 @@ export const createServices = async ({
   const packs = packsRepo(db)
   const packDocs = createPackDocs({ packs })
   const handed = createHanded({ calls, catalog })
-  const principals = createPrincipals({ clients, packs, catalog, keys })
+  const principals = createPrincipals({ clients, packs, catalog, keys, oauth })
   await principals.loadKeys()
   /** The AI jobs' settings: Settings (sealed in the vault) over .env over defaults. */
   const ai = {
