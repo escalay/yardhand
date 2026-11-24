@@ -113,8 +113,7 @@ export const OWNER: Principal = {
 
 /**
  * The caller, with the pack its address or `x-gateway-pack` header asked for (see `packChoice`): by the name the
- * pack has now, with the former name that was asked as `cameBy` when it came by one. An OAuth caller carries where
- * its 401 points (`resourceMetadata`).
+ * pack has now, with the former name that was asked as `cameBy` when it came by one.
  */
 export const callerOf = (c: Context) =>
   c.get('caller' as never) as (Caller & { pack?: string; cameBy?: string; resourceMetadata?: string }) | undefined
@@ -327,10 +326,7 @@ export const createPrincipals = ({
       packs: byDefault.map((opened) => ({ name: opened.name, title: opened.title })),
     }
   }
-  /**
-   * The client row behind a caller and its scope cap: by grant, else (a pre-0.6.4 access token) by name, else 401. A
-   * grant with no row is ended at the kit, so its refresh is refused and the app signs in again.
-   */
+  /** The row behind a caller and its scope cap: by grant, else (pre-0.6.4) by name, else 401 with its grant ended. */
   const rowOf = async (
     caller: NonNullable<ReturnType<typeof callerOf>>,
   ): Promise<{ row: ClientRow | undefined; scopeCap?: 'read' | 'write' }> => {

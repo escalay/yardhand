@@ -148,10 +148,7 @@ export const clientsRepo = (db: Db) => {
     legacyMapped: async () => (await db.select().from(clientLegacyMapping).limit(1)).length > 0,
     markLegacyMapped: (signIns: number) =>
       db.insert(clientLegacyMapping).values({ at: new Date().toISOString(), signIns }),
-    /**
-     * The sign-ins the kit still takes, neither revoked: unused refresh tokens, and claimed registrations whose claim
-     * token is still held (one collected under 1.7.0 lost it, and its identity assertion is refused under `onGrant`).
-     */
+    /** Sign-ins the kit still takes: unused refresh tokens, claimed registrations holding a claim token, unrevoked. */
     kitSignIns: async () => {
       const rows = await db
         .select()

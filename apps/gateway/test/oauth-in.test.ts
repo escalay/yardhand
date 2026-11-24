@@ -207,10 +207,7 @@ const beforeTheUpdate = async () => {
     },
     /** A kit marker: `revoked-family` by grant (a 1.7.0 refresh row's is the sha256 of its token), `revoked-client`. */
     revoked: (kind: 'revoked-family' | 'revoked-client', id: string) => store.put(kind, id, {}, hourFromNow),
-    /**
-     * An agent registration the owner claimed, as kit 1.7.0 kept it: with its claim token until the agent collected
-     * the claim, which took the token (returned when it is still held).
-     */
+    /** An agent registration kit 1.7.0 claimed, with its claim token (returned) until the agent collected it. */
     claimedRow: async (name: string, id: string, { collected = false } = {}) => {
       await store.put(
         'registration',
