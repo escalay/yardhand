@@ -27,8 +27,8 @@ const pixelAt = async (png: Buffer, x: number, y: number) => {
   return { colour, alpha: data[at + 3] }
 }
 const colourAt = async (png: Buffer, x: number, y: number) => (await pixelAt(png, x, y)).colour
-const refusal = async (bytes: Uint8Array) => {
-  const error = await renderedUpload(bytes).then(
+const refusal = async (bytes: Uint8Array, limits?: { seconds: number }) => {
+  const error = await renderedUpload(bytes, limits).then(
     () => null,
     (thrown: unknown) => thrown,
   )
@@ -179,6 +179,18 @@ describe('an uploaded icon', () => {
       '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/hostname">]><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><text>&x;</text></svg>'
     expect((await refusal(Buffer.from(svg))).message).toMatch(/DOCTYPE/)
   })
+
+  it('stops drawing an SVG at its time limit, however long the drawing would take', async () => {
+    // A kilobyte asking for ten thousand masked squares, each drawn over the whole icon: about 10 s to draw
+    let defs = `<mask id="m"><rect width="512" height="512" fill="white" opacity="0.5"/></mask><g id="g0">${'<rect width="512" height="512" fill="red" mask="url(#m)"/>'.repeat(10)}</g>`
+    for (let level = 1; level <= 3; level++)
+      defs += `<g id="g${level}">${`<use href="#g${level - 1}"/>`.repeat(10)}</g>`
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><defs>${defs}</defs><use href="#g3"/></svg>`
+    const started = Date.now()
+    const problem = await refusal(Buffer.from(svg), { seconds: 1 })
+    expect(Date.now() - started).toBeLessThan(4000)
+    expect(problem.message).toMatch(/took more than 1 second to draw.*simpler/)
+  }, 30_000)
 
   it('refuses an SVG or a PNG it cannot read, saying what to do', async () => {
     const broken = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"'

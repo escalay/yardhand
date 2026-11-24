@@ -136,14 +136,75 @@ const checkSvg = (source: string) => {
   }
 }
 
+/** Draws an SVG (stdin) at a density into a 512 PNG (stdout); run as `node -e` with sharp's path and the density. */
+const DRAW_SCRIPT = `const chunks = []
+process.stdin.on('data', (chunk) => chunks.push(chunk)).on('end', async () => {
+  try {
+    const sharp = require(process.argv[1])
+    const drawn = await sharp(Buffer.concat(chunks), { density: Number(process.argv[2]) })
+      .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer()
+    process.stdout.write(drawn)
+  } catch (error) {
+    process.stderr.write(error instanceof Error ? error.message : String(error))
+    process.exitCode = 1
+  }
+})`
+
+/** The draw running now: SVGs are drawn one at a time. */
+let drawing: Promise<unknown> = Promise.resolve()
+
+/**
+ * Draws an SVG in a process of its own with no environment, killed once it runs past its time: librsvg draws in one
+ * step that sharp's own timeout can't stop, and a small SVG can ask for minutes of drawing.
+ */
+const drawnApart = (svg: Buffer, density: number, seconds: number): Promise<Buffer> => {
+  const drawn = drawing.then(async () => {
+    const { spawn } = await import('node:child_process')
+    const { createRequire } = await import('node:module')
+    const sharpPath = createRequire(import.meta.url).resolve('sharp')
+    return new Promise<Buffer>((resolve, reject) => {
+      const child = spawn(process.execPath, ['-e', DRAW_SCRIPT, sharpPath, String(density)], { env: {} })
+      const [out, err]: [Buffer[], Buffer[]] = [[], []]
+      let late = false
+      const timer = setTimeout(() => {
+        late = true
+        child.kill('SIGKILL')
+      }, seconds * 1000)
+      child.stdout.on('data', (chunk: Buffer) => out.push(chunk))
+      child.stderr.on('data', (chunk: Buffer) => err.push(chunk))
+      child.stdin.on('error', () => {})
+      child.on('error', (error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+      child.on('close', (code) => {
+        clearTimeout(timer)
+        if (late)
+          reject(
+            refused(
+              `The SVG took more than ${seconds} second${seconds === 1 ? '' : 's'} to draw, so it was stopped: an icon is a few shapes. Make it simpler (fewer masks, filters and repeated parts), or export it as a PNG, and send it again.`,
+            ),
+          )
+        else if (code === 0) resolve(Buffer.concat(out))
+        else reject(new Error(Buffer.concat(err).toString('utf8') || `the drawing stopped (${code})`))
+      })
+      child.stdin.end(svg)
+    })
+  })
+  drawing = drawn.catch(() => undefined)
+  return drawn
+}
+
 /** Whether a body reads as an SVG: markup from its first character (past a byte-order mark), an `<svg` in it. */
 const isSvgText = (text: string) => /^\uFEFF?\s*</.test(text) && /<svg[\s>]/i.test(text)
 
 /**
  * An uploaded icon's files: a PNG of at least 96 × 96 or an SVG, at most 1 MB, within 4:5 of square (padded to
- * square, clear), drawn at 512. Refused with a problem that says what to send instead.
+ * square, clear), drawn at 512, an SVG in at most `seconds`. Refused with a problem that says what to send instead.
  */
-export const renderedUpload = async (bytes: Uint8Array): Promise<IconSet> => {
+export const renderedUpload = async (bytes: Uint8Array, { seconds = 10 } = {}): Promise<IconSet> => {
   if (!bytes.length)
     throw refused('Send the icon as the body: a PNG or an SVG (content-type image/png or image/svg+xml).')
   if (bytes.length > UPLOAD_MAX)
@@ -183,16 +244,17 @@ export const renderedUpload = async (bytes: Uint8Array): Promise<IconSet> => {
     throw refused(
       `The icon is ${width} × ${height}, too far from square (its sides within 4:5 of each other). Crop it square and send it again.`,
     )
-  // An SVG is drawn at the density that makes its longer side 512, whatever size it declares
-  const density = png ? undefined : Math.min(100_000, Math.max(1, (72 * 512) / Math.max(width, height)))
-  const master = await sharp(input, { limitInputPixels: PIXELS_MAX, ...(density ? { density } : {}) })
-    .timeout({ seconds: 10 })
-    .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .png()
-    .toBuffer()
-    .catch((error: unknown) => {
-      throw unreadable(error)
-    })
+  const master = await (png
+    ? sharp(input, { limitInputPixels: PIXELS_MAX })
+        .timeout({ seconds })
+        .resize(512, 512, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .png()
+        .toBuffer()
+    : // Drawn at the density that makes its longer side 512, whatever size it declares
+      drawnApart(input, Math.min(100_000, Math.max(1, (72 * 512) / Math.max(width, height))), seconds)
+  ).catch((error: unknown) => {
+    throw error instanceof ProblemError ? error : unreadable(error)
+  })
   return setOf(master)
 }
 
