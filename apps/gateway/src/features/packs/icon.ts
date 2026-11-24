@@ -29,7 +29,7 @@ export type IconColour = (typeof PALETTE)[number]
 
 /** Claude shows an inline icon only under 10 KB. */
 export const INLINE_MAX = 10 * 1024
-const UPLOAD_MAX = 1024 * 1024
+export const UPLOAD_MAX = 1024 * 1024
 /** The most pixels a PNG may hold, read or not: a small file can still unpack to a huge image. */
 const PIXELS_MAX = 4096 * 4096
 const PNG = [137, 80, 78, 71, 13, 10, 26, 10]

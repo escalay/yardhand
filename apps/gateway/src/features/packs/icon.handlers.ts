@@ -8,7 +8,7 @@ import type { Context } from 'hono'
 import { linksOf, originOf, ProblemError } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { requireOwner } from '../clients/principals.js'
-import type { IconSet, PackIcon } from './icon.js'
+import { type IconSet, type PackIcon, UPLOAD_MAX } from './icon.js'
 import type { iconRoutes } from './icon.routes.js'
 import { noPack } from './names.js'
 import { PATH } from './routes.js'
@@ -28,6 +28,23 @@ const FILES = {
 export const PACK_ICON_PATHS = Object.keys(FILES).map((file) => `/p/*/${file}`)
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,39}$/
+
+/** A body read only to one byte past the most an icon may be, so one sent with no length is never read whole. */
+const bodyUpTo = async (body: ReadableStream<Uint8Array> | null, most: number) => {
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for await (const chunk of body ?? []) {
+    chunks.push(chunk)
+    size += chunk.length
+    if (size > most) break
+  }
+  return Buffer.concat(chunks)
+}
+
+const tooLarge = (size: string) =>
+  new ProblemError('payload_too_large', {
+    detail: `The icon is ${size}; the most is 1 MB. Send a smaller PNG or SVG (512 × 512 is plenty).`,
+  })
 
 /** A pack's icon as the API shows it, with its 96 PNG's address. */
 export const iconView = (origin: string, pack: PackRow, icon: PackIcon) => ({
@@ -96,11 +113,10 @@ export const iconHandlers = ({ packs, packIcons }: Services) => {
     const pack = await packOf(c.req.valid('param').name)
     // Refused before it is read when it says it is bigger than any icon taken
     const declared = Number(c.req.header('content-length') ?? 0)
-    if (declared > 1024 * 1024)
-      throw new ProblemError('payload_too_large', {
-        detail: `The icon is ${Math.ceil(declared / 1024)} KB; the most is 1 MB. Send a smaller PNG or SVG (512 × 512 is plenty).`,
-      })
-    await packIcons.upload(pack, new Uint8Array(await c.req.arrayBuffer()))
+    if (declared > UPLOAD_MAX) throw tooLarge(`${Math.ceil(declared / 1024)} KB`)
+    const bytes = await bodyUpTo(c.req.raw.body, UPLOAD_MAX)
+    if (bytes.length > UPLOAD_MAX) throw tooLarge('more than 1 MB')
+    await packIcons.upload(pack, bytes)
     return answer(c, pack) as never
   }
   const recolour: RouteHandler<Routes['recolour']> = async (c) => {

@@ -305,6 +305,35 @@ describe('setting an icon', () => {
   })
 })
 
+describe('an upload sent with no length', () => {
+  it('is read only to just past 1 MB, then refused', async () => {
+    const gateway = await made()
+    await makePack(gateway, 'desk', 'Desk')
+    // 64 MB, handed over a chunk at a time as it is read
+    let pulled = 0
+    const chunk = new Uint8Array(64 * 1024)
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          if (pulled >= 64 * 1024 * 1024) return controller.close()
+          pulled += chunk.length
+          controller.enqueue(chunk.slice())
+        },
+      },
+      { highWaterMark: 0 },
+    )
+    const answer = await gateway.request('/api/packs/desk/icon', {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${OWNER}`, 'content-type': PNG },
+      body,
+      duplex: 'half',
+    } as RequestInit)
+    expect(answer.status).toBe(413)
+    expect(((await answer.json()) as { detail: string }).detail).toMatch(/more than 1 MB/)
+    expect(pulled).toBeLessThan(2 * 1024 * 1024)
+  })
+})
+
 describe('the monogram’s colour', () => {
   it('can be any of the palette, and goes back to the name’s own', async () => {
     const own = monogramOf('loud').colour
