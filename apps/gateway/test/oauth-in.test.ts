@@ -598,6 +598,22 @@ describe('an app is known by its sign-in, not the name it gives', () => {
     })
     expect(mcp.status).toBe(401)
     expect(((await mcp.json()) as { detail: string }).detail).toBe(UNKNOWN)
+    // The passthrough and the link proxy ask it to connect again too
+    for (const [path, method] of [
+      ['/u/sample/mcp', 'POST'],
+      ['/u/sample/r/recipes/1', 'GET'],
+    ] as const) {
+      const door = await app.request(path, {
+        method,
+        headers: { ...bearer(refreshed.json.access_token), accept: 'application/json, text/event-stream' },
+        ...(method === 'POST'
+          ? { body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) }
+          : {}),
+      })
+      expect([path, door.status]).toEqual([path, 401])
+      expect(door.headers.get('www-authenticate')).toMatch(/^Bearer /)
+      expect(((await door.json()) as { detail: string }).detail).toBe(UNKNOWN)
+    }
     expect(await oauthRows(app)).toEqual([])
   })
 
