@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'hono'
+import { addressTrustOf } from './env.js'
 import type { Model } from './features/ai/model.js'
 import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { withPlaybookQuery } from './features/catalog/query.js'
@@ -28,6 +29,7 @@ import { GUIDE_FILES } from './guide.gen.js'
 import { GUIDE_VARS } from './guide.vars.js'
 import {
   accessOwner,
+  addressOf,
   createAgentApi,
   createOAuth,
   type Db,
@@ -84,6 +86,11 @@ const resourceMetadataOf = (oauth: OAuth) => (c: Context) => {
   return `${originOf(c)}/.well-known/oauth-protected-resource${base}${c.req.path.startsWith('/mcp') ? '/mcp' : ''}`
 }
 
+/** Headers a proxy writes the caller's address in: seen from a proxy, they mean GATEWAY_ADDRESS_HEADER is missing. */
+const FORWARDING = ['x-forwarded-for', 'forwarded', 'x-real-ip', 'cf-connecting-ip']
+/** This machine or a private network: where a proxy in front of the gateway connects from. */
+const PRIVATE_PEER = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|::1$|f[cd][0-9a-f]{2}:|fe80:)/
+
 export const createApp = async ({
   db,
   env,
@@ -112,6 +119,8 @@ export const createApp = async ({
   const hasWeb = existsSync(join(web.dir, 'index.html'))
   // The OAuth callback stays behind sign-in: only the pages themselves are open
   const pages = APP_PAGES.flatMap((page) => (page ? [`/app/${page}`, `/app/${page}/*`] : ['/app', '/app/']))
+  // Where each caller's address is read, for every limit: the proxy's header when one is named, else the connection
+  const address = addressTrustOf(env)
   const oauthStore = env.OAUTH_SIGNING_KEY ? await dbOAuthStore(db) : undefined
   const oauth =
     env.OAUTH_SIGNING_KEY && oauthStore
@@ -131,6 +140,7 @@ export const createApp = async ({
     await mapLegacySignIns({ clients: services.clients, revokeGrant: oauth.revokeGrant })
   }
   const app = createAgentApi({
+    address,
     title: 'Yardhand',
     version: VERSION,
     description: DESCRIPTION,
@@ -153,6 +163,21 @@ export const createApp = async ({
     // An answer kept for an `Idempotency-Key` can hold a key shown once: it is kept sealed
     guards: { store: await sealedGuardStore(db, parseMasterKey(env.GATEWAY_MASTER_KEY)) },
   })
+  // Read from the connection, a proxy's forwarding header means every caller shares the proxy's limit: said once
+  if (address === 'socket') {
+    let warned = false
+    app.use('*', async (c, next) => {
+      const forwarded = warned ? undefined : FORWARDING.find((header) => c.req.header(header))
+      const peer = forwarded ? addressOf(c, 'socket') : ''
+      if (forwarded && PRIVATE_PEER.test(peer)) {
+        warned = true
+        console.warn(
+          `A proxy at ${peer} forwards requests (${forwarded}), but GATEWAY_ADDRESS_HEADER is empty: every caller counts as ${peer} and shares one sign-in and call limit, which anyone can use up. Set GATEWAY_ADDRESS_HEADER to the header your proxy writes (x-forwarded-for behind Caddy or nginx, cf-connecting-ip behind Cloudflare).`,
+        )
+      }
+      await next()
+    })
+  }
   // An OAuth caller the gateway refuses is pointed where the kit's own 401 would point it, by the address it asked
   if (oauth) {
     const metadataOf = resourceMetadataOf(oauth)
@@ -178,7 +203,14 @@ export const createApp = async ({
     await next()
   })
   // Per caller: runs reach paid and rate-limited upstreams, so a runaway agent stops here first
-  const runs = rateLimit({ policy: 'tool-calls', limit: 300, windowSeconds: 60, store: await dbGuardStore(db) })
+  const runs = rateLimit({
+    policy: 'tool-calls',
+    limit: 300,
+    windowSeconds: 60,
+    store: await dbGuardStore(db),
+    address,
+  })
+
   app.on('POST', ['/api/calls', '/api/tools/:name/calls', '/u/:upstream/mcp'], runs)
   // Six builds an hour per pack and caller, refused ones too: each may spend $1 and run real read calls
   const builds = await dbGuardStore(db)
@@ -190,13 +222,16 @@ export const createApp = async ({
     // By the pack's id, so a rename doesn't give it six more; a name no pack has is the handler's 404, never a policy
     const pack = await services.packs.get(c.req.param('name') ?? '')
     if (!pack) return next()
-    return rateLimit({ policy: `builds for ${pack.id}`, limit: 6, windowSeconds: 3600, store: builds })(c, next)
+    return rateLimit({ policy: `builds for ${pack.id}`, limit: 6, windowSeconds: 3600, store: builds, address })(
+      c,
+      next,
+    )
   })
   // Ten tries a minute per address: owner keys are long, but a guess should still be slow
   app.on(
     'POST',
     ['/api/session', '/api/session/claim'],
-    rateLimit({ policy: 'sign-in', limit: 10, windowSeconds: 60, store: await dbGuardStore(db) }),
+    rateLimit({ policy: 'sign-in', limit: 10, windowSeconds: 60, store: await dbGuardStore(db), address }),
   )
   // The caller's W3C trace context (a `traceparent` header; MCP's `_meta.traceparent` arrives as one): calls join it
   app.use('/api/*', (c, next) => traceContext.run(parseTraceparent(c.req.header('traceparent')), next))

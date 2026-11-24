@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { EXAMPLE_HEADER, IMAGE_SETS, problemsOf, renderEnv, settings } from './env.js'
+import { addressTrustOf, EXAMPLE_HEADER, IMAGE_SETS, problemsOf, renderEnv, settings } from './env.js'
 import { hashApiKey } from './kit/index.js'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -44,5 +44,34 @@ describe('the settings', () => {
     ])
     // Cloudflare Access alone is a way in
     expect(problemsOf({ GATEWAY_MASTER_KEY: good.GATEWAY_MASTER_KEY, ACCESS_TEAM: 't', ACCESS_AUD: 'a' })).toEqual([])
+  })
+
+  it('GATEWAY_ADDRESS_HEADER is in the entrypoint, the compose example and the chart; a value that is no header name is named at start', () => {
+    expect(read('../container/entrypoint.sh')).toContain('${GATEWAY_ADDRESS_HEADER:+')
+    expect(read('../../../deploy/compose/.env.example')).toMatch(/^GATEWAY_ADDRESS_HEADER=$/m)
+    expect(read('../../../deploy/compose/README.md')).toContain('GATEWAY_ADDRESS_HEADER=x-forwarded-for')
+    expect(read('../../../deploy/helm/yardhand/values.yaml')).toMatch(/^addressHeader: ""$/m)
+    expect(read('../../../deploy/helm/yardhand/templates/deployment.yaml')).toContain('name: GATEWAY_ADDRESS_HEADER')
+    for (const header of ['x-forwarded-for', 'CF-Connecting-IP', 'x-real-ip'])
+      expect(problemsOf({ ...good, GATEWAY_ADDRESS_HEADER: header })).toEqual([])
+    for (const header of ['x-forwarded-for, cf-connecting-ip', 'X-Forwarded-For:', 'forwarded for'])
+      expect(problemsOf({ ...good, GATEWAY_ADDRESS_HEADER: header })).toEqual([
+        `GATEWAY_ADDRESS_HEADER (${header}) isn’t a header name: write the one header your proxy puts the caller’s address in (x-forwarded-for behind Caddy or nginx, cf-connecting-ip behind Cloudflare), or leave it empty when nothing is in front.`,
+      ])
+  })
+})
+
+describe('where a caller’s address is read', () => {
+  it('from the header named, one hop from the right; else the connection itself', () => {
+    expect(addressTrustOf({ GATEWAY_ADDRESS_HEADER: 'X-Forwarded-For' })).toEqual({
+      header: 'x-forwarded-for',
+      hops: 1,
+    })
+    expect(addressTrustOf({ GATEWAY_ADDRESS_HEADER: ' cf-connecting-ip ' })).toEqual({
+      header: 'cf-connecting-ip',
+      hops: 1,
+    })
+    expect(addressTrustOf({})).toBe('socket')
+    expect(addressTrustOf({ GATEWAY_ADDRESS_HEADER: '' })).toBe('socket')
   })
 })

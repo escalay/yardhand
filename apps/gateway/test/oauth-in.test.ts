@@ -1193,3 +1193,47 @@ describe('a pack address asks for sign-in at its own resource', () => {
     }
   })
 })
+
+describe('the address a caller is counted by', () => {
+  const signInWith = (app: App, address: string) =>
+    app.request('/api/session', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', 'x-forwarded-for': address },
+      body: JSON.stringify({ key: 'not-the-owner-key' }),
+    })
+
+  it('is the one the proxy wrote, for the owner’s sign-in', async () => {
+    const app = await gateway({ GATEWAY_ADDRESS_HEADER: 'x-forwarded-for' })
+    for (let index = 0; index < 10; index++) expect((await signInWith(app, '203.0.113.3')).status).not.toBe(429)
+    expect((await signInWith(app, '203.0.113.3')).status).toBe(429)
+    expect((await signInWith(app, '203.0.113.4')).status).not.toBe(429)
+  })
+
+  it('with no header named, says once that a proxy’s header was seen, and never with one named', async () => {
+    const lines: string[] = []
+    const spy = vi.spyOn(console, 'warn').mockImplementation((line: unknown) => void lines.push(String(line)))
+    const servers: ReturnType<typeof serve>[] = []
+    const listen = async (app: App) => {
+      const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: 0 })
+      servers.push(server)
+      await new Promise<void>((resolve) => server.once('listening', () => resolve()))
+      return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    }
+    try {
+      const plain = await listen(await gateway())
+      expect((await fetch(`${plain}/llms.txt`)).status).toBe(200)
+      expect(lines).toEqual([])
+      for (const address of ['203.0.113.7', '203.0.113.8'])
+        await fetch(`${plain}/llms.txt`, { headers: { 'x-forwarded-for': address } })
+      expect(lines).toEqual([
+        'A proxy at 127.0.0.1 forwards requests (x-forwarded-for), but GATEWAY_ADDRESS_HEADER is empty: every caller counts as 127.0.0.1 and shares one sign-in and call limit, which anyone can use up. Set GATEWAY_ADDRESS_HEADER to the header your proxy writes (x-forwarded-for behind Caddy or nginx, cf-connecting-ip behind Cloudflare).',
+      ])
+      const named = await listen(await gateway({ GATEWAY_ADDRESS_HEADER: 'x-forwarded-for' }))
+      await fetch(`${named}/llms.txt`, { headers: { 'x-forwarded-for': '203.0.113.7' } })
+      expect(lines).toHaveLength(1)
+    } finally {
+      spy.mockRestore()
+      for (const server of servers) await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+})

@@ -47,6 +47,8 @@ export type Env = {
   ACCESS_TEAM?: string
   ACCESS_AUD?: string
   PUBLIC_HOST?: string
+  /** The header a proxy in front puts the caller's address in; empty, the connection's own (`addressTrustOf`). */
+  GATEWAY_ADDRESS_HEADER?: string
   GATEWAY_MASTER_KEY?: string
   OPENROUTER_API_KEY?: string
   STATE_DIR?: string

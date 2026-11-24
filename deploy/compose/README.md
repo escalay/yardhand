@@ -48,13 +48,19 @@ By default it listens on this machine only. Pick the row that fits, set the line
 |---|---|---|
 | Only this machine | nothing | `docker compose up -d` → `http://localhost:8080/app` |
 | Your home network, plain HTTP | `PUBLIC_HOST=http://nas.local:8080` and `GATEWAY_BIND=0.0.0.0` | `docker compose up -d` |
-| The internet, HTTPS by Caddy | `PUBLIC_HOST=gateway.example.test` | `docker compose --profile https up -d` |
-| Behind your own proxy or tunnel | `PUBLIC_HOST=gateway.example.test`, and `GATEWAY_BIND=0.0.0.0` if the proxy is on another machine | `docker compose up -d`, and point the proxy at port 8080 |
+| The internet, HTTPS by Caddy | `PUBLIC_HOST=gateway.example.test` and `GATEWAY_ADDRESS_HEADER=x-forwarded-for` | `docker compose --profile https up -d` |
+| Behind your own proxy or tunnel | `PUBLIC_HOST=gateway.example.test`, `GATEWAY_ADDRESS_HEADER` set to the header the proxy writes, and `GATEWAY_BIND=0.0.0.0` if the proxy is on another machine | `docker compose up -d`, and point the proxy at port 8080 |
 
 For HTTPS by Caddy, the name's DNS must point at this machine and ports 80 and 443 must be open; Caddy gets and
 renews the certificate. `PUBLIC_HOST` is the address the gateway hands out in links and OAuth redirects, so it has to
 be the one people and agents really use: a bare name means HTTPS, a plain-HTTP address is written whole. Another port
 on this machine is `GATEWAY_PORT`.
+
+`GATEWAY_ADDRESS_HEADER` is the header a proxy in front puts each caller's address in: `x-forwarded-for` behind Caddy
+or nginx, `cf-connecting-ip` behind a Cloudflare tunnel. Sign-in and tool calls are limited per address, so without
+it every caller counts as the proxy, and anyone can use up the one limit they all share; the gateway's log says so
+once when it sees a proxy's header and the setting is empty. Leave it empty only when nothing is in front: a caller
+could then write the header themselves.
 
 Plain HTTP on a network you don't control sends keys in the clear. Use HTTPS for anything beyond your own LAN.
 

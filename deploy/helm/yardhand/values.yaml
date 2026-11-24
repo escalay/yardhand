@@ -12,6 +12,11 @@ imagePullSecrets: []
 # HTTPS (gateway.example.com); write a plain-HTTP address whole (http://gateway.internal:8080).
 publicHost: ""
 
+# The header the ingress controller puts each caller's address in: x-forwarded-for behind ingress-nginx or Traefik,
+# cf-connecting-ip behind Cloudflare. Sign-in and tool calls are limited per address, so without it every caller
+# counts as the ingress and shares one limit.
+addressHeader: ""
+
 # Settings as plain values: every name in deploy/compose/.env.example works here (GATEWAY_TELEMETRY: "off").
 env: {}
 # Settings that are secrets (GATEWAY_MASTER_KEY, OPENROUTER_API_KEY…): the name of a Secret you made, whose keys

@@ -6,6 +6,7 @@
  * start: the instance makes its own keys and the owner claims it in the browser (`features/instance`).
  */
 import { PROVIDERS } from './features/ai/config.js'
+import type { AddressTrust } from './kit/index.js'
 import type { Env } from './services.js'
 
 type Setting = {
@@ -54,6 +55,15 @@ export const SECTIONS: Section[] = [
           'write a plain-HTTP address whole: http://nas.local:8080.',
         ],
         fallback: 'http://localhost:<GATEWAY_PORT>',
+      },
+      {
+        name: 'GATEWAY_ADDRESS_HEADER',
+        about: [
+          'Behind a proxy: the header it puts each caller’s address in, so sign-in and call limits count each caller on',
+          'their own. x-forwarded-for with `--profile https` (Caddy) or nginx, cf-connecting-ip behind Cloudflare.',
+          'Empty behind a proxy, every caller counts as the proxy and shares one limit.',
+        ],
+        fallback: 'the address of the connection itself, right when nothing is in front',
       },
       {
         name: 'GATEWAY_PORT',
@@ -251,6 +261,15 @@ export const EXAMPLE_HEADER = [
   '# and follow the setup. Copy this file to .env for what you want to change. Keep .env private.',
 ]
 
+/** A header name as HTTP writes one (RFC 9110 token). */
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
+
+/** Where a caller's address is read: the header the proxy in front writes, one hop from the right; else the connection. */
+export const addressTrustOf = (env: Pick<Env, 'GATEWAY_ADDRESS_HEADER'>): AddressTrust => {
+  const header = env.GATEWAY_ADDRESS_HEADER?.trim().toLowerCase()
+  return header ? { header, hops: 1 } : 'socket'
+}
+
 /** What is wrong with an environment, each as a sentence that says how to put it right; empty when it can start. */
 export const problemsOf = (env: Env) => {
   const problems: string[] = []
@@ -273,6 +292,11 @@ export const problemsOf = (env: Env) => {
         `PUBLIC_HOST (${env.PUBLIC_HOST}) isn’t an address: a name like gateway.example.test, or http://nas.local:8080 written whole, without a path.`,
       )
   }
+  const header = env.GATEWAY_ADDRESS_HEADER?.trim()
+  if (header && !HEADER_NAME.test(header))
+    problems.push(
+      `GATEWAY_ADDRESS_HEADER (${env.GATEWAY_ADDRESS_HEADER}) isn’t a header name: write the one header your proxy puts the caller’s address in (x-forwarded-for behind Caddy or nginx, cf-connecting-ip behind Cloudflare), or leave it empty when nothing is in front.`,
+    )
   if (Boolean(env.GATEWAY_LANGFUSE_PUBLIC_KEY) !== Boolean(env.GATEWAY_LANGFUSE_SECRET_KEY))
     problems.push('GATEWAY_LANGFUSE_PUBLIC_KEY and GATEWAY_LANGFUSE_SECRET_KEY go together: set both, or neither.')
   const provider = env.GATEWAY_AI_GROUPING_PROVIDER
