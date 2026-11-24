@@ -671,11 +671,20 @@ describe('an app is known by its sign-in, not the name it gives', () => {
       body: JSON.stringify({ name: 'loud', title: 'Loud' }),
     })
     expect(made.status).toBe(201)
+    // A pack renamed while it had a key: its old name still opens, and must not give its new one away
+    const owner = (path: string, method: string, body: unknown) =>
+      app.request(path, { method, headers: bearer(OWNER), body: JSON.stringify(body) })
+    expect((await owner('/api/packs', 'POST', { name: 'shed', title: 'Shed' })).status).toBe(201)
+    const key = { name: 'Sam', scope: 'write', packs: ['shed'], expiresIn: '7d' }
+    expect((await owner('/api/clients', 'POST', key)).status).toBe(201)
+    expect((await owner('/api/packs/shed', 'PATCH', { name: 'garden' })).status).toBe(200)
     for (const door of [
       ['/api/calls', 'POST'],
       ['/mcp', 'POST'],
       ['/p/loud/mcp', 'POST'],
       ['/p/loud/api/calls', 'POST'],
+      ['/p/shed/mcp', 'POST'],
+      ['/p/shed/api/calls', 'POST'],
     ] as const) {
       const tokens = await unseenSignIn(app, before)
       const refused = await knock(app, door, `Bearer ${tokens.access_token}`)

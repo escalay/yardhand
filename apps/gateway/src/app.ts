@@ -153,13 +153,7 @@ export const createApp = async ({
     // An answer kept for an `Idempotency-Key` can hold a key shown once: it is kept sealed
     guards: { store: await sealedGuardStore(db, parseMasterKey(env.GATEWAY_MASTER_KEY)) },
   })
-  // The pack a request asks for (its address `/p/<pack>/…` or `x-gateway-pack`), on the caller before any route reads
-  // it; a name the pack used to have is read as the one it has now
-  app.use(
-    '*',
-    packChoice((name) => services.packs.currentNameOf(name)),
-  )
-  // An OAuth caller the gateway refuses is pointed where the kit's own 401 would point it
+  // An OAuth caller the gateway refuses is pointed where the kit's own 401 would point it, by the address it asked
   if (oauth) {
     const metadataOf = resourceMetadataOf(oauth)
     app.use('*', async (c, next) => {
@@ -168,6 +162,12 @@ export const createApp = async ({
       await next()
     })
   }
+  // The pack a request asks for (its address `/p/<pack>/…` or `x-gateway-pack`), on the caller before any route reads
+  // it; a name the pack used to have is read as the one it has now
+  app.use(
+    '*',
+    packChoice((name) => services.packs.currentNameOf(name)),
+  )
   // A pack address the key doesn't open is refused at the door, saying which packs it does open. A key whose access
   // has ended goes on: it connects and is told why, in the instructions and by every tool
   app.use('/mcp', async (c, next) => {
