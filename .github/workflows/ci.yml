@@ -223,7 +223,7 @@ jobs:
 
   # actionlint for mistakes, zizmor for the ways a workflow can be turned against its repository
   workflows:
-    uses: escalay/.github/.github/workflows/workflows.yml@77927b958181cff87d6fd903f7d9c32afc087617 # v1.0.1
+    uses: escalay/.github/.github/workflows/workflows.yml@80402442d5f4d5c5e09e4bcaa6736a3b632677ef # v1.0.2
 
   # What never needs a slow job: the map of what runs for which change, and the chart's lint and numbers
   tooling:
@@ -248,12 +248,12 @@ jobs:
 
   # gitleaks over the whole history, with .gitleaks.toml
   secrets:
-    uses: escalay/.github/.github/workflows/secrets.yml@77927b958181cff87d6fd903f7d9c32afc087617 # v1.0.1
+    uses: escalay/.github/.github/workflows/secrets.yml@80402442d5f4d5c5e09e4bcaa6736a3b632677ef # v1.0.2
 
   # A pull request is squashed into one commit named after its title, and releases are cut from those names
   title:
     if: github.event_name == 'pull_request'
-    uses: escalay/.github/.github/workflows/title.yml@77927b958181cff87d6fd903f7d9c32afc087617 # v1.0.1
+    uses: escalay/.github/.github/workflows/title.yml@80402442d5f4d5c5e09e4bcaa6736a3b632677ef # v1.0.2
 
   # Dependency review needs a public repository on GitHub's free plan
   dependencies:
@@ -283,4 +283,4 @@ jobs:
       !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     permissions:
       statuses: write
-    uses: escalay/.github/.github/workflows/required-statuses.yml@77927b958181cff87d6fd903f7d9c32afc087617 # v1.0.1
+    uses: escalay/.github/.github/workflows/required-statuses.yml@80402442d5f4d5c5e09e4bcaa6736a3b632677ef # v1.0.2
