@@ -135,7 +135,7 @@ const checkSvg = (source: string) => {
     throw refused(
       'The SVG writes CSS escapes (a backslash and a code), which an icon doesn’t take: write the CSS plainly and send it again.',
     )
-  if (/<(text|tspan|textPath)[\s>/]/.test(text))
+  if (/<(?:\w+:)?(text|tspan|textPath)[\s>/]/.test(text))
     throw refused(
       'The SVG has text, and Yardhand draws icons with no fonts installed, so its letters would come out as boxes: in your editor, convert it to outlines (paths) and send it again.',
     )
@@ -237,8 +237,8 @@ const drawnApart = (svg: Buffer, seconds: number): Promise<Buffer> => {
   return drawn
 }
 
-/** Whether a body reads as an SVG: markup from its first character (past a byte-order mark), an `<svg` in it. */
-const isSvgText = (text: string) => /^\uFEFF?\s*</.test(text) && /<svg[\s>]/i.test(text)
+/** Whether a body reads as an SVG: markup from its first character (past a byte-order mark), an `<svg` in it, prefixed or not. */
+const isSvgText = (text: string) => /^\uFEFF?\s*</.test(text) && /<(?:\w+:)?svg[\s>]/i.test(text)
 
 /**
  * An uploaded icon's files: a PNG of at least 96 × 96 or an SVG, at most 1 MB, within 4:5 of square (padded to

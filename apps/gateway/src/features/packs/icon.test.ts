@@ -108,6 +108,14 @@ describe('an uploaded icon', () => {
     expect(await colourAt(set.png512, 256, 256)).toBe('#ffffff')
   })
 
+  it('takes an SVG whose elements are written with a namespace prefix', async () => {
+    const svg =
+      '<svg:svg xmlns:svg="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><svg:rect width="10" height="10" fill="#112233"/></svg:svg>'
+    const set = await renderedUpload(Buffer.from(svg))
+    expectWhole(set)
+    expect(await colourAt(set.png512, 256, 256)).toBe('#112233')
+  })
+
   it('takes an SVG that links inside itself', async () => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><defs><rect id="r" width="10" height="10" fill="url(#g)"/><linearGradient id="g"><stop stop-color="#000"/></linearGradient></defs><use xlink:href="#r"/></svg>`
     expectWhole(await renderedUpload(Buffer.from(svg)))
@@ -184,7 +192,12 @@ describe('an uploaded icon', () => {
   })
 
   it('refuses an SVG with text, which would be drawn with no fonts: its letters as outlines are taken', async () => {
-    for (const text of ['<text x="1" y="8">A</text>', '<g><text><tspan>A</tspan></text></g>']) {
+    for (const text of [
+      '<text x="1" y="8">A</text>',
+      '<g><text><tspan>A</tspan></text></g>',
+      '<s:text xmlns:s="http://www.w3.org/2000/svg" x="1" y="8">A</s:text>',
+      '<g xmlns:svg="http://www.w3.org/2000/svg"><svg:tspan x="1" y="8">A</svg:tspan></g>',
+    ]) {
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">${text}</svg>`
       expect((await refusal(Buffer.from(svg))).message).toMatch(/has text.*convert it to outlines/)
     }
