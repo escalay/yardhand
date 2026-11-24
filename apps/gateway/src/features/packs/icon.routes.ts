@@ -18,7 +18,7 @@ const answered = {
 }
 const binary = z.string().openapi({ format: 'binary' })
 const FILES =
-  'Its files are open at its address, no key needed: `/p/<name>/icon-96.png`, `icon-192.png`, `icon-512.png` and `favicon.ico`.'
+  'Its files are open at its address, no key needed: `/p/<name>/icon-96.png`, `icon-192.png`, `icon-512.png` and `favicon.ico`. Until the owner sets an icon there, they are the monogram of the name, alike for every name; an icon set (an upload or a colour) tells anyone who fetches them that a pack of this name exists.'
 
 export const iconRoutes = {
   upload: createRoute({

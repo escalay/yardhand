@@ -1002,7 +1002,7 @@ export interface paths {
         get?: never;
         /**
          * Upload a pack’s icon
-         * @description Gives the pack an icon of its own, shown by MCP clients and in the app: an SVG, or a PNG of at least 96 × 96, at most 1 MB and within 4:5 of square (padded to square), sent as the body. It is drawn at 512 × 512 and kept as PNGs and a favicon; the file sent is not kept, and an SVG is never served as one. An SVG that links to anything outside itself (an image by URL, a stylesheet) is refused: nothing it names is fetched. So is an SVG with an image in it, embedded or not (send the image as a PNG), one with text, since icons are drawn with no fonts: convert its text to outlines first; and one that takes more than 10 seconds to draw. Ten uploads an hour. Its files are open at its address, no key needed: `/p/<name>/icon-96.png`, `icon-192.png`, `icon-512.png` and `favicon.ico`.
+         * @description Gives the pack an icon of its own, shown by MCP clients and in the app: an SVG, or a PNG of at least 96 × 96, at most 1 MB and within 4:5 of square (padded to square), sent as the body. It is drawn at 512 × 512 and kept as PNGs and a favicon; the file sent is not kept, and an SVG is never served as one. An SVG that links to anything outside itself (an image by URL, a stylesheet) is refused: nothing it names is fetched. So is an SVG with an image in it, embedded or not (send the image as a PNG), one with text, since icons are drawn with no fonts: convert its text to outlines first; and one that takes more than 10 seconds to draw. Ten uploads an hour. Its files are open at its address, no key needed: `/p/<name>/icon-96.png`, `icon-192.png`, `icon-512.png` and `favicon.ico`. Until the owner sets an icon there, they are the monogram of the name, alike for every name; an icon set (an upload or a colour) tells anyone who fetches them that a pack of this name exists.
          */
         put: operations["setPackIcon"];
         post?: never;
@@ -1015,7 +1015,7 @@ export interface paths {
         head?: never;
         /**
          * Recolour a pack’s monogram
-         * @description Shows the monogram of the pack's name (its first letter in white) on another colour of the palette the pack lists in `palette`. An uploaded icon gives way to it. Its files are open at its address, no key needed: `/p/<name>/icon-96.png`, `icon-192.png`, `icon-512.png` and `favicon.ico`.
+         * @description Shows the monogram of the pack's name (its first letter in white) on another colour of the palette the pack lists in `palette`. An uploaded icon gives way to it. Its files are open at its address, no key needed: `/p/<name>/icon-96.png`, `icon-192.png`, `icon-512.png` and `favicon.ico`. Until the owner sets an icon there, they are the monogram of the name, alike for every name; an icon set (an upload or a colour) tells anyone who fetches them that a pack of this name exists.
          */
         patch: operations["recolourPackIcon"];
         trace?: never;

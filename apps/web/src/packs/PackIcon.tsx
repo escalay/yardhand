@@ -121,6 +121,10 @@ export const IconSection = ({ pack }: { pack: Pack }) => {
           Square, at most 1 MB; a PNG at least 96 × 96, an SVG of shapes only (its text as outlines, no images in it).
           It is drawn at 512 × 512, and an SVG is never served as one.
         </p>
+        <p className="text-xs text-pretty text-muted-foreground">
+          Anyone can fetch the icon files, with no key: picking a colour or uploading an icon lets anyone who guesses
+          the name {pack.name} tell that this pack exists.
+        </p>
         {change.error ? (
           <p role="alert" className="text-sm text-error">
             {change.error.message}

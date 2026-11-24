@@ -101,6 +101,13 @@ describe('a pack’s icon', () => {
     ])
   })
 
+  it('says that a colour picked or an icon uploaded tells anyone the pack exists', () => {
+    show(packOf({}))
+    expect(document.body.textContent).toContain(
+      'Anyone can fetch the icon files, with no key: picking a colour or uploading an icon lets anyone who guesses the name desk tell that this pack exists.',
+    )
+  })
+
   it('goes back to the monogram only from an icon the owner set', async () => {
     const user = userEvent.setup()
     DELETE.mockResolvedValue(answer({}))
