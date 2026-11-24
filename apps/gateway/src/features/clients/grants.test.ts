@@ -47,4 +47,14 @@ describe('the row a new sign-in gets', () => {
     expect(await onGrantFor({ clients })(grantOf('g1'))).toBe(true)
     expect((await clients.list()).map((row) => row.id)).toEqual([id])
   })
+
+  it('a row that fails to be made leaves its grant free for the next try', async () => {
+    const clients = await repo()
+    await clients.create({ name: 'Sample', kind: 'oauth', oauthName: 'Sample', scope: 'write', upstreams: 'all' })
+    const draft = { name: 'Sample', kind: 'oauth' as const, scope: 'write' as const, upstreams: 'all' as const }
+    await expect(clients.create({ ...draft, oauthName: 'Sample', grant: 'g1' })).rejects.toThrow()
+    expect(await clients.byGrant('g1')).toBeUndefined()
+    const id = await clients.create({ ...draft, grant: 'g1' })
+    expect((await clients.byGrant('g1'))?.id).toBe(id)
+  })
 })

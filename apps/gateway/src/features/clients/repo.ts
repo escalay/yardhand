@@ -165,25 +165,33 @@ export const clientsRepo = (db: Db) => {
     setGlobalPins: (toolNames: string[]) => setPins(GLOBAL_PINS, toolNames),
     create: async (draft: ClientDraft) => {
       const id = `cl_${randomUUID().replaceAll('-', '').slice(0, 16)}`
-      // The grant first: one mapped already refuses the row before it exists
-      if (draft.grant) await db.insert(clientGrants).values({ grant: draft.grant, clientId: id, legacy: false })
-      await db.insert(clients).values({
-        id,
-        name: draft.name,
-        kind: draft.kind,
-        keyHash: draft.keyHash ?? null,
-        oauthName: draft.oauthName ?? null,
-        oauthClientId: draft.oauthClientId ?? null,
-        scope: draft.scope,
-        allUpstreams: draft.upstreams === 'all',
-        ownPins: Boolean(draft.pins),
-        macTools: draft.macTools ?? false,
-        resultCap: draft.resultCap ?? DEFAULT_RESULT_CAP,
-        packId: draft.packId ?? draft.packIds?.[0] ?? null,
-        expiresAt: draft.expiresAt ?? null,
-        app: draft.app ?? null,
-        createdAt: new Date().toISOString(),
-      })
+      // The grant first, so one mapped already refuses the row; freed again when the row can't be made
+      const { grant } = draft
+      if (grant) await db.insert(clientGrants).values({ grant, clientId: id, legacy: false })
+      const freeGrant = async (error: unknown) => {
+        if (grant) await db.delete(clientGrants).where(eq(clientGrants.grant, grant))
+        throw error
+      }
+      await db
+        .insert(clients)
+        .values({
+          id,
+          name: draft.name,
+          kind: draft.kind,
+          keyHash: draft.keyHash ?? null,
+          oauthName: draft.oauthName ?? null,
+          oauthClientId: draft.oauthClientId ?? null,
+          scope: draft.scope,
+          allUpstreams: draft.upstreams === 'all',
+          ownPins: Boolean(draft.pins),
+          macTools: draft.macTools ?? false,
+          resultCap: draft.resultCap ?? DEFAULT_RESULT_CAP,
+          packId: draft.packId ?? draft.packIds?.[0] ?? null,
+          expiresAt: draft.expiresAt ?? null,
+          app: draft.app ?? null,
+          createdAt: new Date().toISOString(),
+        })
+        .catch(freeGrant)
       await setUpstreams(id, draft.upstreams)
       await setPacks(id, draft.packIds ?? (draft.packId ? [draft.packId] : []))
       if (draft.pins) await setPins(id, draft.pins)
