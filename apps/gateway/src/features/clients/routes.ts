@@ -105,10 +105,12 @@ const ClientPatchSchema = ClientInputSchema.partial()
       .optional()
       .openapi({ description: '`write` lets it call tools that change things. Left out, it stays as it is.' }),
     packs: z.array(z.string().min(1).max(60)).min(1).max(20).optional().openapi({
-      description: 'For a pack key: the packs it opens from now on (replaces the list).',
+      description:
+        'For a pack key: the packs it opens from now on (replaces the list). An app that signed in at a pack’s address keeps that pack only (409).',
     }),
     pack: z.string().min(1).max(60).optional().openapi({
-      description: 'For a pack key: its default pack, one of the packs it opens.',
+      description:
+        'For a pack key: its default pack, one of the packs it opens. Not for an app that signed in at a pack’s address (409).',
     }),
     expiresIn: z.enum(EXTEND_LIFETIMES).optional().openapi({
       description:

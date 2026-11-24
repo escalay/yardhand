@@ -1369,6 +1369,37 @@ describe('a pack address asks for sign-in at its own resource', () => {
     })
   })
 
+  it('an app signed in at a pack’s address keeps that one pack: other packs or another default are refused, its scope still changes', async () => {
+    const app = await withDesk()
+    await signInFor(app, 'http://localhost/p/desk/mcp')
+    type Card = { id: string; kind: string; pack: string | null; packs: string[]; scope: string }
+    const rows = ((await (await owner(app, '/api/clients')).json()) as { _embedded: { clients: Card[] } })._embedded
+      .clients
+    const id = rows.find((row) => row.kind === 'oauth' && row.pack === 'desk')?.id
+    const refusal =
+      'Sample signed in at Front desk’s address and opens that pack only: to reach another pack, add the app again at that pack’s address (/p/<name>/mcp).'
+    for (const change of [
+      { packs: ['desk', 'loud'] },
+      { packs: ['loud'] },
+      { pack: 'loud' },
+      { packs: ['desk'], pack: 'desk' },
+    ]) {
+      const refused = await owner(app, `/api/clients/${id}`, 'PATCH', change)
+      expect([change, refused.status, await detailOf(refused)]).toEqual([change, 409, refusal])
+    }
+    const narrowed = await owner(app, `/api/clients/${id}`, 'PATCH', { scope: 'read' })
+    expect(narrowed.status).toBe(200)
+    expect(await narrowed.json()).toMatchObject({ scope: 'read', pack: 'desk', packs: ['desk'] })
+    // Ended and its pack gone, extending it is refused with what works for an app: no pack can be given to it
+    await app.services.clients.update(id ?? '', { expiresAt: new Date(Date.now() - 1000).toISOString() })
+    expect((await owner(app, '/api/packs/desk', 'DELETE')).status).toBe(204)
+    const extended = await owner(app, `/api/clients/${id}`, 'PATCH', { expiresIn: '7d' })
+    expect([extended.status, await detailOf(extended)]).toEqual([
+      409,
+      'Sample’s pack was removed, so extending it would open nothing: add the app again at another pack’s address (/p/<name>/mcp).',
+    ])
+  })
+
   it('a root token and an aud-less token are taken at a pack’s own address and with the header, where the gateway answers them as before', async () => {
     const before = await beforeTheUpdate()
     // The ones from before: one known by its grant, one access token known by its name for its last hour

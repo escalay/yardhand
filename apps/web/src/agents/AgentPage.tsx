@@ -33,7 +33,7 @@ import { Button } from '@/ui/shadcn/button'
 import { Checkbox } from '@/ui/shadcn/checkbox'
 import { RadioGroup, RadioGroupItem } from '@/ui/shadcn/radio-group'
 import { Skeleton } from '@/ui/shadcn/skeleton'
-import { reachOf } from './agents.rules'
+import { reachChangeOf, reachOf, repackable } from './agents.rules'
 import { FirstCall } from './FirstCall'
 import { type PackChoice, PackPicker } from './PackPicker'
 import { clientQuery } from './queries'
@@ -65,8 +65,7 @@ export const AgentPage = ({ id, tab = 'overview' }: { id: string; tab?: 'overvie
       unwrap(
         api.PATCH('/api/clients/{id}', {
           params: { path: { id } },
-          // A pack key's reach is its packs
-          body: client.data?.pack ? { scope, ...packChoice } : { scope, upstreams: everything ? 'all' : chosen },
+          body: client.data ? reachChangeOf(client.data, { scope, packChoice, everything, chosen }) : { scope },
         }),
       ),
     onSuccess: () => {
@@ -102,7 +101,7 @@ export const AgentPage = ({ id, tab = 'overview' }: { id: string; tab?: 'overvie
   const expiry = expiryOf(row.expiresAt)
   const changed =
     scope !== row.scope ||
-    (Boolean(row.pack) &&
+    (repackable(row) &&
       (packChoice.pack !== row.pack || JSON.stringify(packChoice.packs) !== JSON.stringify(row.packs))) ||
     (!row.pack && everything !== (row.upstreams === 'all')) ||
     (!row.pack &&
@@ -216,7 +215,12 @@ export const AgentPage = ({ id, tab = 'overview' }: { id: string; tab?: 'overvie
                 </RadioGroup>
               </Section>
               <Section title="What it reaches">
-                {row.pack ? (
+                {row.pack && !repackable(row) ? (
+                  <span className="text-sm text-muted-foreground">
+                    The {row.pack} pack only: it signed in at that pack's address. To reach another pack, add it again
+                    at that pack's address.
+                  </span>
+                ) : row.pack ? (
                   <div className="flex flex-col gap-2">
                     <PackPicker packs={packs.data?._embedded.packs ?? []} value={packChoice} onChange={setPackChoice} />
                     <span className="text-sm text-muted-foreground">
@@ -257,7 +261,7 @@ export const AgentPage = ({ id, tab = 'overview' }: { id: string; tab?: 'overvie
                     !changed ||
                     save.isPending ||
                     (!row.pack && !everything && !chosen.length) ||
-                    (Boolean(row.pack) && !packChoice.packs.length)
+                    (repackable(row) && !packChoice.packs.length)
                   }
                   onClick={() => save.mutate()}
                 >
