@@ -1507,6 +1507,40 @@ describe('the address a caller is counted by', () => {
     expect((await signInWith(app, '203.0.113.4')).status).not.toBe(429)
   })
 
+  it('with no header named and an https PUBLIC_HOST, is the proxy’s x-forwarded-for value, never one the caller wrote before it', async () => {
+    for (const host of ['gw.example.test', 'https://gw.example.test']) {
+      const app = await gateway({ PUBLIC_HOST: host })
+      // Each request makes up its own leftmost value; the proxy appends the one it saw
+      for (let index = 0; index < 20; index++)
+        expect([host, (await register(app, `198.51.100.${index}, 203.0.113.1`)).status]).toEqual([host, 201])
+      expect([host, (await register(app, '198.51.100.99, 203.0.113.1')).status]).toEqual([host, 429])
+      expect([host, (await register(app, '203.0.113.1')).status]).toEqual([host, 429])
+      expect([host, (await register(app, '203.0.113.1, 203.0.113.2')).status]).toEqual([host, 201])
+      for (let index = 0; index < 10; index++)
+        expect((await signInWith(app, `198.51.100.${index}, 203.0.113.3`)).status).not.toBe(429)
+      expect((await signInWith(app, '198.51.100.50, 203.0.113.3')).status).toBe(429)
+      expect((await signInWith(app, '203.0.113.4')).status).not.toBe(429)
+    }
+  })
+
+  it('is the header named over an https PUBLIC_HOST, and the connection with plain HTTP or none', async () => {
+    const named = await gateway({ PUBLIC_HOST: 'gw.example.test', GATEWAY_ADDRESS_HEADER: 'cf-connecting-ip' })
+    const cloudflare = (address: string) =>
+      named.request('/oauth/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'cf-connecting-ip': address, 'x-forwarded-for': '203.0.113.1' },
+        body: JSON.stringify({ client_name: 'Sample', redirect_uris: [REDIRECT] }),
+      })
+    for (let index = 0; index < 21; index++) expect((await cloudflare(`198.51.100.${index}`)).status).toBe(201)
+    for (const host of ['http://nas.example.test:8080', 'http://localhost:8080', undefined]) {
+      const app = await gateway(host ? { PUBLIC_HOST: host } : {})
+      // In-process there is no connection: every caller is one, whatever x-forwarded-for says
+      for (let index = 0; index < 20; index++)
+        expect([host, (await register(app, `198.51.100.${index}`)).status]).toEqual([host, 201])
+      expect([host, (await register(app, '198.51.100.99')).status]).toEqual([host, 429])
+    }
+  })
+
   it('with no header named, says once that a proxy’s header was seen, and never with one named', async () => {
     const lines: string[] = []
     const spy = vi.spyOn(console, 'warn').mockImplementation((line: unknown) => void lines.push(String(line)))
@@ -1528,6 +1562,10 @@ describe('the address a caller is counted by', () => {
       ])
       const named = await listen(await gateway({ GATEWAY_ADDRESS_HEADER: 'x-forwarded-for' }))
       await fetch(`${named}/llms.txt`, { headers: { 'x-forwarded-for': '203.0.113.7' } })
+      expect(lines).toHaveLength(1)
+      // An https address reads x-forwarded-for already: nothing to say
+      const https = await listen(await gateway({ PUBLIC_HOST: 'gw.example.test' }))
+      await fetch(`${https}/llms.txt`, { headers: { 'x-forwarded-for': '203.0.113.7' } })
       expect(lines).toHaveLength(1)
       // The first callers of a new instance are often apps registering, or a token the kit refuses: said for those too
       for (const [knock, status] of [

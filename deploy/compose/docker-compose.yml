@@ -86,8 +86,8 @@ services:
         max-file: "3"
 
   # HTTPS with automatic certificates for PUBLIC_HOST (its DNS must point here, ports 80 and 443 open). Caddy writes
-  # each caller's address in x-forwarded-for: with this profile, set GATEWAY_ADDRESS_HEADER=x-forwarded-for in .env
-  # so sign-in and call limits count each caller on their own (a profile can't set a setting by itself)
+  # each caller's address in x-forwarded-for, which the gateway reads for an https PUBLIC_HOST with
+  # GATEWAY_ADDRESS_HEADER empty: sign-in and call limits count each caller on their own
   caddy:
     image: caddy:2.10-alpine
     profiles: [https]

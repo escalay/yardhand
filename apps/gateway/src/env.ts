@@ -61,9 +61,11 @@ export const SECTIONS: Section[] = [
         about: [
           'Behind a proxy: the header it puts each caller’s address in, so sign-in and call limits count each caller on',
           'their own. x-forwarded-for with `--profile https` (Caddy) or nginx, cf-connecting-ip behind Cloudflare.',
-          'Empty behind a proxy, every caller counts as the proxy and shares one limit.',
+          'Empty with an https PUBLIC_HOST, x-forwarded-for is read: the gateway itself serves plain HTTP only, so a',
+          'proxy is in front. Empty behind a proxy on plain HTTP, every caller counts as the proxy and shares one limit.',
         ],
-        fallback: 'the address of the connection itself, right when nothing is in front',
+        fallback:
+          'x-forwarded-for when PUBLIC_HOST is https, else the address of the connection itself, right when nothing is in front',
       },
       {
         name: 'GATEWAY_PORT',
@@ -281,10 +283,17 @@ const extraPartOf = (host: string) => {
 /** A header name as HTTP writes one (RFC 9110 token). */
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 
-/** Where a caller's address is read: the header the proxy in front writes, one hop from the right; else the connection. */
-export const addressTrustOf = (env: Pick<Env, 'GATEWAY_ADDRESS_HEADER'>): AddressTrust => {
+/**
+ * Where a caller's address is read, one hop from the right: the header named; else x-forwarded-for when the stated
+ * address is https (the gateway listens on plain HTTP alone, so a proxy is in front); else the connection.
+ */
+export const addressTrustOf = (
+  env: Pick<Env, 'GATEWAY_ADDRESS_HEADER'>,
+  statedOrigin: string | null = null,
+): AddressTrust => {
   const header = env.GATEWAY_ADDRESS_HEADER?.trim().toLowerCase()
-  return header ? { header, hops: 1 } : 'socket'
+  if (header) return { header, hops: 1 }
+  return statedOrigin?.startsWith('https:') ? { header: 'x-forwarded-for', hops: 1 } : 'socket'
 }
 
 /** What is wrong with an environment, each as a sentence that says how to put it right; empty when it can start. */

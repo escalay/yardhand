@@ -135,4 +135,22 @@ describe('where a caller’s address is read', () => {
     expect(addressTrustOf({})).toBe('socket')
     expect(addressTrustOf({ GATEWAY_ADDRESS_HEADER: '' })).toBe('socket')
   })
+
+  it('with no header named and an https address, from x-forwarded-for one hop from the right: a proxy is in front', () => {
+    // The gateway listens on plain HTTP alone, so an https address is always a proxy's
+    for (const host of ['gw.example.com', 'https://gw.example.com', 'GW.example.com'])
+      expect([host, addressTrustOf({}, statedOriginOf(host))]).toEqual([host, { header: 'x-forwarded-for', hops: 1 }])
+    expect(addressTrustOf({ GATEWAY_ADDRESS_HEADER: ' ' }, 'https://gw.example.com')).toEqual({
+      header: 'x-forwarded-for',
+      hops: 1,
+    })
+    // The header named always wins
+    expect(addressTrustOf({ GATEWAY_ADDRESS_HEADER: 'CF-Connecting-IP' }, 'https://gw.example.com')).toEqual({
+      header: 'cf-connecting-ip',
+      hops: 1,
+    })
+    // Plain HTTP, this machine, or no address: the connection itself
+    for (const host of ['http://nas.example.test:8080', 'http://localhost:8080', 'localhost', undefined])
+      expect([host, addressTrustOf({}, statedOriginOf(host))]).toEqual([host, 'socket'])
+  })
 })

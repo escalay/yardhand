@@ -26,8 +26,10 @@ helm upgrade yardhand oci://ghcr.io/escalay/charts/yardhand --reuse-values \
 name a secret with `ingress.tlsSecret`, or let the controller's default certificate apply.
 
 `addressHeader` is the header your ingress puts each caller's address in (`x-forwarded-for` for ingress-nginx and
-Traefik, `cf-connecting-ip` behind Cloudflare). Sign-in and tool calls are limited per address: left empty behind an
-ingress, every caller counts as the ingress and shares one limit, which anyone can use up.
+Traefik, `cf-connecting-ip` behind Cloudflare). Sign-in and tool calls are limited per address. Left empty with an
+https `publicHost` (a bare name is https), the gateway reads `x-forwarded-for`, the value the ingress wrote last: the
+pod serves plain HTTP only, so an https address always has an ingress in front. Left empty with a plain-HTTP
+`publicHost`, every caller behind an ingress counts as the ingress and shares one limit, which anyone can use up.
 
 ## Settings
 

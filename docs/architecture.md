@@ -72,8 +72,8 @@ it is told where to connect. A root token, and one from before audiences, is tak
 what it reaches there, as it always has. With `PUBLIC_HOST` naming an address others reach, every sign-in document
 and check names only that origin (the kit's `publicOrigin`); without one, each request's own host, as before.
 The endpoints anyone may call (registration, the sign-in page, token misses) are limited per address, read from the
-header `GATEWAY_ADDRESS_HEADER` names (a proxy's), else the connection's own, as are the owner's sign-in and tool
-calls.
+header `GATEWAY_ADDRESS_HEADER` names (a proxy's), else `x-forwarded-for` when `PUBLIC_HOST` is https (the gateway
+serves plain HTTP only, so a proxy is in front), else the connection's own, as are the owner's sign-in and tool calls.
 Signed in to the app, you can approve an app's sign-in (claude.ai, Cursor) without Cloudflare Access: the session
 counts at `/oauth/authorize` only, so agent claims (`/oauth/claim`) still need Access. Arriving from the app's site,
 the browser leaves the `SameSite=Strict` session cookie out, so a Continue page repeats the request from Yardhand's own

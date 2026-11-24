@@ -13,8 +13,8 @@ imagePullSecrets: []
 publicHost: ""
 
 # The header the ingress controller puts each caller's address in: x-forwarded-for behind ingress-nginx or Traefik,
-# cf-connecting-ip behind Cloudflare. Sign-in and tool calls are limited per address, so without it every caller
-# counts as the ingress and shares one limit.
+# cf-connecting-ip behind Cloudflare. Sign-in and tool calls are limited per address. Empty with an https publicHost,
+# x-forwarded-for is read; empty with a plain-HTTP one, every caller counts as the ingress and shares one limit.
 addressHeader: ""
 
 # Settings as plain values: every name in deploy/compose/.env.example works here (GATEWAY_TELEMETRY: "off").

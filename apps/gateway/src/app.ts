@@ -134,8 +134,8 @@ export const createApp = async ({
   const hasWeb = existsSync(join(web.dir, 'index.html'))
   // The OAuth callback stays behind sign-in: only the pages themselves are open
   const pages = APP_PAGES.flatMap((page) => (page ? [`/app/${page}`, `/app/${page}/*`] : ['/app', '/app/']))
-  // Where each caller's address is read, for every limit: the proxy's header when one is named, else the connection
-  const address = addressTrustOf(env)
+  // Where each caller's address is read, for every limit: the proxy's header (named, or behind an https address)
+  const address = addressTrustOf(env, services.statedOrigin)
   // The root as the sign-in signs it (`publicOrigin`, else the request's own), once it is made
   const rootOf = (c: Context) => services.oauth.current?.rootOf(c) ?? originOf(c)
   const oauthStore = env.OAUTH_SIGNING_KEY ? await dbOAuthStore(db) : undefined
