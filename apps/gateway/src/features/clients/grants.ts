@@ -5,7 +5,7 @@ import type { ClientsRepo } from './repo.js'
 /** The name an app gave, or `Unnamed app` for a blank one. */
 export const nameOf = (given: string) => (given.trim() ? given : 'Unnamed app')
 
-/** The kit's `onGrant`: makes this grant's row (write, every upstream), keeps one mapped already; false when it can't. */
+/** The kit's `onGrant`: makes the grant's row (write, every upstream) or keeps a mapped one; false when it can't. */
 export const onGrantFor =
   ({ clients }: { clients: ClientsRepo }) =>
   async (grant: SignInGrant): Promise<boolean> => {

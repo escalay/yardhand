@@ -273,8 +273,7 @@ export const clientsHandlers = ({
     await clients.revoke(row.id)
     await packs.forgetPerson(row.id)
     principals.dropKey(row.keyHash)
-    // Every sign-in the row stands for ends at the kit at once; never the app's registration, which a later
-    // connection of the same app may use again
+    // Ends each of the row's sign-ins at the kit, never the app's registration
     for (const grant of await clients.grantsOf(row.id)) await oauth.current?.revokeGrant(grant)
     return c.body(null, 204)
   }

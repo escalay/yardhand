@@ -159,10 +159,10 @@ export const createApp = async ({
     packChoice((name) => services.packs.currentNameOf(name)),
   )
   // A pack address the key doesn't open is refused at the door, saying which packs it does open. A key whose access
-  // has ended goes on: it connects and is told why, in the instructions and by every tool. A sign-in the gateway
-  // doesn't know is a 401 here, so the app connects again
+  // has ended goes on: it connects and is told why, in the instructions and by every tool
   app.use('/mcp', async (c, next) => {
     const caller = callerOf(c)
+    // Read for every caller, so a sign-in the gateway doesn't know is a 401 here
     const ended = await services.principals.ended(caller)
     if (caller?.pack && !ended) await services.principals.require(caller)
     await next()

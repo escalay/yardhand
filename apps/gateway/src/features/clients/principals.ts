@@ -315,11 +315,7 @@ export const createPrincipals = ({
       packs: byDefault.map((opened) => ({ name: opened.name, title: opened.title })),
     }
   }
-  /**
-   * The client row behind a caller, with the token's scope cap. An OAuth caller is its sign-in's row (made with the
-   * sign-in), or, for an access token from before 0.6.4 that carries no grant, the row of the name it gave; never one
-   * made here. Neither: 401, so the app signs in again.
-   */
+  /** The client row behind a caller and its scope cap: by grant, else (a pre-0.6.4 access token) by name, else 401. */
   const rowOf = async (caller: Caller): Promise<{ row: ClientRow | undefined; scopeCap?: 'read' | 'write' }> => {
     if (caller.kind === 'key') return { row: await clients.get(caller.name.slice(CLIENT_KEY.length)) }
     if (caller.kind !== 'agent') return { row: undefined }
