@@ -62,6 +62,18 @@ and known from then on by the kit's grant (`client_grants`), never by the name i
 0.6.4 were mapped once, at the first start of that version, to the row their name used (`features/clients/legacy.ts`).
 Revoking a client ends every sign-in it stands for at once. A token whose sign-in has no client is refused with a 401
 that points at the sign-in metadata, and that sign-in is ended, so the app signs in again.
+Each sign-in is for the address it asked (RFC 8707's `resource`), read in one place, `classOf`
+(`features/clients/resources.ts`): the root (`/`, `/mcp`, and the older `/mcp/p/<pack>`) is the whole gateway, and
+`/p/<pack>/mcp` is that pack, its REST under `/p/<pack>/api` included. The 401 at a pack's address points at that
+address's own metadata, whose authorization server is the gateway's root: there is one sign-in, at `/oauth/*`. An
+app you approve at a pack's address gets a client locked to that pack (`joined_by: owner`), and its token is taken
+only at that pack's own address, judged by its client's pack, never by the name it was issued for; anywhere else
+it is told where to connect. A root token, and one from before audiences, is taken everywhere, and the client decides
+what it reaches there, as it always has. With `PUBLIC_HOST` naming an address others reach, every sign-in document
+and check names only that origin (the kit's `publicOrigin`); without one, each request's own host, as before.
+The endpoints anyone may call (registration, the sign-in page, token misses) are limited per address, read from the
+header `GATEWAY_ADDRESS_HEADER` names (a proxy's), else the connection's own, as are the owner's sign-in and tool
+calls.
 Signed in to the app, you can approve an app's sign-in (claude.ai, Cursor) without Cloudflare Access: the session
 counts at `/oauth/authorize` only, so agent claims (`/oauth/claim`) still need Access. Arriving from the app's site,
 the browser leaves the `SameSite=Strict` session cookie out, so a Continue page repeats the request from Yardhand's own
@@ -222,6 +234,7 @@ erDiagram
     text auth "api key or oauth"
     text scope "read or write"
     int result_cap_tokens
+    text joined_by "owner: approved at a pack's address"
   }
   CLIENT_GRANT {
     text grant PK "the kit's grant: one sign-in"
