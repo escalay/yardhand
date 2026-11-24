@@ -17,6 +17,7 @@ import { packBaseOf, packChoice, withPackAddresses } from './features/clients/pa
 import { callerOf, isOwner } from './features/clients/principals.js'
 import { FEATURES } from './features/index.js'
 import { mountPackDocs } from './features/packs/docs.js'
+import { PACK_ICON_PATHS } from './features/packs/icon.handlers.js'
 import { createSessionAuth, kitOwner, sessionFeature, type Unclaimed } from './features/session/index.js'
 import { sessionsRepo } from './features/session/repo.js'
 import { signInLog } from './features/session/sign-ins.js'
@@ -134,6 +135,8 @@ export const createApp = async ({
         '/api/session',
         '/api/session/claim',
         '/app/illustrations/*',
+        // A pack's icon files, for any name alike (`/p/*/icon-96.png`: the star is one segment)
+        ...PACK_ICON_PATHS,
         ...(hasWeb ? [...frontDoorOpen(web), ...pages] : []),
       ],
     },
@@ -176,6 +179,14 @@ export const createApp = async ({
     const pack = await services.packs.get(c.req.param('name') ?? '')
     if (!pack) return next()
     return rateLimit({ policy: `builds for ${pack.id}`, limit: 6, windowSeconds: 3600, store: builds })(c, next)
+  })
+  // Ten icon uploads an hour, refused ones too: each is drawn at 512 and kept. Counted as builds are, for the owner
+  // outside a pack and a pack that exists: anyone else gets the handler's answer alike for every name
+  const uploads = rateLimit({ policy: 'icon uploads', limit: 10, windowSeconds: 3600, store: builds })
+  app.on('PUT', '/api/packs/:name/icon', async (c, next) => {
+    const caller = callerOf(c)
+    if (!isOwner(caller) || caller?.pack || !(await services.packs.get(c.req.param('name') ?? ''))) return next()
+    return uploads(c, next)
   })
   // Ten tries a minute per address: owner keys are long, but a guess should still be slow
   app.on(

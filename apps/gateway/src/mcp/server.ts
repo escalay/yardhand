@@ -22,6 +22,7 @@ import { z } from 'zod'
 import { VIA_HEADER } from '../features/calls/handlers.js'
 import { progressSink } from '../features/calls/progress.js'
 import { type Principal, packScopeFrom } from '../features/clients/principals.js'
+import { packMcpIcons } from '../features/packs/icon.js'
 import { SKILL_DOC } from '../features/packs/skill.js'
 import { MODERN_PROTOCOL_VERSION, originOf, pathWith } from '../kit/index.js'
 import {
@@ -439,6 +440,12 @@ type Pin = {
 
 type Served = { info: McpServerInfo; instructions: string; tools: McpTool[]; prompts: McpPrompt[] }
 
+/** The address a request came by, from the forwarded headers `mountMcp` hands its tools. */
+const originOfAuth = (auth: Auth) => {
+  const headers = (auth?.extra?.headers ?? {}) as Record<string, string>
+  return `${headers['x-forwarded-proto'] ?? 'http'}://${headers['x-forwarded-host'] ?? 'localhost'}`
+}
+
 /**
  * A pack's name and instructions, or the refusal an ended caller reads, for the kit's own answer to `initialize`,
  * which reads them off the factory and not off a server built for the request.
@@ -455,24 +462,32 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
     tools: META_TOOLS,
     prompts: PROMPTS,
   }
-  /** A pack connection names itself after the pack: its name, its title and the first words of what it is for. */
-  const packServed = (pack: NonNullable<Me['pack']>) => ({
-    info: {
+  /**
+   * A pack connection names itself after the pack: its name, its title, the first words of what it is for, and its
+   * icon at the address asked by (`inline`: the 96 PNG first, as the kit sends the gateway's own).
+   */
+  const packServed = async (pack: NonNullable<Me['pack']>, origin: string, inline: boolean) => {
+    const row = await services.packs.get(pack.name)
+    const icon = row ? await services.packIcons.of(row) : null
+    const info: McpServerInfo = {
       name: pack.name,
       title: pack.title,
       version: VERSION,
       description: pack.description.trim().split(/\n\s*\n/)[0] || `The ${pack.title} pack.`,
       websiteUrl: `${services.publicOrigin}/p/${pack.name}/llms.txt`,
-    },
-    tools: metaToolsFor(pack),
-    prompts: promptsFor(pack),
-  })
+    }
+    return {
+      info: icon ? { ...info, icons: packMcpIcons(info, origin, icon.set, inline) } : info,
+      tools: metaToolsFor(pack),
+      prompts: promptsFor(pack),
+    }
+  }
   const base = build({ ...gateway, instructions: INSTRUCTIONS })
   /**
    * What this caller is served: the gateway, or its pack under the pack's own name. A caller the gateway refuses (its
    * access ended) is served the gateway's own tools with the refusal as the instructions; every tool answers it too.
    */
-  const servedFor = async (auth: Auth) => {
+  const servedFor = async (auth: Auth, { inline }: { inline: boolean }) => {
     const me = await callApi({ path: '/api/me' }, auth)
     if (me.status === 403) {
       const problem = (await me.json().catch(() => null)) as Problem | null
@@ -494,11 +509,20 @@ const gatewayMcp = (app: OpenAPIHono, services: Services) => {
             shadowed: caller.pins.filter((pin) => OWN_NAMES.has(pin.name)).map((pin) => pin.name),
           })
         : instructionsFor(connections, caller?.scope)
-    return { caller, pins, pack, refused: false, served: { ...(pack ? packServed(pack) : gateway), instructions } }
+    return {
+      caller,
+      pins,
+      pack,
+      refused: false,
+      served: { ...(pack ? await packServed(pack, originOfAuth(auth), inline) : gateway), instructions },
+    }
   }
   const factory = async (ctx: McpRequestContext) => {
     const auth = ctx.authInfo
-    const { caller, pins, pack, served } = await servedFor(auth)
+    // As the kit decides for the gateway's own: 2026-07-28 stamps serverInfo on every answer, the inline icon only on discover
+    const inline =
+      ctx.era !== 'modern' || !ctx.requestInfo || ctx.requestInfo.headers.get('mcp-method') === 'server/discover'
+    const { caller, pins, pack, served } = await servedFor(auth, { inline })
     const server = (await build(served)(ctx)) as McpServer
     server.registerTool(
       'call_tool',
@@ -626,7 +650,7 @@ export const mountGatewayMcp = (
       'x-forwarded-proto': origin.protocol.slice(0, -1),
       'x-forwarded-host': origin.host,
     }
-    const { pack, refused, served } = await servedFor({ extra: { headers } } as unknown as Auth)
+    const { pack, refused, served } = await servedFor({ extra: { headers } } as unknown as Auth, { inline: true })
     return pack || refused ? packGreeting.run({ info: served.info, instructions: served.instructions }, next) : next()
   })
   return mountMcp(app, { factory, allowedHostnames })

@@ -9,8 +9,10 @@
  * (`pack_doc_versions`), each with the tool versions it was written against.
  * A person's own values for the variables its Per person inputs read are kept by pack and client
  * (`pack_person_values`), never exported.
+ * A pack's icon, when the owner set one (`pack_icons`): the files rendered from an upload, or the colour picked for its
+ * monogram; no row is the monogram in its name's colour. The file uploaded is never kept.
  */
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { blob, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export const packs = sqliteTable('packs', {
   id: text('id').primaryKey(),
@@ -138,6 +140,21 @@ export const packDocVersions = sqliteTable(
   (table) => [index('pack_doc_versions_doc').on(table.packId, table.kind, table.name, table.createdAt)],
 )
 
+/** The icon the owner set a pack: an upload's rendered files, or a monogram's colour (its files are rendered on demand). */
+export const packIcons = sqliteTable('pack_icons', {
+  packId: text('pack_id').primaryKey(),
+  source: text('source', { enum: ['upload', 'monogram'] }).notNull(),
+  /** The monogram's colour, from the palette; null for an upload. */
+  colour: text('colour'),
+  png96: blob('png96', { mode: 'buffer' }),
+  png192: blob('png192', { mode: 'buffer' }),
+  png512: blob('png512', { mode: 'buffer' }),
+  ico: blob('ico', { mode: 'buffer' }),
+  /** The version of an upload's files; null for a monogram. */
+  etag: text('etag'),
+  updatedAt: text('updated_at').notNull(),
+})
+
 export const PACKS_MIGRATIONS = [
   `create table if not exists packs (id text primary key, name text not null unique, title text not null,
     description text not null, created_at text not null, updated_at text not null)`,
@@ -168,6 +185,8 @@ export const PACKS_MIGRATIONS = [
   'alter table pack_tools add column person text',
   `create table if not exists pack_person_values (pack_id text not null, client_id text not null, name text not null,
     value text not null, updated_at text not null, primary key (pack_id, client_id, name))`,
+  `create table if not exists pack_icons (pack_id text primary key, source text not null, colour text, png96 blob,
+    png192 blob, png512 blob, ico blob, etag text, updated_at text not null)`,
 ] as const
 
 export type PackRow = typeof packs.$inferSelect
@@ -176,3 +195,4 @@ export type PackItemRow = typeof packItems.$inferSelect
 export type PackVariableRow = typeof packVariables.$inferSelect
 export type PackNameRow = typeof packNames.$inferSelect
 export type PackDocVersionRow = typeof packDocVersions.$inferSelect
+export type PackIconRow = typeof packIcons.$inferSelect

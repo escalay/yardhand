@@ -1,9 +1,11 @@
 /**
  * Packs: curated kits of tools, playbooks and manuals, each with its own wording, that a key can be locked to, and
- * the playbooks and skill written for each (`own.*`).
+ * the playbooks and skill written for each (`own.*`), and each one's icon (`icon.*`).
  */
 import type { Feature } from '../index.js'
 import { packsHandlers } from './handlers.js'
+import { iconHandlers, mountPackIcons } from './icon.handlers.js'
+import { iconRoutes } from './icon.routes.js'
 import { ownHandlers } from './own.handlers.js'
 import { ownRoutes } from './own.routes.js'
 import { peopleHandlers } from './people.js'
@@ -34,6 +36,12 @@ export const feature: Feature = {
     app.openapi(routes.wording, handlers.wording)
     app.openapi(routes.entry, handlers.entry)
     app.openapi(routes.uses, handlers.uses)
+    const icon = iconHandlers(services)
+    app.openapi(iconRoutes.upload, icon.upload)
+    app.openapi(iconRoutes.recolour, icon.recolour)
+    app.openapi(iconRoutes.reset, icon.reset)
+    // Its icon's files, open at its address
+    mountPackIcons(app, services)
     const own = ownHandlers(services)
     app.openapi(ownRoutes.listPlaybooks, own.listPlaybooks)
     app.openapi(ownRoutes.createPlaybook, own.createPlaybook)

@@ -145,7 +145,8 @@ describe("Yardhand's brand", () => {
   })
 
   it("keeps its files at the root: a pack's address answers them as before, for a pack that exists and one that does not alike", async () => {
-    for (const path of ['/favicon.ico', '/icon.svg', '/icon-192.png', '/site.webmanifest']) {
+    // A pack's own favicon.ico and icon PNGs are open at its address (pack-icons.test.ts); the rest ask for a key
+    for (const path of ['/icon.svg', '/apple-touch-icon.png', '/og.png', '/site.webmanifest']) {
       const real = await at(null, `/p/desk${path}`)
       const none = await at(null, `/p/nope${path}`)
       const [realBody, noneBody] = [(await real.json()) as any, (await none.json()) as any]

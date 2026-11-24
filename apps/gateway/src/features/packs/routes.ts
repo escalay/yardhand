@@ -9,6 +9,7 @@ import { KEY_LIFETIMES } from '../clients/lifetimes.js'
 import { ClientName, SurfaceSchema } from '../clients/routes.js'
 import { APP_IDS, KEY_APPS } from '../clients/setup.js'
 import { ALIAS } from './entries.js'
+import { PALETTE } from './icon.js'
 import { PACK_REASONS } from './schema.js'
 import { VARIABLE_DESCRIPTION_MAX, VARIABLES_MAX } from './values.js'
 
@@ -215,6 +216,31 @@ const PackKeySchema = z
   })
   .openapi('PackKey', { description: 'A live key locked to the pack.' })
 
+export const IconColourSchema = z.enum(PALETTE).openapi({
+  description: 'A colour of the monogram palette: each reads white text well.',
+  example: '#0f766e',
+})
+export const PackIconSchema = z
+  .object({
+    source: z.enum(['upload', 'monogram']).openapi({
+      description:
+        '`upload`: an icon the owner sent (`PUT /api/packs/{name}/icon`). `monogram`: the first letter of its name in white on a colour.',
+    }),
+    letter: z.string().openapi({ description: 'The monogram’s letter: the first of the pack’s name, upper case.' }),
+    colour: IconColourSchema.nullable().openapi({
+      description: 'The monogram’s colour, the one picked or else its name’s; null while an uploaded icon is shown.',
+    }),
+    etag: z.string().openapi({ description: 'Changes whenever the icon does.' }),
+    url: z.string().openapi({
+      description:
+        'Its 96 × 96 PNG at the pack’s address, with the version in the query so a changed icon is fetched again. Open: no key needed. `icon-192.png`, `icon-512.png` and `favicon.ico` sit beside it.',
+      example: 'https://gw.example.com/p/desk/icon-96.png?v=3f2a9c0d1e4b5a67',
+    }),
+  })
+  .openapi('PackIcon', {
+    description: 'A pack’s icon, shown by MCP clients and in the app: an uploaded one, else the monogram of its name.',
+  })
+
 const counts = z.object({
   tools: z.number().int(),
   playbooks: z.number().int().openapi({ description: 'Playbooks it holds from its connections.' }),
@@ -234,6 +260,7 @@ const PackCardSchema = z
       description:
         'What to recheck: tools whose wording their upstream rewrote or with a fixed or default value that no longer fits, and playbooks of its own, or its skill, written for a tool that has changed or left the pack.',
     }),
+    icon: PackIconSchema,
     updatedAt: z.string(),
     _links: LinksSchema,
   })
@@ -284,6 +311,9 @@ export const PackSchema = PackCardSchema.extend({
       description:
         'Names it used to have that still lead to it, newest first, each with how many of its people last connected there. `DELETE /api/packs/{name}/names/{former}` frees one.',
     }),
+  palette: z.array(IconColourSchema).openapi({
+    description: 'The colours its monogram can take (`PATCH /api/packs/{name}/icon`).',
+  }),
   build: z
     .object({ id: z.string(), status: z.enum(['running', 'ready', 'stopped']) })
     .nullable()

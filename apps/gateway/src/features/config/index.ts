@@ -1,10 +1,11 @@
 /**
  * Config: the gateway's settings as one JSON document (upstreams, clients, pins, tool access, packs), never a secret. Kept
  * with the nightly backups and diffable in git; credentials stay in the vault and the key hashes stay in the database.
- * The playbooks and skill written for a pack ride in it as Markdown files, by path.
+ * The playbooks and skill written for a pack ride in it as Markdown files, by path, and the icon the owner set it as
+ * its 512 PNG or its monogram's colour.
  */
 import { createRoute, z } from '@hono/zod-openapi'
-import { problemResponses } from '../../kit/index.js'
+import { ProblemError, problemResponses } from '../../kit/index.js'
 import { VERSION } from '../../version.js'
 import { type ManualContent, skillPathOf } from '../catalog/content.js'
 import { requireOwner } from '../clients/principals.js'
@@ -12,6 +13,7 @@ import type { Feature } from '../index.js'
 import { basedOnOf, docPathOf, judge, sentenceOf } from '../packs/checks.js'
 import { ALIAS, defaultsOf, fixedOf, personOf } from '../packs/entries.js'
 import { withoutFrontMatter } from '../packs/frontmatter.js'
+import { PALETTE } from '../packs/icon.js'
 import { toolRefsIn } from '../packs/playbook.js'
 import { PACK_REASONS } from '../packs/schema.js'
 import { SKILL_DOC, skillBodyOf, skillFile } from '../packs/skill.js'
@@ -30,7 +32,7 @@ const route = createRoute({
   tags: [TAG],
   summary: 'Export the settings',
   description:
-    'Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs, defaults and inputs filled per person, as written), variables (one only Per person inputs read has a null value), playbooks and manuals, as one JSON document (owner only). The values each person gives a pack’s Per person inputs are not in it. The playbooks and the skill written for a pack are under its `files`, by path: `playbooks/<name>.md` as written and `SKILL.md` as it is read, with its `{{name}}` left as written. Each is a plain Markdown file to keep in git; their older versions are not exported.',
+    'Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs, defaults and inputs filled per person, as written), variables (one only Per person inputs read has a null value), playbooks and manuals, as one JSON document (owner only). The values each person gives a pack’s Per person inputs are not in it. The playbooks and the skill written for a pack are under its `files`, by path: `playbooks/<name>.md` as written and `SKILL.md` as it is read, with its `{{name}}` left as written. Each is a plain Markdown file to keep in git; their older versions are not exported. A pack’s `icon` is null for the monogram of its name, else the icon the owner set: `{ png }`, an upload as its 512 × 512 PNG in base64, or `{ colour }`, its monogram’s colour.',
   responses: {
     200: { content: { 'application/json': { schema: ConfigSchema } }, description: 'The settings.' },
     ...problemResponses(401, 403),
@@ -92,6 +94,14 @@ const ImportSchema = z
           playbooks: z.array(z.string().min(1).max(160)).default([]),
           manuals: z.array(z.string().min(1).max(160)).default([]),
           files: z.record(z.string().min(1).max(200), z.string().max(200_000)).default({}),
+          icon: z
+            .union([
+              // A 512 PNG in base64: an upload's is well under the 1 MB an upload may be
+              z.object({ png: z.string().max(1_400_000) }),
+              z.object({ colour: z.enum(PALETTE) }),
+            ])
+            .nullable()
+            .default(null),
         }),
       )
       .default([]),
@@ -127,7 +137,7 @@ const importRoute = createRoute({
   tags: [TAG],
   summary: 'Import the settings',
   description:
-    'Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the variables, tools, playbooks, manuals and files it lacks. Variables go in first, so a tool’s fixed inputs and defaults are checked with them filled in; a variable or a tool that would leave a value its tool’s live schema refuses is skipped and named. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. A pack’s `files` go in last, each a plain Markdown file by path (`playbooks/<name>.md`, `SKILL.md`), checked as a save of it is: one that names a tool the pack does not have yet, or that the checks refuse, is skipped and named; one the pack already has is kept as it is. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.',
+    'Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the variables, tools, playbooks, manuals and files it lacks. Variables go in first, so a tool’s fixed inputs and defaults are checked with them filled in; a variable or a tool that would leave a value its tool’s live schema refuses is skipped and named. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. A pack’s `icon` goes in when it has none of its own yet: an uploaded one is drawn again as an upload is, and one that can’t be is skipped and named. Its `files` go in last, each a plain Markdown file by path (`playbooks/<name>.md`, `SKILL.md`), checked as a save of it is: one that names a tool the pack does not have yet, or that the checks refuse, is skipped and named; one the pack already has is kept as it is. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.',
   request: { body: { required: true, content: { 'application/json': { schema: ImportSchema } } } },
   responses: {
     200: { content: { 'application/json': { schema: ImportResultSchema } }, description: 'What changed.' },
@@ -139,7 +149,7 @@ export const feature: Feature = {
   name: 'config',
   tag: { name: TAG, description: 'The gateway’s settings as one JSON document, without secrets.' },
   migrations: [],
-  register: (app, { upstreams, clients, tools, sync, packs, catalog }) => {
+  register: (app, { upstreams, clients, tools, sync, packs, catalog, packIcons }) => {
     const repos = { packs, tools, catalog, upstreams }
     app.openapi(route, async (c) => {
       requireOwner(c)
@@ -184,6 +194,7 @@ export const feature: Feature = {
         packs: await Promise.all(
           (await packs.list()).map(async (pack) => {
             const held = await packs.contentsOf(pack)
+            const icon = await packs.iconOf(pack.id)
             return {
               name: pack.name,
               title: pack.title,
@@ -214,6 +225,12 @@ export const feature: Feature = {
                 value: variable.value === null ? null : (JSON.parse(variable.value) as Scalar),
                 description: variable.description,
               })),
+              // Only an icon the owner set: none is the monogram of the name, wherever it is imported
+              icon: !icon
+                ? null
+                : icon.source === 'upload'
+                  ? { png: (await packIcons.of(pack)).set.png512.toString('base64') }
+                  : { colour: icon.colour },
             }
           }),
         ),
@@ -401,8 +418,21 @@ export const feature: Feature = {
             docs++
           }
         }
+        // Its icon, unless it has one of its own already
+        let icons = 0
+        if (wanted.icon && !(await packs.iconOf(packId))) {
+          const problem = await ('png' in wanted.icon
+            ? packIcons.upload(pack, Buffer.from(wanted.icon.png, 'base64'))
+            : packIcons.recolour(pack, wanted.icon.colour)
+          ).then(
+            () => null,
+            (error: unknown) => (error instanceof ProblemError ? error.message : Promise.reject(error)),
+          )
+          if (problem) result.skipped.push(`pack ${wanted.name} icon: ${problem}`)
+          else icons++
+        }
         if (!existing) result.packs.created.push(wanted.name)
-        else if (variables + added + items + docs) result.packs.filled.push(wanted.name)
+        else if (variables + added + items + docs + icons) result.packs.filled.push(wanted.name)
       }
       return c.json(result, 200)
     })
