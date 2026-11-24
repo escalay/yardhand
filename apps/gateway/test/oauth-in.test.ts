@@ -364,7 +364,7 @@ describe('an app signing in to the gateway', () => {
       resource: pack,
     })
     expect(first.status).toBe(200)
-    // The gateway names no resource of its own yet, so the token is for all of it
+    // The gateway names no resource of its own yet, so the token is for all of it, and its client opens no pack
     expect(decodeJwt(first.json.access_token).aud).toBe('http://localhost')
     expect((await roll(app, first.json.access_token)).status).toBe(200)
     const atPack = await app.request('/p/loud/api/me', { headers: bearer(first.json.access_token) })
