@@ -75,7 +75,10 @@ Copy is plain and specific; every error says where, why and what to do (the prob
   use. Sign-ins from before 0.6.4 were mapped once by that name (`legacy.ts`, recorded in the plain
   `client_legacy_mapping`, never the vault, so a start under another master key still comes up); an access token
   from then, which carries no grant, still finds its row by name for its last hour. Revoking one ends each of its
-  grants at the kit (`revokeGrant`, never `revokeClient`).
+  grants at the kit (`revokeGrant`, never `revokeClient`). A sign-in is for the address it asked, read only by
+  `classOf` (`features/clients/resources.ts`): one made at `/p/<pack>/mcp` gets a row locked to that pack
+  (`joined_by: owner`), and its token is taken only at that pack's own address (`accepts`, by the row's pack); a root
+  or aud-less token is taken everywhere.
 - **Pin**: a real tool shown directly in a client's MCP tool list beside the meta-tools: the client's own pins, else
   the global ones. Inside a pack a pin is the pack's name for the tool (its alias, else the tool's own name), a key's
   own pins narrow its list from the whole pack to those, and the global pins never apply (`pinnedBy`).

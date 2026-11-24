@@ -70,6 +70,11 @@ serve({ fetch: app.fetch, hostname: '0.0.0.0', port }, (info) => {
   upgrade.stamp()
   console.log(`Yardhand → ${app.services.publicOrigin}/app (listening on ${info.port}; /docs, /llms.txt, /mcp)`)
   if (code) console.log(setupBanner(app.services.publicOrigin, code))
+  // Without a name others reach, sign-in takes each request's own host, as before 0.6.4: said so the owner knows
+  if (!app.services.statedOrigin)
+    console.log(
+      'Sign-in follows the host each request names, since PUBLIC_HOST names no address others reach. Set PUBLIC_HOST to the name people and apps use, and sign-in answers only there.',
+    )
   // Said at every start, and a day before the first report: what is sent and how to stop it
   void telemetry
     .view()

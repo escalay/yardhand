@@ -853,7 +853,7 @@ export interface paths {
         };
         /**
          * How to connect to a pack
-         * @description The pack’s own address (`/p/<name>/`: MCP, REST, docs and guide under it) and paste-ready setup for Claude Code, Cursor, Codex, curl and TypeScript, with `<YOUR_KEY>` where a key of the pack goes (owner only). A pack’s address takes keys only, so there is no claude.ai setup.
+         * @description The pack’s own address (`/p/<name>/`: MCP, REST, docs and guide under it) and paste-ready setup for Claude Code, Cursor, Codex, curl and TypeScript, with `<YOUR_KEY>` where a key of the pack goes (owner only). The setup is for a key: an app that signs in, such as claude.ai, is added at the pack’s MCP address (`/p/<name>/mcp`) by hand, and the owner’s approval there opens this pack only.
          */
         get: operations["getPackSetup"];
         put?: never;
@@ -1987,9 +1987,9 @@ export interface components {
             macTools?: boolean;
             /** @description MCP result cap in tokens (default 25000). */
             resultCap?: number;
-            /** @description For a pack key: the packs it opens from now on (replaces the list). */
+            /** @description For a pack key: the packs it opens from now on (replaces the list). An app that signed in at a pack’s address keeps that pack only (409). */
             packs?: string[];
-            /** @description For a pack key: its default pack, one of the packs it opens. */
+            /** @description For a pack key: its default pack, one of the packs it opens. Not for an app that signed in at a pack’s address (409). */
             pack?: string;
             /**
              * @description Extend: how long it works from now, 7 days, 30 days or until revoked (it replaces when it ends). An ended key works again with the same key; a revoked one does not, and a pack key whose packs were all removed is refused (409) unless `packs` gives it one in the same change. A request that was refused while the key had ended runs when it is sent again, with the same `Idempotency-Key` or a new one.

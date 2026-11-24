@@ -63,7 +63,7 @@ describe('a pack’s OpenAPI document', () => {
 })
 
 describe('a pack’s OpenAPI document on a gateway agents can sign in to', () => {
-  it('offers a key only: a pack’s address takes no OAuth sign-in', async () => {
+  it('offers a key or a sign-in at the pack’s own address', async () => {
     const plain = (await read('/openapi.json')) as Parameters<typeof packOpenApi>[0]['gateway']
     const gateway = {
       ...plain,
@@ -74,8 +74,16 @@ describe('a pack’s OpenAPI document on a gateway agents can sign in to', () =>
       },
     }
     const doc = packOpenApi({ gateway, tools: { paths: {} }, pack: PACK, url: URL })
-    expect(doc.security).toEqual([{ apiKey: [] }])
-    expect(Object.keys(doc.components.securitySchemes ?? {})).toEqual(['apiKey'])
+    expect(doc.security).toEqual([{ apiKey: [] }, { oauth: ['read', 'write'] }])
+    expect(Object.keys(doc.components.securitySchemes ?? {})).toEqual(['apiKey', 'oauth'])
+    expect(doc.info.description).toContain(
+      '- **Auth:** `Authorization: Bearer <key>`, a key that opens this pack, or a token signed in for this address. Sign in at this address: apps such as claude.ai do it themselves.',
+    )
+    // Without sign-in on the gateway, a key is all there is
+    const keysOnly = packOpenApi({ gateway: plain, tools: { paths: {} }, pack: PACK, url: URL })
+    expect(keysOnly.info.description).toContain(
+      '- **Auth:** `Authorization: Bearer <key>`, a key that opens this pack.\n',
+    )
   })
 })
 

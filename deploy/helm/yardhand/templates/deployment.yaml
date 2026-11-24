@@ -56,6 +56,10 @@ spec:
             - name: PUBLIC_HOST
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.addressHeader }}
+            - name: GATEWAY_ADDRESS_HEADER
+              value: {{ . | quote }}
+            {{- end }}
             {{- range $name, $value := .Values.env }}
             - name: {{ $name }}
               value: {{ $value | quote }}

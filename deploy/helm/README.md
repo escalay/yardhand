@@ -18,17 +18,24 @@ clone, `helm install yardhand deploy/helm/yardhand` does the same.
 
 ```sh
 helm upgrade yardhand oci://ghcr.io/escalay/charts/yardhand --reuse-values \
-  --set publicHost=gateway.example.com \
+  --set publicHost=gateway.example.com --set addressHeader=x-forwarded-for \
   --set ingress.enabled=true --set ingress.host=gateway.example.com --set ingress.className=nginx
 ```
 
 `publicHost` is the address the gateway hands out in links and OAuth redirects. TLS is your ingress controller's:
 name a secret with `ingress.tlsSecret`, or let the controller's default certificate apply.
 
+`addressHeader` is the header your ingress puts each caller's address in (`x-forwarded-for` for ingress-nginx and
+Traefik, `cf-connecting-ip` behind Cloudflare). Sign-in and tool calls are limited per address. Left empty with an
+https `publicHost` (a bare name is https), the gateway reads `x-forwarded-for`, the value the ingress wrote last: the
+pod serves plain HTTP only, so an https address always has an ingress in front. Left empty with a plain-HTTP
+`publicHost`, every caller behind an ingress counts as the ingress and shares one limit, which anyone can use up.
+
 ## Settings
 
 | Value | What |
 |---|---|
+| `addressHeader` | The header the ingress puts each caller's address in (`GATEWAY_ADDRESS_HEADER`) |
 | `env` | Any setting from [.env.example](../compose/.env.example) as a plain value: `--set env.GATEWAY_TELEMETRY=off` |
 | `existingSecret` | A Secret you made whose keys are setting names, for the ones that are secrets (`GATEWAY_MASTER_KEY`, `OPENROUTER_API_KEY`) |
 | `persistence.size`, `persistence.storageClass` | The volume: the database, its daily backups and the search index. 2Gi by default |
