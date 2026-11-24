@@ -853,7 +853,7 @@ export interface paths {
         };
         /**
          * How to connect to a pack
-         * @description The pack’s own address (`/p/<name>/`: MCP, REST, docs and guide under it) and paste-ready setup for Claude Code, Cursor, Codex, curl and TypeScript, with `<YOUR_KEY>` where a key of the pack goes (owner only). A pack’s address takes keys only, so there is no claude.ai setup.
+         * @description The pack’s own address (`/p/<name>/`: MCP, REST, docs and guide under it) and paste-ready setup for Claude Code, Cursor, Codex, curl and TypeScript, with `<YOUR_KEY>` where a key of the pack goes (owner only). The setup is for a key: an app that signs in, such as claude.ai, is added at the pack’s MCP address (`/p/<name>/mcp`) by hand, and the owner’s approval there opens this pack only.
          */
         get: operations["getPackSetup"];
         put?: never;

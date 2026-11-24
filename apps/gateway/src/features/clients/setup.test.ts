@@ -32,7 +32,7 @@ describe('setup snippets', () => {
     ])
   })
 
-  it('hands out a pack’s own address in every snippet, and no claude.ai: a pack takes keys only', () => {
+  it('hands out a pack’s own address in every snippet, and no claude.ai: a pack’s setup is for a key', () => {
     const surfaces = surfacesOf({ origin: 'https://gw.example.com', kind: 'key', oauth: true, pack: 'desk' })
     expect(surfaces.map((surface) => surface.id)).toEqual(['claude-code', 'cursor', 'codex', 'curl', 'typescript'])
     expect(surfaces[0]?.snippet).toContain('--scope user gw-desk https://gw.example.com/p/desk/mcp')

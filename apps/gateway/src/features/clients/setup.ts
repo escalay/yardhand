@@ -53,7 +53,7 @@ export const surfacesOf = ({
   pack?: string
 }): Surface[] => {
   const mcp = `${origin}/mcp`
-  // A pack's address takes keys only, so nothing signs in to it from claude.ai
+  // A pack's setup is for a key: an app that signs in (claude.ai) is added at the pack's MCP address by hand for now
   const base = pack ? `${origin}/p/${pack}` : origin
   const servers = pack ? [{ name: `${SERVER_NAME}-${pack}`, url: `${base}/mcp` }] : serversOf(origin, packs)
   const name = servers.length === 1 ? (servers[0]?.name ?? SERVER_NAME) : SERVER_NAME
