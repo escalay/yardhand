@@ -1,7 +1,15 @@
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
 import { ProblemError } from '../../kit/index.js'
-import { type IconSet, INLINE_MAX, monogramOf, PALETTE, renderedMonogram, renderedUpload } from './icon.js'
+import {
+  type IconSet,
+  INLINE_MAX,
+  monogramOf,
+  PALETTE,
+  packMcpIcons,
+  renderedMonogram,
+  renderedUpload,
+} from './icon.js'
 
 /** The WCAG contrast of white on a `#rrggbb` colour. */
 const contrastOnWhite = (hex: string) => {
@@ -159,6 +167,13 @@ describe('an uploaded icon', () => {
     }
   })
 
+  it('refuses an SVG with text, which would be drawn with no fonts: its letters as outlines are taken', async () => {
+    for (const text of ['<text x="1" y="8">A</text>', '<g><text><tspan>A</tspan></text></g>']) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">${text}</svg>`
+      expect((await refusal(Buffer.from(svg))).message).toMatch(/has text.*convert it to outlines/)
+    }
+  })
+
   it('refuses an SVG with a DOCTYPE or entities', async () => {
     const svg =
       '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/hostname">]><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><text>&x;</text></svg>'
@@ -172,5 +187,19 @@ describe('an uploaded icon', () => {
     expect(svg.message).toMatch(/The SVG couldn’t be read.*export it again/)
     const png = Buffer.concat([(await square(128)).subarray(0, 40)])
     expect((await refusal(png)).message).toMatch(/The PNG couldn’t be read/)
+  })
+})
+
+describe('a pack’s MCP icons', () => {
+  it('lead with the inline 96 PNG when asked, and leave it out when the greeting would grow too long to read', async () => {
+    const set = await renderedMonogram('D', '#0f766e')
+    const info = { name: 'desk', description: 'Answers at the desk.' }
+    const linked = ['https://gw.example.com/p/desk/icon-192.png', 'https://gw.example.com/p/desk/icon-512.png']
+    const inline = packMcpIcons(info, 'https://gw.example.com', set, true)
+    expect(inline[0]?.src).toBe(`data:image/png;base64,${set.png96.toString('base64')}`)
+    expect(inline.slice(1).map((icon) => icon.src)).toEqual(linked)
+    expect(packMcpIcons(info, 'https://gw.example.com', set, false).map((icon) => icon.src)).toEqual(linked)
+    const long = { ...info, description: 'x'.repeat(14_000) }
+    expect(packMcpIcons(long, 'https://gw.example.com', set, true).map((icon) => icon.src)).toEqual(linked)
   })
 })

@@ -27,7 +27,7 @@ export const iconRoutes = {
     operationId: 'setPackIcon',
     tags: [TAG],
     summary: 'Upload a pack’s icon',
-    description: `Gives the pack an icon of its own, shown by MCP clients and in the app: an SVG, or a PNG of at least 96 × 96, at most 1 MB and within 4:5 of square (padded to square), sent as the body. It is drawn at 512 × 512 and kept as PNGs and a favicon; the file sent is not kept, and an SVG is never served as one. An SVG that links to anything outside itself (an image by URL, a stylesheet) is refused: nothing it names is fetched. Ten uploads an hour. ${FILES}`,
+    description: `Gives the pack an icon of its own, shown by MCP clients and in the app: an SVG, or a PNG of at least 96 × 96, at most 1 MB and within 4:5 of square (padded to square), sent as the body. It is drawn at 512 × 512 and kept as PNGs and a favicon; the file sent is not kept, and an SVG is never served as one. An SVG that links to anything outside itself (an image by URL, a stylesheet) is refused: nothing it names is fetched. So is an SVG with text, since icons are drawn with no fonts: convert its text to outlines first. Ten uploads an hour. ${FILES}`,
     request: {
       params: z.object({ name }),
       body: {

@@ -105,13 +105,17 @@ const tooFarFromSquare = (width: number, height: number) => {
 }
 
 /**
- * Checks what an SVG holds before anything reads it: no DOCTYPE or entities, and nothing outside itself (librsvg
- * fetches nothing remote, and this keeps it that way).
+ * Checks what an SVG holds before anything reads it: no DOCTYPE or entities, nothing outside itself (librsvg
+ * fetches nothing remote, and this keeps it that way), and no text, which the server has no fonts to draw.
  */
 const checkSvg = (text: string) => {
   if (/<!DOCTYPE|<!ENTITY/i.test(text))
     throw refused(
       'The SVG declares a DOCTYPE or entities, which an icon doesn’t take: remove the <!DOCTYPE …> and send it again.',
+    )
+  if (/<(text|tspan|textPath)[\s>/]/.test(text))
+    throw refused(
+      'The SVG has text, and Yardhand draws icons with no fonts installed, so its letters would come out as boxes: in your editor, convert it to outlines (paths) and send it again.',
     )
   for (const pattern of OUTSIDE) {
     const found = pattern.exec(text)
@@ -122,8 +126,8 @@ const checkSvg = (text: string) => {
   }
 }
 
-/** The first characters of a text body, past a byte-order mark and blank space. */
-const isSvgText = (text: string) => /^﻿?\s*</.test(text) && /<svg[\s>]/i.test(text)
+/** Whether a body reads as an SVG: markup from its first character (past a byte-order mark), an `<svg` in it. */
+const isSvgText = (text: string) => /^\uFEFF?\s*</.test(text) && /<svg[\s>]/i.test(text)
 
 /**
  * An uploaded icon's files: a PNG of at least 96 × 96 or an SVG, at most 1 MB, within 4:5 of square (padded to
