@@ -32,6 +32,13 @@ describe('setup snippets', () => {
     ])
   })
 
+  it('gives an OAuth client locked to a pack claude.ai at that pack’s address, and one of the root the root', () => {
+    const [atPack] = surfacesOf({ origin: 'https://gw.example.com', kind: 'oauth', oauth: true, pack: 'desk' })
+    expect(atPack?.snippet).toBe('Name: Yardhand\nURL:  https://gw.example.com/p/desk/mcp')
+    const [atRoot] = surfacesOf({ origin: 'https://gw.example.com', kind: 'oauth', oauth: true })
+    expect(atRoot?.snippet).toBe('Name: Yardhand\nURL:  https://gw.example.com/mcp')
+  })
+
   it('hands out a pack’s own address in every snippet, and no claude.ai: a pack’s setup is for a key', () => {
     const surfaces = surfacesOf({ origin: 'https://gw.example.com', kind: 'key', oauth: true, pack: 'desk' })
     expect(surfaces.map((surface) => surface.id)).toEqual(['claude-code', 'cursor', 'codex', 'curl', 'typescript'])

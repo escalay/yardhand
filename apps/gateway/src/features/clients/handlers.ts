@@ -281,17 +281,22 @@ export const clientsHandlers = ({
     requireOwner(c)
     const row = await rowOf(c.req.valid('param').id)
     const origin = originOf(c)
+    const card = await cardOf(origin, row)
+    // An app signed in at a pack's address is taken only there, by the name the pack has now
+    const pack = row.kind === 'oauth' ? (card.pack ?? undefined) : undefined
+    const base = pack ? `${origin}/p/${pack}` : origin
     return c.json(
       {
         client: row.id,
-        mcpUrl: `${origin}/mcp`,
-        apiUrl: `${origin}/api`,
+        mcpUrl: `${base}/mcp`,
+        apiUrl: `${base}/api`,
         keyPlaceholder: KEY_PLACEHOLDER,
         surfaces: surfacesOf({
           origin,
           kind: row.kind,
           oauth: Boolean(env.OAUTH_SIGNING_KEY),
-          packs: (await cardOf(origin, row)).packs,
+          packs: card.packs,
+          ...(pack ? { pack } : {}),
         }),
         _links: linksOf(origin, { self: `${PATH}/${row.id}/setup`, client: `${PATH}/${row.id}` }),
       },

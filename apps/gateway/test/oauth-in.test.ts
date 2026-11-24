@@ -1341,6 +1341,34 @@ describe('a pack address asks for sign-in at its own resource', () => {
     expect(detail).not.toContain('Secret')
   })
 
+  it('the setup of an app signed in at a pack’s address names that address, by the name the pack has now; one signed in at the root, the root', async () => {
+    const app = await withDesk()
+    await signInFor(app, 'http://localhost/p/desk/mcp')
+    await signInFor(app, 'http://localhost/mcp')
+    type Card = { id: string; kind: string; pack: string | null }
+    const rows = ((await (await owner(app, '/api/clients')).json()) as { _embedded: { clients: Card[] } })._embedded
+      .clients
+    const atPack = rows.find((row) => row.kind === 'oauth' && row.pack === 'desk')
+    const atRoot = rows.find((row) => row.kind === 'oauth' && row.pack === null)
+    type Setup = { mcpUrl: string; apiUrl: string; surfaces: { id: string; snippet: string }[] }
+    const setupOf = async (id = '') => (await (await owner(app, `/api/clients/${id}/setup`)).json()) as Setup
+    expect(await setupOf(atPack?.id)).toMatchObject({
+      mcpUrl: 'http://localhost/p/desk/mcp',
+      apiUrl: 'http://localhost/p/desk/api',
+      surfaces: [{ id: 'claude-ai', snippet: 'Name: Yardhand\nURL:  http://localhost/p/desk/mcp' }],
+    })
+    expect(await setupOf(atRoot?.id)).toMatchObject({
+      mcpUrl: 'http://localhost/mcp',
+      apiUrl: 'http://localhost/api',
+      surfaces: [{ id: 'claude-ai', snippet: 'Name: Yardhand\nURL:  http://localhost/mcp' }],
+    })
+    expect((await owner(app, '/api/packs/desk', 'PATCH', { name: 'front' })).status).toBe(200)
+    expect(await setupOf(atPack?.id)).toMatchObject({
+      mcpUrl: 'http://localhost/p/front/mcp',
+      surfaces: [{ id: 'claude-ai', snippet: 'Name: Yardhand\nURL:  http://localhost/p/front/mcp' }],
+    })
+  })
+
   it('a root token and an aud-less token are taken at a pack’s own address and with the header, where the gateway answers them as before', async () => {
     const before = await beforeTheUpdate()
     // The ones from before: one known by its grant, one access token known by its name for its last hour
