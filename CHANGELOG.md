@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.4](https://github.com/escalay/yardhand/compare/v0.6.3...v0.6.4) (2026-11-24)
+
+
+### Features
+
+* **clients:** bind each sign-in to the address it was made for ([#50](https://github.com/escalay/yardhand/issues/50)) ([864c4d2](https://github.com/escalay/yardhand/commit/864c4d2115fcf68b26cb2c047e135590f6e60691))
+* **packs:** give the gateway and each pack an icon ([#51](https://github.com/escalay/yardhand/issues/51)) ([ae8b10f](https://github.com/escalay/yardhand/commit/ae8b10ffc5d34e4f11ad6528e96bb210dfd5ea5c))
+
+
+### Fixes
+
+* **clients:** know an OAuth client by its sign-in, not its name ([#48](https://github.com/escalay/yardhand/issues/48)) ([be13f72](https://github.com/escalay/yardhand/commit/be13f72ca46b8d98432044cd466302295d064043))
+
 ## [0.6.3](https://github.com/escalay/yardhand/compare/v0.6.2...v0.6.3) (2026-11-22)
 
 
