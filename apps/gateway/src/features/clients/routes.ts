@@ -28,6 +28,9 @@ export const ClientSchema = z
     id: z.string(),
     name: z.string(),
     kind: z.enum(['key', 'oauth']),
+    oauthClientId: z.string().nullable().openapi({
+      description: 'The app’s OAuth client id, when it signed in by OAuth; for showing only, never how it is known.',
+    }),
     scope: z.enum(['read', 'write']),
     upstreams: Upstreams,
     pins: Pins,

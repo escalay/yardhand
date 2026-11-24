@@ -56,6 +56,9 @@ const AgentTable = ({ rows }: { rows: Client[] }) => (
                       ? ` · ${expiryOf(row.expiresAt).text.toLowerCase()}`
                       : ` · made ${ago(row.createdAt)}`}
                 </span>
+                {row.oauthClientId ? (
+                  <span className="font-mono text-xs break-all text-muted-foreground">{row.oauthClientId}</span>
+                ) : null}
               </Link>
             </td>
             <td className="px-4 py-3 text-muted-foreground">{reachOf(row)}</td>

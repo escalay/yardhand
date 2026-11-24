@@ -126,6 +126,11 @@ export const AgentPage = ({ id, tab = 'overview' }: { id: string; tab?: 'overvie
         }
       >
         {reachOf(row)}. Made {ago(row.createdAt)}.{row.expiresAt ? ` ${expiry.text}.` : ''}
+        {row.oauthClientId ? (
+          <span className="block">
+            OAuth client <span className="font-mono text-xs break-all">{row.oauthClientId}</span>
+          </span>
+        ) : null}
       </EntityHeader>
       <EntityTabs
         active={tab}

@@ -8,11 +8,14 @@
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { Context } from 'hono'
 import BRAND from '../brand/brand.js'
 import { BRAND_ASSETS } from './brand.gen.js'
 import type { Model } from './features/ai/model.js'
 import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { withPlaybookQuery } from './features/catalog/query.js'
+import { onGrantFor } from './features/clients/grants.js'
+import { mapLegacySignIns } from './features/clients/legacy.js'
 import { packBaseOf, packChoice, withPackAddresses } from './features/clients/pack-choice.js'
 import { callerOf, isOwner } from './features/clients/principals.js'
 import { FEATURES } from './features/index.js'
@@ -36,6 +39,7 @@ import {
   dbOAuthStore,
   frontDoorOpen,
   migrate,
+  type OAuth,
   originOf,
   parseApiKeys,
   rateLimit,
@@ -77,6 +81,13 @@ const APP_PAGES = [
 ]
 const DEFAULT_WEB_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../web/dist')
 
+/** Where a 401 points: at a pack's address, that address's own metadata, whose `resource` is the URL asked (RFC 9728). */
+const resourceMetadataOf = (oauth: OAuth) => (c: Context) => {
+  const base = packBaseOf()
+  if (!base) return oauth.resourceMetadataFor(c)
+  return `${originOf(c)}/.well-known/oauth-protected-resource${base}${c.req.path.startsWith('/mcp') ? '/mcp' : ''}`
+}
+
 export const createApp = async ({
   db,
   env,
@@ -114,8 +125,15 @@ export const createApp = async ({
           store: oauthStore,
           // Access first, so one approval reads one owner; the owner's own session approves an app's sign-in too
           owner: async (c) => (access ? await accessOwner(access)(c) : null) ?? (await kitOwner(sessions)(c)),
+          // Every new sign-in is its own client row, made here and nowhere else
+          onGrant: (grant) => onGrantFor(services)(grant),
         })
       : undefined
+  if (oauth) {
+    services.oauth.current = oauth
+    // Before the first request: a sign-in from before 0.6.4 finds its row by its grant from now on
+    await mapLegacySignIns({ clients: services.clients, revokeGrant: oauth.revokeGrant })
+  }
   const app = createAgentApi({
     title: 'Yardhand',
     version: VERSION,
@@ -140,18 +158,19 @@ export const createApp = async ({
         ...(hasWeb ? [...frontDoorOpen(web), ...pages] : []),
       ],
     },
-    // A 401 at a pack's address points at that address's own metadata, whose `resource` is the URL asked (RFC 9728)
-    oauth: oauth && {
-      ...oauth,
-      resourceMetadataFor: (c) => {
-        const base = packBaseOf()
-        if (!base) return oauth.resourceMetadataFor(c)
-        return `${originOf(c)}/.well-known/oauth-protected-resource${base}${c.req.path.startsWith('/mcp') ? '/mcp' : ''}`
-      },
-    },
+    oauth: oauth && { ...oauth, resourceMetadataFor: resourceMetadataOf(oauth) },
     // An answer kept for an `Idempotency-Key` can hold a key shown once: it is kept sealed
     guards: { store: await sealedGuardStore(db, parseMasterKey(env.GATEWAY_MASTER_KEY)) },
   })
+  // An OAuth caller the gateway refuses is pointed where the kit's own 401 would point it, by the address it asked
+  if (oauth) {
+    const metadataOf = resourceMetadataOf(oauth)
+    app.use('*', async (c, next) => {
+      const caller = callerOf(c)
+      if (caller?.kind === 'agent') c.set('caller' as never, { ...caller, resourceMetadata: metadataOf(c) } as never)
+      await next()
+    })
+  }
   // The pack a request asks for (its address `/p/<pack>/…` or `x-gateway-pack`), on the caller before any route reads
   // it; a name the pack used to have is read as the one it has now
   app.use(
@@ -162,7 +181,9 @@ export const createApp = async ({
   // has ended goes on: it connects and is told why, in the instructions and by every tool
   app.use('/mcp', async (c, next) => {
     const caller = callerOf(c)
-    if (caller?.pack && !(await services.principals.ended(caller))) await services.principals.require(caller)
+    // Read for every caller, so a sign-in the gateway doesn't know is a 401 here
+    const ended = await services.principals.ended(caller)
+    if (caller?.pack && !ended) await services.principals.require(caller)
     await next()
   })
   // Per caller: runs reach paid and rate-limited upstreams, so a runaway agent stops here first

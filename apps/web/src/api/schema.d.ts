@@ -1847,6 +1847,8 @@ export interface components {
             name: string;
             /** @enum {string} */
             kind: "key" | "oauth";
+            /** @description The app’s OAuth client id, when it signed in by OAuth; for showing only, never how it is known. */
+            oauthClientId: string | null;
             /** @enum {string} */
             scope: "read" | "write";
             /**
