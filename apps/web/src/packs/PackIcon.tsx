@@ -99,7 +99,7 @@ export const IconSection = ({ pack }: { pack: Pack }) => {
           </Button>
           {icon.set ? (
             <Button size="sm" variant="ghost" disabled={change.isPending} onClick={() => change.mutate('reset')}>
-              Back to the monogram
+              {icon.source === 'upload' ? 'Back to the monogram' : 'Back to its own colour'}
             </Button>
           ) : null}
         </div>

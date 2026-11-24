@@ -94,7 +94,11 @@ describe('a pack’s icon', () => {
     const user = userEvent.setup()
     DELETE.mockResolvedValue(answer({}))
     show(packOf({}))
-    expect(screen.queryByRole('button', { name: 'Back to the monogram' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Back to/ })).toBeNull()
+    cleanup()
+    // A colour picked goes back to its name's own
+    show(packOf({ set: true }))
+    expect(screen.getByRole('button', { name: 'Back to its own colour' })).toBeTruthy()
     cleanup()
     show(packOf({ source: 'upload', colour: null, set: true }))
     // No colour is pressed while an uploaded icon is shown
