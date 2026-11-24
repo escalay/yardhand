@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { migrate, testDb } from '../../kit/index.js'
+import { packsRepo } from '../packs/repo.js'
+import { PACKS_MIGRATIONS } from '../packs/schema.js'
 import { onGrantFor } from './grants.js'
 import { clientsRepo } from './repo.js'
 import { CLIENTS_MIGRATIONS } from './schema.js'
@@ -16,12 +18,13 @@ describe('the row a new sign-in gets', () => {
   const repo = async () => {
     const db = await testDb()
     await migrate(db, 'clients', CLIENTS_MIGRATIONS)
-    return clientsRepo(db)
+    await migrate(db, 'packs', PACKS_MIGRATIONS)
+    return { clients: clientsRepo(db), packs: packsRepo(db) }
   }
 
   it('is made with the grant: write, every upstream, the app’s client id, no name to be found by', async () => {
-    const clients = await repo()
-    expect(await onGrantFor({ clients })(grantOf('g1'))).toBe(true)
+    const { clients, packs } = await repo()
+    expect(await onGrantFor({ clients, packs })(grantOf('g1'))).toBe(true)
     const row = await clients.byGrant('g1')
     expect(row).toMatchObject({
       name: 'Sample',
@@ -35,7 +38,7 @@ describe('the row a new sign-in gets', () => {
   })
 
   it('a grant the start mapped already keeps its row and is not withdrawn', async () => {
-    const clients = await repo()
+    const { clients, packs } = await repo()
     const id = await clients.create({
       name: 'Sample',
       kind: 'oauth',
@@ -44,19 +47,19 @@ describe('the row a new sign-in gets', () => {
       upstreams: [],
     })
     await clients.mapGrant('g1', id, true)
-    expect(await onGrantFor({ clients })(grantOf('g1'))).toBe(true)
+    expect(await onGrantFor({ clients, packs })(grantOf('g1'))).toBe(true)
     expect((await clients.list()).map((row) => row.id)).toEqual([id])
   })
 
   it('an app that gives a blank name is shown as an unnamed app', async () => {
-    const clients = await repo()
-    await onGrantFor({ clients })(grantOf('g1', ''))
-    await onGrantFor({ clients })(grantOf('g2', '  '))
+    const { clients, packs } = await repo()
+    await onGrantFor({ clients, packs })(grantOf('g1', ''))
+    await onGrantFor({ clients, packs })(grantOf('g2', '  '))
     expect((await clients.list()).map((row) => row.name)).toEqual(['Unnamed app', 'Unnamed app'])
   })
 
   it('a row that fails to be made leaves its grant free for the next try', async () => {
-    const clients = await repo()
+    const { clients } = await repo()
     await clients.create({ name: 'Sample', kind: 'oauth', oauthName: 'Sample', scope: 'write', upstreams: 'all' })
     const draft = { name: 'Sample', kind: 'oauth' as const, scope: 'write' as const, upstreams: 'all' as const }
     await expect(clients.create({ ...draft, oauthName: 'Sample', grant: 'g1' })).rejects.toThrow()

@@ -13,6 +13,30 @@ export const reachOf = (client: Pick<Client, 'upstreams' | 'scope'> & Partial<Pi
     client.scope === 'write' ? 'reads and changes' : 'reads only'
   }`
 
+/** Whether the owner may change an agent's packs: a pack key's, never an app's that signed in at a pack's address. */
+export const repackable = (client: Pick<Client, 'kind' | 'pack'>) => Boolean(client.pack) && client.kind !== 'oauth'
+
+/** What saving an agent's reach sends: a pack key its packs, an app locked to a pack its scope alone, else connections. */
+export const reachChangeOf = (
+  client: Pick<Client, 'kind' | 'pack'>,
+  {
+    scope,
+    packChoice,
+    everything,
+    chosen,
+  }: {
+    scope: 'read' | 'write'
+    packChoice: { packs: string[]; pack: string }
+    everything: boolean
+    chosen: string[]
+  },
+) =>
+  repackable(client)
+    ? { scope, ...packChoice }
+    : client.pack
+      ? { scope }
+      : { scope, upstreams: everything ? ('all' as const) : chosen }
+
 /** The packs a key opens and its default after ticking or unticking one: the default moves only when it goes. */
 export const pickPack = (
   current: { packs: string[]; pack: string },

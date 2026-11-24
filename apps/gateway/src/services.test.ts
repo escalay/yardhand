@@ -8,6 +8,9 @@ describe('the public address', () => {
     expect(publicOriginOf('https://gateway.example.test')).toBe('https://gateway.example.test')
     expect(publicOriginOf(undefined)).toBe('http://localhost:4400')
     expect(publicOriginOf('')).toBe('http://localhost:4400')
+    // As URLs write it, for links and the https check alike
+    expect(publicOriginOf('HTTPS://GW.example.com:443')).toBe('https://gw.example.com')
+    expect(publicOriginOf('HTTP://LOCALHOST:8080/')).toBe('http://localhost:8080')
   })
 
   it('takes PUBLIC_HOST as the address for people only when someone else can reach it', () => {

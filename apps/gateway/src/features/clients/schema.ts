@@ -25,6 +25,8 @@ export const clients = sqliteTable('clients', {
   expiresAt: text('expires_at'),
   /** Where it runs, as the owner said when making it: a setup surface id; null when not said. */
   app: text('app', { enum: APP_IDS }),
+  /** How an OAuth client locked to a pack came in: `owner` approved it at the pack's address; null for every other. */
+  joinedBy: text('joined_by', { enum: ['owner', 'invite', 'request'] }),
   createdAt: text('created_at').notNull(),
   revokedAt: text('revoked_at'),
 })
@@ -94,6 +96,7 @@ export const CLIENTS_MIGRATIONS = [
   create index if not exists client_grants_client on client_grants (client_id);
   alter table clients add column oauth_client_id text`,
   'create table if not exists client_legacy_mapping (at text not null, sign_ins integer not null)',
+  'alter table clients add column joined_by text',
 ] as const
 
 export type ClientRow = typeof clients.$inferSelect

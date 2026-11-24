@@ -133,13 +133,20 @@ export const clientsHandlers = ({
       })
   }
 
-  /** The packs and default a change asks for; 409 for a key that isn't locked to packs. */
+  /**
+   * The packs and default a change asks for; 409 for a key that isn't locked to packs, and for an app that signed in
+   * at a pack's address, whose token is taken at that pack's address alone.
+   */
   const repackedOf = async (row: ClientRow, packNamesIn: string[] | undefined, packName: string | undefined) => {
     if (!row.packId)
       throw new ProblemError('conflict', {
         detail: `${row.name} isn't locked to packs, so it can't take one: make a pack key instead.`,
       })
     const current = await packNames()
+    if (row.kind === 'oauth')
+      throw new ProblemError('conflict', {
+        detail: `${row.name} signed in at ${(await packs.byId(row.packId))?.title ?? current.get(row.packId) ?? 'its pack'}’s address and opens that pack only: to reach another pack, add the app again at that pack’s address (/p/<name>/mcp).`,
+      })
     const names = packNamesIn ?? (await clients.packsOf(row)).flatMap((packId) => current.get(packId) ?? [])
     return packsNamed(names, packName ?? (packNamesIn ? undefined : current.get(row.packId)))
   }
@@ -249,7 +256,10 @@ export const clientsHandlers = ({
       const left = await Promise.all((await clients.packsOf(row)).map((packId) => packs.byId(packId)))
       if (!left.some(Boolean))
         throw new ProblemError('conflict', {
-          detail: `${row.name}’s pack was removed, so extending the key would open nothing: make a new key, or give this one a pack with PATCH ${PATH}/${id} {"packs":["<name>"],"expiresIn":"${expiresIn}"}.`,
+          detail:
+            row.kind === 'oauth'
+              ? `${row.name}’s pack was removed, so extending it would open nothing: add the app again at another pack’s address (/p/<name>/mcp).`
+              : `${row.name}’s pack was removed, so extending the key would open nothing: make a new key, or give this one a pack with PATCH ${PATH}/${id} {"packs":["<name>"],"expiresIn":"${expiresIn}"}.`,
         })
     }
     // A pack key's pins are checked against the packs this change leaves it with
@@ -281,17 +291,22 @@ export const clientsHandlers = ({
     requireOwner(c)
     const row = await rowOf(c.req.valid('param').id)
     const origin = originOf(c)
+    const card = await cardOf(origin, row)
+    // An app signed in at a pack's address is taken only there, by the name the pack has now
+    const pack = row.kind === 'oauth' ? (card.pack ?? undefined) : undefined
+    const base = pack ? `${origin}/p/${pack}` : origin
     return c.json(
       {
         client: row.id,
-        mcpUrl: `${origin}/mcp`,
-        apiUrl: `${origin}/api`,
+        mcpUrl: `${base}/mcp`,
+        apiUrl: `${base}/api`,
         keyPlaceholder: KEY_PLACEHOLDER,
         surfaces: surfacesOf({
           origin,
           kind: row.kind,
           oauth: Boolean(env.OAUTH_SIGNING_KEY),
-          packs: (await cardOf(origin, row)).packs,
+          packs: card.packs,
+          ...(pack ? { pack } : {}),
         }),
         _links: linksOf(origin, { self: `${PATH}/${row.id}/setup`, client: `${PATH}/${row.id}` }),
       },

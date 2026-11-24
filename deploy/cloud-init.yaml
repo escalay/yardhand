@@ -23,6 +23,8 @@ write_files:
       cd /opt/yardhand
       host=$(sed -n 's/^PUBLIC_HOST=//p' .env | tail -n 1)
       if [ -n "$host" ]; then
+        # Caddy writes each caller's address in x-forwarded-for: limits count each caller on their own
+        grep -q '^GATEWAY_ADDRESS_HEADER=' .env || echo 'GATEWAY_ADDRESS_HEADER=x-forwarded-for' >> .env
         docker compose --profile https up -d
         where="https://$host/app"
       else

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { foundOf, pickPack, reachOf, waitingHint, withKey } from './agents.rules'
+import { foundOf, pickPack, reachChangeOf, reachOf, repackable, waitingHint, withKey } from './agents.rules'
 
 describe('agent rules', () => {
   it('puts the key in only when it is known', () => {
@@ -39,5 +39,35 @@ describe('finding tools', () => {
     expect(reachOf({ upstreams: [], scope: 'read', pack: 'work', packs: ['work', 'design'] })).toBe(
       '2 packs (work by default), reads only',
     )
+  })
+})
+
+describe('changing what an agent reaches', () => {
+  const choice = {
+    scope: 'read' as const,
+    packChoice: { packs: ['desk', 'loud'], pack: 'desk' },
+    everything: false,
+    chosen: ['sample'],
+  }
+
+  it('lets a pack key change its packs, never an app that signed in at a pack’s address', () => {
+    expect(repackable({ kind: 'key', pack: 'desk' })).toBe(true)
+    expect(repackable({ kind: 'oauth', pack: 'desk' })).toBe(false)
+    expect(repackable({ kind: 'key', pack: null })).toBe(false)
+    expect(repackable({ kind: 'oauth', pack: null })).toBe(false)
+  })
+
+  it('sends a pack key’s packs, an app locked to a pack its scope alone, and anyone else’s connections', () => {
+    expect(reachChangeOf({ kind: 'key', pack: 'desk' }, choice)).toEqual({
+      scope: 'read',
+      packs: ['desk', 'loud'],
+      pack: 'desk',
+    })
+    expect(reachChangeOf({ kind: 'oauth', pack: 'desk' }, choice)).toEqual({ scope: 'read' })
+    expect(reachChangeOf({ kind: 'oauth', pack: null }, choice)).toEqual({ scope: 'read', upstreams: ['sample'] })
+    expect(reachChangeOf({ kind: 'key', pack: null }, { ...choice, everything: true })).toEqual({
+      scope: 'read',
+      upstreams: 'all',
+    })
   })
 })

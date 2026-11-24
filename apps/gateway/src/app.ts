@@ -9,13 +9,15 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'hono'
+import { addressTrustOf } from './env.js'
 import type { Model } from './features/ai/model.js'
 import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { withPlaybookQuery } from './features/catalog/query.js'
 import { onGrantFor } from './features/clients/grants.js'
 import { mapLegacySignIns } from './features/clients/legacy.js'
-import { packBaseOf, packChoice, withPackAddresses } from './features/clients/pack-choice.js'
+import { packChoice, withPackAddresses } from './features/clients/pack-choice.js'
 import { callerOf, isOwner } from './features/clients/principals.js'
+import { accepts, issuesFor, resourceOf } from './features/clients/resources.js'
 import { FEATURES } from './features/index.js'
 import { mountPackDocs } from './features/packs/docs.js'
 import { createSessionAuth, kitOwner, sessionFeature, type Unclaimed } from './features/session/index.js'
@@ -28,6 +30,7 @@ import { GUIDE_FILES } from './guide.gen.js'
 import { GUIDE_VARS } from './guide.vars.js'
 import {
   accessOwner,
+  addressOf,
   createAgentApi,
   createOAuth,
   type Db,
@@ -35,7 +38,6 @@ import {
   dbOAuthStore,
   frontDoorOpen,
   migrate,
-  type OAuth,
   originOf,
   parseApiKeys,
   rateLimit,
@@ -77,11 +79,31 @@ const APP_PAGES = [
 ]
 const DEFAULT_WEB_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../web/dist')
 
-/** Where a 401 points: at a pack's address, that address's own metadata, whose `resource` is the URL asked (RFC 9728). */
-const resourceMetadataOf = (oauth: OAuth) => (c: Context) => {
-  const base = packBaseOf()
-  if (!base) return oauth.resourceMetadataFor(c)
-  return `${originOf(c)}/.well-known/oauth-protected-resource${base}${c.req.path.startsWith('/mcp') ? '/mcp' : ''}`
+/** Headers a proxy writes the caller's address in: seen from a proxy, they mean GATEWAY_ADDRESS_HEADER is missing. */
+const FORWARDING = ['x-forwarded-for', 'forwarded', 'x-real-ip', 'cf-connecting-ip']
+/** This machine or a private network: where a proxy in front of the gateway connects from. */
+const PRIVATE_PEER = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|::1$|f[cd][0-9a-f]{2}:|fe80:)/
+
+type Fetch = (request: Request, ...rest: never[]) => Response | Promise<Response>
+
+/**
+ * Says once that a proxy forwards requests while their address is read from the connection: every caller then shares
+ * the proxy's limit. Around the app, so the first request counts whichever route or refusal answers it.
+ */
+const warnOfUnnamedProxy = <F extends Fetch>(fetch: F): F => {
+  let warned = false
+  return ((request: Request, ...rest: never[]) => {
+    const forwarded = warned ? undefined : FORWARDING.find((header) => request.headers.has(header))
+    // The connection as the kit reads it: an IPv4 peer Node reports as `::ffff:…` counts as its IPv4 address
+    const peer = forwarded ? addressOf({ env: rest[0] } as unknown as Context, 'socket') : ''
+    if (forwarded && PRIVATE_PEER.test(peer)) {
+      warned = true
+      console.warn(
+        `A proxy at ${peer} forwards requests (${forwarded}), but GATEWAY_ADDRESS_HEADER is empty: every caller counts as ${peer} and shares one sign-in and call limit, which anyone can use up. Set GATEWAY_ADDRESS_HEADER to the header your proxy writes (x-forwarded-for behind Caddy or nginx, cf-connecting-ip behind Cloudflare).`,
+      )
+    }
+    return fetch(request, ...rest)
+  }) as F
 }
 
 export const createApp = async ({
@@ -112,6 +134,10 @@ export const createApp = async ({
   const hasWeb = existsSync(join(web.dir, 'index.html'))
   // The OAuth callback stays behind sign-in: only the pages themselves are open
   const pages = APP_PAGES.flatMap((page) => (page ? [`/app/${page}`, `/app/${page}/*`] : ['/app', '/app/']))
+  // Where each caller's address is read, for every limit: the proxy's header (named, or behind an https address)
+  const address = addressTrustOf(env, services.statedOrigin)
+  // The root as the sign-in signs it (`publicOrigin`, else the request's own), once it is made
+  const rootOf = (c: Context) => services.oauth.current?.rootOf(c) ?? originOf(c)
   const oauthStore = env.OAUTH_SIGNING_KEY ? await dbOAuthStore(db) : undefined
   const oauth =
     env.OAUTH_SIGNING_KEY && oauthStore
@@ -123,6 +149,15 @@ export const createApp = async ({
           owner: async (c) => (access ? await accessOwner(access)(c) : null) ?? (await kitOwner(sessions)(c)),
           // Every new sign-in is its own client row, made here and nowhere else
           onGrant: (grant) => onGrantFor(services)(grant),
+          // What a sign-in is for: the root or one pack's address, read by `classOf` alone (features/clients/resources)
+          mcpPath: '/mcp',
+          resources: issuesFor,
+          resourceOf: resourceOf(rootOf),
+          accepts: accepts(services, rootOf),
+          listResources: (origin) => [origin, `${origin}/mcp`],
+          // The one origin of every sign-in document and check, when the owner named one others reach
+          ...(services.statedOrigin ? { publicOrigin: services.statedOrigin } : {}),
+          limits: { store: await dbGuardStore(db), address },
         })
       : undefined
   if (oauth) {
@@ -131,6 +166,7 @@ export const createApp = async ({
     await mapLegacySignIns({ clients: services.clients, revokeGrant: oauth.revokeGrant })
   }
   const app = createAgentApi({
+    address,
     title: 'Yardhand',
     version: VERSION,
     description: DESCRIPTION,
@@ -149,16 +185,17 @@ export const createApp = async ({
         ...(hasWeb ? [...frontDoorOpen(web), ...pages] : []),
       ],
     },
-    oauth: oauth && { ...oauth, resourceMetadataFor: resourceMetadataOf(oauth) },
-    // An answer kept for an `Idempotency-Key` can hold a key shown once: it is kept sealed
-    guards: { store: await sealedGuardStore(db, parseMasterKey(env.GATEWAY_MASTER_KEY)) },
+    oauth,
+    // An answer kept for an `Idempotency-Key` can hold a key shown once: it is kept sealed. `/join/*` answers a
+    // redirect holding a sign-in code (invites, from 0.7.0): never kept
+    guards: { store: await sealedGuardStore(db, parseMasterKey(env.GATEWAY_MASTER_KEY)), skip: ['/join/*'] },
   })
   // An OAuth caller the gateway refuses is pointed where the kit's own 401 would point it, by the address it asked
   if (oauth) {
-    const metadataOf = resourceMetadataOf(oauth)
     app.use('*', async (c, next) => {
       const caller = callerOf(c)
-      if (caller?.kind === 'agent') c.set('caller' as never, { ...caller, resourceMetadata: metadataOf(c) } as never)
+      if (caller?.kind === 'agent')
+        c.set('caller' as never, { ...caller, resourceMetadata: oauth.resourceMetadataFor(c) } as never)
       await next()
     })
   }
@@ -178,7 +215,13 @@ export const createApp = async ({
     await next()
   })
   // Per caller: runs reach paid and rate-limited upstreams, so a runaway agent stops here first
-  const runs = rateLimit({ policy: 'tool-calls', limit: 300, windowSeconds: 60, store: await dbGuardStore(db) })
+  const runs = rateLimit({
+    policy: 'tool-calls',
+    limit: 300,
+    windowSeconds: 60,
+    store: await dbGuardStore(db),
+    address,
+  })
   app.on('POST', ['/api/calls', '/api/tools/:name/calls', '/u/:upstream/mcp'], runs)
   // Six builds an hour per pack and caller, refused ones too: each may spend $1 and run real read calls
   const builds = await dbGuardStore(db)
@@ -190,13 +233,16 @@ export const createApp = async ({
     // By the pack's id, so a rename doesn't give it six more; a name no pack has is the handler's 404, never a policy
     const pack = await services.packs.get(c.req.param('name') ?? '')
     if (!pack) return next()
-    return rateLimit({ policy: `builds for ${pack.id}`, limit: 6, windowSeconds: 3600, store: builds })(c, next)
+    return rateLimit({ policy: `builds for ${pack.id}`, limit: 6, windowSeconds: 3600, store: builds, address })(
+      c,
+      next,
+    )
   })
   // Ten tries a minute per address: owner keys are long, but a guess should still be slow
   app.on(
     'POST',
     ['/api/session', '/api/session/claim'],
-    rateLimit({ policy: 'sign-in', limit: 10, windowSeconds: 60, store: await dbGuardStore(db) }),
+    rateLimit({ policy: 'sign-in', limit: 10, windowSeconds: 60, store: await dbGuardStore(db), address }),
   )
   // The caller's W3C trace context (a `traceparent` header; MCP's `_meta.traceparent` arrives as one): calls join it
   app.use('/api/*', (c, next) => traceContext.run(parseTraceparent(c.req.header('traceparent')), next))
@@ -223,5 +269,7 @@ export const createApp = async ({
   app.fetch = withPackAddresses(sessionAuth.wrap(withPlaybookQuery(app.fetch) as never) as typeof app.fetch)
   // Around everything, until 0.7.0: what each app sends as it signs in, measured before OAuth's rules are settled
   if (oauthStore) app.fetch = signInLog({ store: oauthStore })(app.fetch as never) as typeof app.fetch
+  // Read from the connection, a proxy's forwarding header means every caller shares the proxy's limit: said once
+  if (address === 'socket') app.fetch = warnOfUnnamedProxy(app.fetch)
   return Object.assign(app, { services })
 }

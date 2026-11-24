@@ -49,11 +49,14 @@ export const surfacesOf = ({
   oauth: boolean
   /** The packs a pack key opens, the default first. */
   packs?: string[]
-  /** One pack at its own address (`/p/<pack>/`), whatever key opens it: every snippet then points there. */
+  /**
+   * One pack at its own address (`/p/<pack>/`): every snippet then points there. For a key, whatever key opens it; for
+   * an app that signed in, the pack its sign-in is locked to.
+   */
   pack?: string
 }): Surface[] => {
   const mcp = `${origin}/mcp`
-  // A pack's address takes keys only, so nothing signs in to it from claude.ai
+  // A pack's own setup lists a key's surfaces only: an app that signs in (claude.ai) is added at its MCP address
   const base = pack ? `${origin}/p/${pack}` : origin
   const servers = pack ? [{ name: `${SERVER_NAME}-${pack}`, url: `${base}/mcp` }] : serversOf(origin, packs)
   const name = servers.length === 1 ? (servers[0]?.name ?? SERVER_NAME) : SERVER_NAME
@@ -62,7 +65,7 @@ export const surfacesOf = ({
     title: 'claude.ai',
     where: 'claude.ai → Settings → Connectors → Add custom connector',
     format: 'text',
-    snippet: `Name: Yardhand\nURL:  ${mcp}`,
+    snippet: `Name: Yardhand\nURL:  ${base}/mcp`,
     note: 'No key: claude.ai signs in with OAuth and you approve it once. It shows up under Agents after its first call.',
   }
   if (kind === 'oauth') return oauth ? [claudeAi] : []

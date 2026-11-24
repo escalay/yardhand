@@ -87,7 +87,7 @@ export type Principal = {
 }
 
 const CLIENT_KEY = 'client:'
-const UNKNOWN_SIGN_IN = 'This sign-in is not known here: connect again.'
+export const UNKNOWN_SIGN_IN = 'This sign-in is not known here: connect again.'
 /** The kit's Bearer challenge for a refused token: its metadata pointer and the scopes to ask for. */
 const challengeOf = (pointer: string | undefined) =>
   [

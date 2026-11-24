@@ -63,7 +63,7 @@ type OpenApi = {
   components: { schemas?: Record<string, unknown>; securitySchemes?: Record<string, unknown> } & Record<string, unknown>
 } & Record<string, unknown>
 
-/** The gateway's own sign-in for agents: a pack's address takes keys only, so its document doesn't offer it. */
+/** The gateway's own sign-in for agents: a token signed in for a pack's address works there. */
 const OAUTH = 'oauth'
 type ToolsDoc = { paths: Paths; tags?: Tag[]; components?: { schemas?: Record<string, unknown> } }
 
@@ -92,6 +92,7 @@ export const packOpenApi = ({
   ) as Paths
   const paths = { ...served, ...tools.paths }
   const used = new Set(Object.values(paths).flatMap((item) => Object.values(item).flatMap((op) => op.tags ?? [])))
+  const signsIn = OAUTH in (gateway.components.securitySchemes ?? {})
   return {
     ...gateway,
     info: {
@@ -101,7 +102,9 @@ export const packOpenApi = ({
         pack.description.trim(),
         `${pack.title} is a pack: a set of tools chosen for one kind of work, served at its own address. This document holds everything that address reaches.`,
         [
-          '- **Auth:** `Authorization: Bearer <key>`, a key that opens this pack.',
+          signsIn
+            ? '- **Auth:** `Authorization: Bearer <key>`, a key that opens this pack, or a token signed in for this address. Sign in at this address: apps such as claude.ai do it themselves.'
+            : '- **Auth:** `Authorization: Bearer <key>`, a key that opens this pack.',
           '- **Find tools:** `GET /api/tools?q=<what you want to do>`, then `GET /api/tools/{name}` for the input schema.',
           '- **Run one:** `POST /api/calls` with `{ "tool": "<name>", "arguments": { … } }`, or its own operation below.',
           `- **Agent guide:** [llms.txt](${url}/llms.txt). **MCP:** \`${url}/mcp\`.`,
@@ -117,14 +120,10 @@ export const packOpenApi = ({
     },
     tags: [...(gateway.tags ?? []), ...(tools.tags ?? [])].filter((tag) => used.has(tag.name)),
     paths,
-    security: (gateway.security ?? []).filter((scheme) => !(OAUTH in scheme)),
     // The gateway's own schema wins a shared name (CallResult, Problem): the pack's routes are written against it
     components: {
       ...gateway.components,
       schemas: { ...tools.components?.schemas, ...gateway.components.schemas },
-      securitySchemes: Object.fromEntries(
-        Object.entries(gateway.components.securitySchemes ?? {}).filter(([name]) => name !== OAUTH),
-      ),
     },
   }
 }

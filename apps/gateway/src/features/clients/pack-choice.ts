@@ -16,7 +16,8 @@ import type { MiddlewareHandler } from 'hono'
 import { tryDecodeURI } from 'hono/utils/url'
 
 export const PACK_HEADER = 'x-gateway-pack'
-const NAME = '[a-z0-9][a-z0-9-]{0,39}'
+/** A pack's name, as a pattern: what every address and resource reads one by. */
+export const NAME = '[a-z0-9][a-z0-9-]{0,39}'
 const ADDRESS = new RegExp(`^/p/(${NAME})(/.*)?$`)
 const LEGACY_ADDRESS = new RegExp(`^/mcp/p/(${NAME})(/.*)?$`)
 
@@ -142,6 +143,9 @@ export const withPackAddresses = <F extends Fetch>(fetch: F): F =>
 
 /** `/p/<pack>` when this request came by a pack's own address, else nothing: for addresses printed outside `_links`. */
 export const packBaseOf = () => chosen.getStore()?.base ?? ''
+
+/** Did this request come by a pack's own address (`/p/<pack>/…`), not the header, `/mcp/p/<pack>` or plain `/mcp`? */
+export const askedByAddress = () => Boolean(chosen.getStore()?.base)
 
 /**
  * Puts the chosen pack (address or header) on the caller, after authentication, for the principal to honour. A pack
