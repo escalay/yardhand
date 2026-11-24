@@ -91,10 +91,10 @@ export type Env = {
 /**
  * Where the owner and agents reach the gateway, from `PUBLIC_HOST`: a bare name is served over HTTPS
  * (`gateway.example.test`); with a scheme it is taken as written, for a plain-HTTP address on a LAN or a port
- * (`http://nas.local:8080`). Unset, the dev address.
+ * (`http://nas.local:8080`). Unset, the dev address. Written as URLs write it: lower case, punycode, no default port.
  */
 export const publicOriginOf = (host: string | undefined) =>
-  !host ? 'http://localhost:4400' : /^https?:\/\//i.test(host) ? host.replace(/\/+$/, '') : `https://${host}`
+  !host ? 'http://localhost:4400' : new URL(/^https?:\/\//i.test(host) ? host : `https://${host}`).origin
 
 /**
  * The address the owner set for people to reach the gateway at, from `PUBLIC_HOST`; null when none is set or it names
@@ -102,9 +102,9 @@ export const publicOriginOf = (host: string | undefined) =>
  */
 export const statedOriginOf = (host: string | undefined) => {
   if (!host) return null
-  // As URLs write it (lower case, punycode, no default port): the sign-in's issuer must read back as it was given
-  const url = new URL(publicOriginOf(host))
-  return /^(localhost|.+\.localhost|127(\.\d+){3}|\[::1\])$/.test(url.hostname) ? null : url.origin
+  // As URLs write it: the sign-in's issuer must read back as it was given
+  const origin = publicOriginOf(host)
+  return /^(localhost|.+\.localhost|127(\.\d+){3}|\[::1\])$/.test(new URL(origin).hostname) ? null : origin
 }
 
 export const createServices = async ({
