@@ -1,7 +1,8 @@
 /**
  * The letters a pack's monogram is drawn with: the capitals and digits of Inter at weight 600 (Copyright 2016 The Inter
- * Project Authors, https://github.com/rsms/inter, SIL Open Font License 1.1), as outlines in font units, y down from
- * the baseline. Drawn as paths so the monogram looks the same on a server with no fonts installed.
+ * Project Authors, https://github.com/rsms/inter, SIL Open Font License 1.1, its text in `glyphs.OFL.txt` beside this
+ * file), as outlines in font units, y down from the baseline. Drawn as paths so the monogram looks the same on a
+ * server with no fonts installed.
  */
 export const UNITS_PER_EM = 2048
 export const CAP_HEIGHT = 1490
