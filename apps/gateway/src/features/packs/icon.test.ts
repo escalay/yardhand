@@ -107,10 +107,26 @@ describe('an uploaded icon', () => {
     expect(await colourAt(set.png512, 256, 256)).toBe('#ffffff')
   })
 
-  it('takes an SVG with an image embedded as a data: PNG, and links inside itself', async () => {
-    const png = (await square(8, '#00aa00')).toString('base64')
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><defs><rect id="r" width="10" height="10" fill="url(#g)"/><linearGradient id="g"><stop stop-color="#000"/></linearGradient></defs><use xlink:href="#r"/><image href="data:image/png;base64,${png}" width="10" height="10"/></svg>`
+  it('takes an SVG that links inside itself', async () => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"><defs><rect id="r" width="10" height="10" fill="url(#g)"/><linearGradient id="g"><stop stop-color="#000"/></linearGradient></defs><use xlink:href="#r"/></svg>`
     expectWhole(await renderedUpload(Buffer.from(svg)))
+  })
+
+  it('refuses an SVG with an image in it, embedded too: one is read at its full size, however small it is drawn', async () => {
+    const png = (await square(8, '#00aa00')).toString('base64')
+    for (const image of [
+      `<image href="data:image/png;base64,${png}" width="10" height="10"/>`,
+      `<image xlink:href="data:image/jpeg;base64,${png}" width="10" height="10"/>`,
+      `<svg:image xmlns:svg="http://www.w3.org/2000/svg" href="data:image/png;base64,${png}" width="10" height="10"/>`,
+      '<image href="data:image/svg+xml;base64,PHN2Zy8+" width="10" height="10"/>',
+      `<rect width="10" height="10" style="fill: url(data:image/png;base64,${png})"/>`,
+      '<filter id="f"><feImage href="#r"/></filter><rect id="r" width="10" height="10" filter="url(#f)"/>',
+    ]) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10">${image}</svg>`
+      const problem = await refusal(Buffer.from(svg))
+      expect([image, problem.code]).toEqual([image, 'bad_request'])
+      expect(problem.message).toMatch(/has an image in it.*send the image as a PNG/)
+    }
   })
 
   it('gives back what a set was made from: its 512 PNG renders to the same set', async () => {
@@ -154,7 +170,6 @@ describe('an uploaded icon', () => {
       '<image xlink:href="https://example.com/x.png" width="10" height="10"/>',
       '<image href="file:///etc/passwd" width="10" height="10"/>',
       '<image href="x.png" width="10" height="10"/>',
-      '<image href="data:image/svg+xml;base64,PHN2Zy8+" width="10" height="10"/>',
       '<use href="other.svg#a"/>',
       '<rect width="10" height="10" style="fill: url(http://example.com/a.svg#p)"/>',
       '<style>@import url("https://example.com/a.css");</style>',

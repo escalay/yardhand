@@ -90,13 +90,15 @@ export const renderedMonogram = async (letter: string, colour: string) => {
   )
 }
 
-/** What an SVG would reach outside itself: anything but a link inside it or an image embedded as a data: PNG or JPEG. */
+/** What an SVG would reach outside itself: anything but a link inside it (a data: one is an image, refused as one). */
 const OUTSIDE = [
-  /\bhref\s*=\s*["']\s*(?!#|data:image\/(?:png|jpeg);)([^"']{0,60})/i,
-  /url\(\s*["']?\s*(?!#|data:image\/(?:png|jpeg);)([^)"']{0,60})/i,
+  /\bhref\s*=\s*["']\s*(?!#|data:)([^"']{0,60})/i,
+  /url\(\s*["']?\s*(?!#|data:)([^)"']{0,60})/i,
   /(@import)/i,
   /<(\w+:include)\b/i,
 ]
+/** An image in an SVG, embedded or not: librsvg reads one at the size it declares, past any limit set here. */
+const IMAGE = [/<(?:\w+:)?(?:image|feImage)[\s>/]/i, /(?:\bhref\s*=\s*["']|url\(\s*["']?)\s*data:/i]
 
 const refused = (detail: string) => new ProblemError('bad_request', { detail })
 const tooFarFromSquare = (width: number, height: number) => {
@@ -106,8 +108,8 @@ const tooFarFromSquare = (width: number, height: number) => {
 
 /**
  * Checks what an SVG holds before anything reads it: no DOCTYPE or entities, no CSS escapes, nothing outside itself
- * however it is spelt (librsvg fetches nothing remote, and this keeps it that way), and no text, which the server has
- * no fonts to draw.
+ * however it is spelt (librsvg fetches nothing remote, and this keeps it that way), no image, and no text, which the
+ * server has no fonts to draw.
  */
 const checkSvg = (source: string) => {
   if (/<!DOCTYPE|<!ENTITY/i.test(source))
@@ -131,9 +133,13 @@ const checkSvg = (source: string) => {
     const found = pattern.exec(text)
     if (found)
       throw refused(
-        `The SVG points outside itself (${found[1]?.trim() || found[0].trim()}): an icon is drawn from the file alone, and nothing it links to is fetched. Embed an image as a data: PNG or JPEG, or remove the link, and send it again.`,
+        `The SVG points outside itself (${found[1]?.trim() || found[0].trim()}): an icon is drawn from the file alone, and nothing it links to is fetched. Remove the link and send it again.`,
       )
   }
+  if (IMAGE.some((pattern) => pattern.test(text)))
+    throw refused(
+      'The SVG has an image in it, which an icon doesn’t take: send the image as a PNG instead, or remove it from the SVG and send that.',
+    )
 }
 
 /** Draws an SVG (stdin) at a density into a 512 PNG (stdout); run as `node -e` with sharp's path and the density. */

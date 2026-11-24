@@ -104,8 +104,8 @@ export const IconSection = ({ pack }: { pack: Pack }) => {
           ) : null}
         </div>
         <p className="text-xs text-pretty text-muted-foreground">
-          Square, at most 1 MB; a PNG at least 96 × 96, an SVG with its text as outlines. It is drawn at 512 × 512, and
-          an SVG is never served as one.
+          Square, at most 1 MB; a PNG at least 96 × 96, an SVG of shapes only (its text as outlines, no images in it).
+          It is drawn at 512 × 512, and an SVG is never served as one.
         </p>
         {change.error ? (
           <p role="alert" className="text-sm text-error">
