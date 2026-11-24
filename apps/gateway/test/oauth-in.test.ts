@@ -327,7 +327,7 @@ describe('an app signing in to the gateway', () => {
     const listed = await app.request('/api/clients', { headers: bearer(OWNER) })
     const rows = ((await listed.json()) as { _embedded: { clients: { name: string; kind: string }[] } })._embedded
       .clients
-    expect(rows.filter((one) => one.kind === 'oauth' && one.name === 'Sample')).toHaveLength(1)
+    expect(rows.filter((one) => one.kind === 'oauth').map((one) => one.name)).toEqual(['Sample'])
     const again = await tokenFor(app, {
       grant_type: 'refresh_token',
       refresh_token: refreshed.json.refresh_token,
