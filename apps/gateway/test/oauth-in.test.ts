@@ -11,6 +11,7 @@ import { decodeJwt, exportJWK, generateKeyPair, importJWK, SignJWT } from 'jose'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApp, type Env } from '../src/app.js'
 import { type ClientDraft, clientsRepo } from '../src/features/clients/repo.js'
+import { secrets } from '../src/features/vault/schema.js'
 import { dbOAuthStore, generateOAuthKey, hashApiKey, testDb } from '../src/kit/index.js'
 
 const OWNER = 'owner-key-for-oauth'
@@ -204,7 +205,9 @@ const beforeTheUpdate = async () => {
         .setExpirationTime(hourFromNow)
         .sign(await importJWK(JSON.parse(env.OAUTH_SIGNING_KEY), 'ES256'))
     },
-    update: () => createApp({ db, env }),
+    /** The ids in the vault, never their values. */
+    secretIds: async () => (await db.select({ id: secrets.id }).from(secrets)).map((row) => row.id),
+    update: (keys: Partial<Env> = {}) => createApp({ db, env: { ...env, ...keys } }),
   }
 }
 
@@ -645,6 +648,15 @@ describe('an app is known by its sign-in, not the name it gives', () => {
     expect([unseen.status, unseen.json.detail]).toEqual([401, UNKNOWN])
     expect((await roll(restarted, refreshed.json.access_token)).status).toBe(200)
     expect((await oauthRows(restarted)).map((row) => row.name)).toEqual(['Sample'])
+  })
+
+  it('a start under another master key still comes up, and the mapping leaves nothing in the vault', async () => {
+    const before = await beforeTheUpdate()
+    const old = await before.refreshRow('Sample', 'client_laptop')
+    await before.update()
+    const app = await before.update({ GATEWAY_MASTER_KEY: randomBytes(32).toString('base64') })
+    expect((await roll(app, (await refresh(app, old)).json.access_token)).status).toBe(200)
+    expect(await before.secretIds()).toEqual([])
   })
 })
 

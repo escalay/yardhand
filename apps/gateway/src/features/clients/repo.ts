@@ -6,6 +6,7 @@ import {
   type ClientPackRow,
   type ClientRow,
   clientGrants,
+  clientLegacyMapping,
   clientPacks,
   clients,
   clientUpstreams,
@@ -143,11 +144,11 @@ export const clientsRepo = (db: Db) => {
     /** Every sign-in a row stands for. */
     grantsOf: async (clientId: string) =>
       (await db.select().from(clientGrants).where(eq(clientGrants.clientId, clientId))).map((row) => row.grant),
-    /**
-     * The sign-ins the kit holds as they stand: each live refresh token not yet used, and each claimed agent
-     * registration, with its grant (`family`, else its own id, as the kit reads it) and the name its app gave. Read
-     * once, at the start that maps the sign-ins from before 0.6.4.
-     */
+    /** Whether the sign-ins from before 0.6.4 are mapped. */
+    legacyMapped: async () => (await db.select().from(clientLegacyMapping).limit(1)).length > 0,
+    markLegacyMapped: (signIns: number) =>
+      db.insert(clientLegacyMapping).values({ at: new Date().toISOString(), signIns }),
+    /** The kit's live sign-ins (unused refresh tokens, claimed registrations): grant, client id and the name given. */
     kitSignIns: async () => {
       const rows = await db
         .select()

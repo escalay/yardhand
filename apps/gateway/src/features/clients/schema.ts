@@ -45,14 +45,17 @@ export const pins = sqliteTable(
   (table) => [primaryKey({ columns: [table.clientId, table.toolName] })],
 )
 
-/**
- * The OAuth sign-ins (the kit's grants) each OAuth client row stands for, many to one. A row is made with its first
- * grant; `legacy` marks a sign-in from before 0.6.4, mapped once at start by the name it gave.
- */
+/** The kit's grants each OAuth client row stands for; `legacy` marks one mapped by name from before 0.6.4. */
 export const clientGrants = sqliteTable('client_grants', {
   grant: text('grant').primaryKey(),
   clientId: text('client_id').notNull(),
   legacy: integer('legacy', { mode: 'boolean' }).notNull(),
+})
+
+/** One row once the sign-ins from before 0.6.4 are mapped: plain, so any master key reads it. */
+export const clientLegacyMapping = sqliteTable('client_legacy_mapping', {
+  at: text('at').notNull(),
+  signIns: integer('sign_ins').notNull(),
 })
 
 /**
@@ -90,6 +93,7 @@ export const CLIENTS_MIGRATIONS = [
     legacy integer not null default 0);
   create index if not exists client_grants_client on client_grants (client_id);
   alter table clients add column oauth_client_id text`,
+  'create table if not exists client_legacy_mapping (at text not null, sign_ins integer not null)',
 ] as const
 
 export type ClientRow = typeof clients.$inferSelect

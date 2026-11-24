@@ -119,7 +119,7 @@ export const createApp = async ({
   if (oauth) {
     services.oauth.current = oauth
     // Before the first request: a sign-in from before 0.6.4 finds its row by its grant from now on
-    await mapLegacySignIns({ clients: services.clients, vault: services.vault, revokeGrant: oauth.revokeGrant })
+    await mapLegacySignIns({ clients: services.clients, revokeGrant: oauth.revokeGrant })
   }
   const app = createAgentApi({
     title: 'Yardhand',
