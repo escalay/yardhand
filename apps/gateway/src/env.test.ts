@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { createApp } from './app.js'
 import { addressTrustOf, EXAMPLE_HEADER, IMAGE_SETS, problemsOf, renderEnv, settings } from './env.js'
-import { hashApiKey } from './kit/index.js'
+import { generateOAuthKey, hashApiKey, testDb } from './kit/index.js'
+import { statedOriginOf } from './services.js'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const good = { GATEWAY_MASTER_KEY: randomBytes(32).toString('base64'), API_KEYS: `owner:${hashApiKey('k')}` }
@@ -58,6 +60,65 @@ describe('the settings', () => {
       expect(problemsOf({ ...good, GATEWAY_ADDRESS_HEADER: header })).toEqual([
         `GATEWAY_ADDRESS_HEADER (${header}) isn’t a header name: write the one header your proxy puts the caller’s address in (x-forwarded-for behind Caddy or nginx, cf-connecting-ip behind Cloudflare), or leave it empty when nothing is in front.`,
       ])
+  })
+})
+
+describe('an odd PUBLIC_HOST', () => {
+  /** A gateway with its sign-in on, started as server.ts starts one: its sign-in metadata's issuer. */
+  const issuerOf = async (host: string) => {
+    const app = await createApp({
+      db: await testDb(),
+      env: { ...good, OAUTH_SIGNING_KEY: await generateOAuthKey(), PUBLIC_HOST: host },
+    })
+    const metadata = await app.request('/.well-known/oauth-authorization-server')
+    return ((await metadata.json()) as { issuer: string }).issuer
+  }
+
+  it('is written as URLs write it, and the gateway starts with sign-in at that origin', async () => {
+    for (const [host, origin] of [
+      ['GW.Example.COM', 'https://gw.example.com'],
+      ['HTTPS://gw.example.com', 'https://gw.example.com'],
+      ['https://gw.example.com:443', 'https://gw.example.com'],
+      ['http://nas.example.test:80', 'http://nas.example.test'],
+      ['http://nas.example.test:0080', 'http://nas.example.test'],
+      ['https://gw.example.com:', 'https://gw.example.com'],
+      ['bücher.example', 'https://xn--bcher-kva.example'],
+      ['https://[2001:DB8:0:0::1]', 'https://[2001:db8::1]'],
+      ['gw%2eexample.com', 'https://gw.example.com'],
+      ['gw.example.com/', 'https://gw.example.com'],
+    ] as const) {
+      expect([host, problemsOf({ ...good, PUBLIC_HOST: host })]).toEqual([host, []])
+      expect([host, statedOriginOf(host)]).toEqual([host, origin])
+      expect([host, await issuerOf(host)]).toEqual([host, origin])
+    }
+  })
+
+  it('with a user part, path, query or fragment is named at start, each in its own words', () => {
+    const named = (host: string, part: string) =>
+      `PUBLIC_HOST (${host}) isn’t an address: it has ${part}. Write the name alone, like gateway.example.test, or a whole address such as http://nas.local:8080.`
+    for (const [host, part] of [
+      ['user@gw.example.com', 'a user part (user@)'],
+      ['https://user:secret@gw.example.com', 'a user part (user:secret@)'],
+      ['https://@gw.example.com', 'a user part (@)'],
+      ['nas.local/app', 'a path (/app)'],
+      ['https://gw.example.com/%2e%2e/', 'a path (/%2e%2e/)'],
+      ['https://gw.example.com\\app', 'a path (/app)'],
+      ['gw.example.com?', 'a query (?)'],
+      ['gw.example.com?x=1', 'a query (?x=1)'],
+      ['gw.example.com#', 'a fragment (#)'],
+      ['gw.example.com#top', 'a fragment (#top)'],
+    ] as const)
+      expect(problemsOf({ ...good, PUBLIC_HOST: host })).toEqual([named(host, part)])
+  })
+
+  it('that never starts is named at start, and nothing a check lets through stops the start', async () => {
+    for (const host of ['https://', 'gw example.com', 'https://gw.example.com:99999', 'gw.example.com:port'])
+      expect(problemsOf({ ...good, PUBLIC_HOST: host })).toEqual([
+        `PUBLIC_HOST (${host}) isn’t an address: a name like gateway.example.test, or http://nas.local:8080 written whole, without a path.`,
+      ])
+    for (const host of ['gw.example.com.', 'http://[::1]:8080', 'https://0x7f.1', 'localhost'])
+      if (!problemsOf({ ...good, PUBLIC_HOST: host }).length)
+        expect([host, await issuerOf(host)]).toEqual([host, expect.stringMatching(/^https?:\/\//)])
   })
 })
 

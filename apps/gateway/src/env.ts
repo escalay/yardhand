@@ -261,6 +261,23 @@ export const EXAMPLE_HEADER = [
   '# and follow the setup. Copy this file to .env for what you want to change. Keep .env private.',
 ]
 
+/**
+ * What PUBLIC_HOST carries beyond an origin, read as written (a URL drops an empty `?`, `#` or user part, and dot
+ * segments): a user part, a path, a query or a fragment; '' when it is no address at all; undefined when it is one.
+ */
+const extraPartOf = (host: string) => {
+  const whole = /^https?:\/\//i.test(host) ? host : `https://${host}`
+  if (/\s/.test(host) || !URL.canParse(whole)) return ''
+  const [, authority = '', rest = ''] = /^[^:]+:\/\/([^/?#\\]*)(.*)$/s.exec(whole) ?? []
+  const user = authority.lastIndexOf('@')
+  if (user >= 0) return `a user part (${authority.slice(0, user + 1)})`
+  const path = /^[^?#]*/.exec(rest)?.[0] ?? ''
+  if (!['', '/'].includes(path) || new URL(whole).pathname !== '/') return `a path (${path.replaceAll('\\', '/')})`
+  const after = rest.slice(path.length)
+  if (after) return after.startsWith('?') ? `a query (${after})` : `a fragment (${after})`
+  return undefined
+}
+
 /** A header name as HTTP writes one (RFC 9110 token). */
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 
@@ -285,11 +302,12 @@ export const problemsOf = (env: Env) => {
         `API_KEYS has an entry that isn’t name:hash (${entry.trim().split(':')[0] || 'empty'}): it takes the hash the first-run script prints, never the key itself.`,
       )
   if (env.PUBLIC_HOST) {
-    const whole = /^https?:\/\//.test(env.PUBLIC_HOST) ? env.PUBLIC_HOST : `https://${env.PUBLIC_HOST}`
-    const url = URL.canParse(whole) ? new URL(whole) : null
-    if (!url || url.pathname !== '/' || url.search || /\s/.test(env.PUBLIC_HOST))
+    const extra = extraPartOf(env.PUBLIC_HOST)
+    if (extra !== undefined)
       problems.push(
-        `PUBLIC_HOST (${env.PUBLIC_HOST}) isn’t an address: a name like gateway.example.test, or http://nas.local:8080 written whole, without a path.`,
+        extra
+          ? `PUBLIC_HOST (${env.PUBLIC_HOST}) isn’t an address: it has ${extra}. Write the name alone, like gateway.example.test, or a whole address such as http://nas.local:8080.`
+          : `PUBLIC_HOST (${env.PUBLIC_HOST}) isn’t an address: a name like gateway.example.test, or http://nas.local:8080 written whole, without a path.`,
       )
   }
   const header = env.GATEWAY_ADDRESS_HEADER?.trim()

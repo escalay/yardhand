@@ -94,7 +94,7 @@ export type Env = {
  * (`http://nas.local:8080`). Unset, the dev address.
  */
 export const publicOriginOf = (host: string | undefined) =>
-  !host ? 'http://localhost:4400' : /^https?:\/\//.test(host) ? host.replace(/\/+$/, '') : `https://${host}`
+  !host ? 'http://localhost:4400' : /^https?:\/\//i.test(host) ? host.replace(/\/+$/, '') : `https://${host}`
 
 /**
  * The address the owner set for people to reach the gateway at, from `PUBLIC_HOST`; null when none is set or it names
@@ -102,8 +102,9 @@ export const publicOriginOf = (host: string | undefined) =>
  */
 export const statedOriginOf = (host: string | undefined) => {
   if (!host) return null
-  const origin = publicOriginOf(host)
-  return /^(localhost|.+\.localhost|127(\.\d+){3}|\[::1\])$/.test(new URL(origin).hostname) ? null : origin
+  // As URLs write it (lower case, punycode, no default port): the sign-in's issuer must read back as it was given
+  const url = new URL(publicOriginOf(host))
+  return /^(localhost|.+\.localhost|127(\.\d+){3}|\[::1\])$/.test(url.hostname) ? null : url.origin
 }
 
 export const createServices = async ({
