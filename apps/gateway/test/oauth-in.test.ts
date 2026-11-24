@@ -205,6 +205,11 @@ const beforeTheUpdate = async () => {
         .setExpirationTime(hourFromNow)
         .sign(await importJWK(JSON.parse(env.OAUTH_SIGNING_KEY), 'ES256'))
     },
+    /** A kit marker: `revoked-family` by grant (a 1.7.0 refresh row's is the sha256 of its token), `revoked-client`. */
+    revoked: (kind: 'revoked-family' | 'revoked-client', id: string) => store.put(kind, id, {}, hourFromNow),
+    /** An agent registration the owner claimed, as the kit keeps it. */
+    claimedRow: (name: string, id: string) =>
+      store.put('registration', id, { name, type: 'agent', claimed: true, owner: 'owner@example.test' }, hourFromNow),
     /** The ids in the vault, never their values. */
     secretIds: async () => (await db.select({ id: secrets.id }).from(secrets)).map((row) => row.id),
     update: (keys: Partial<Env> = {}) => createApp({ db, env: { ...env, ...keys } }),
@@ -648,6 +653,18 @@ describe('an app is known by its sign-in, not the name it gives', () => {
     expect([unseen.status, unseen.json.detail]).toEqual([401, UNKNOWN])
     expect((await roll(restarted, refreshed.json.access_token)).status).toBe(200)
     expect((await oauthRows(restarted)).map((row) => row.name)).toEqual(['Sample'])
+  })
+
+  it('a pre-update sign-in the kit already refuses gets no row at start', async () => {
+    const before = await beforeTheUpdate()
+    const replayed = await before.refreshRow('Ghost', 'client_ghost')
+    await before.revoked('revoked-family', createHash('sha256').update(replayed).digest('hex'))
+    await before.claimedRow('Reg', 'client_reg')
+    await before.revoked('revoked-client', 'client_reg')
+    const app = await before.update()
+    expect(await oauthRows(app)).toEqual([])
+    const refreshed = await refresh(app, replayed)
+    expect([refreshed.status, refreshed.json.error]).toEqual([400, 'invalid_grant'])
   })
 
   it('a start under another master key still comes up, and the mapping leaves nothing in the vault', async () => {

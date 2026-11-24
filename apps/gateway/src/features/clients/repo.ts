@@ -148,18 +148,28 @@ export const clientsRepo = (db: Db) => {
     legacyMapped: async () => (await db.select().from(clientLegacyMapping).limit(1)).length > 0,
     markLegacyMapped: (signIns: number) =>
       db.insert(clientLegacyMapping).values({ at: new Date().toISOString(), signIns }),
-    /** The kit's live sign-ins (unused refresh tokens, claimed registrations): grant, client id and the name given. */
+    /** The sign-ins the kit still takes (unused refresh tokens, claimed registrations, neither revoked). */
     kitSignIns: async () => {
       const rows = await db
         .select()
         .from(oauthKeys)
-        .where(and(inArray(oauthKeys.kind, ['refresh', 'registration']), gt(oauthKeys.expiresAt, nowSeconds())))
+        .where(
+          and(
+            inArray(oauthKeys.kind, ['refresh', 'registration', 'revoked-family', 'revoked-client']),
+            gt(oauthKeys.expiresAt, nowSeconds()),
+          ),
+        )
+      const revoked = new Set(
+        rows.filter((row) => row.kind.startsWith('revoked-')).map((row) => `${row.kind}:${row.id}`),
+      )
       return rows.flatMap((row) => {
+        if (row.kind !== 'refresh' && row.kind !== 'registration') return []
         const value = JSON.parse(row.value) as Record<string, unknown>
         const live = row.kind === 'refresh' ? !value.used : value.claimed === true
-        if (!live) return []
         const client = row.kind === 'refresh' ? String(value.client) : row.id
-        return [{ grant: String(value.family ?? row.id), client, name: String(value.name ?? client) }]
+        const grant = String(value.family ?? row.id)
+        if (!live || revoked.has(`revoked-family:${grant}`) || revoked.has(`revoked-client:${client}`)) return []
+        return [{ grant, client, name: String(value.name ?? client) }]
       })
     },
     globalPins: () => pinsOf(GLOBAL_PINS),
