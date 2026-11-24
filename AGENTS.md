@@ -69,6 +69,11 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Adapter**: the code for one kind of upstream; turns it into tools.
 - **Tool**: `<upstream>.<tool>`, e.g. `cookbook.research_recipes`. A tool has versions; only a `live` version is served.
 - **Client**: who calls the gateway (an API key or an OAuth client): an allowlist of upstreams, read/write scope, pins.
+  An OAuth client is made with its sign-in (the kit's `onGrant`, `features/clients/grants.ts`) and known by the kit's
+  grants (`client_grants`), never by the name its app gives: a token whose grant has no row is a 401, and nothing
+  makes one on use. Sign-ins from before 0.6.4 were mapped once by that name (`legacy.ts`, `clients:legacy-mapped` in
+  the vault); an access token from then, which carries no grant, still finds its row by name for its last hour.
+  Revoking one ends each of its grants at the kit (`revokeGrant`, never `revokeClient`).
 - **Pin**: a real tool shown directly in a client's MCP tool list beside the meta-tools: the client's own pins, else
   the global ones. Inside a pack a pin is the pack's name for the tool (its alias, else the tool's own name), a key's
   own pins narrow its list from the whole pack to those, and the global pins never apply (`pinnedBy`).

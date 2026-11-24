@@ -57,6 +57,10 @@ sequenceDiagram
 ### C. claude.ai connects for the first time
 
 The kit's OAuth server; you approve as the signed-in owner; the new client starts with the default allowlist.
+Each sign-in is its own client, made as its first token is issued (the kit's `onGrant`, `features/clients/grants.ts`)
+and known from then on by the kit's grant (`client_grants`), never by the name its app gives. Sign-ins from before
+0.6.4 were mapped once, at the first start of that version, to the row their name used (`features/clients/legacy.ts`).
+Revoking a client ends every sign-in it stands for at once.
 Signed in to the app, you can approve an app's sign-in (claude.ai, Cursor) without Cloudflare Access: the session
 counts at `/oauth/authorize` only, so agent claims (`/oauth/claim`) still need Access. Arriving from the app's site,
 the browser leaves the `SameSite=Strict` session cookie out, so a Continue page repeats the request from Yardhand's own
@@ -78,9 +82,9 @@ sequenceDiagram
   Y->>G: Continue (only when the app's site sent you without the session cookie)
   Y->>G: sign in (the owner key, or Cloudflare Access when it is in front)
   Y->>G: approve the client
-  G->>G: create client with default allowlist and pins
   G-->>C: redirect with code
   C->>G: POST /oauth/token with code + verifier
+  G->>G: make the client for this sign-in (write, every upstream), keyed by its grant
   G-->>C: access token (read, write) + refresh token
   C->>G: POST /mcp with token, flow A continues
 ```
@@ -186,6 +190,7 @@ erDiagram
   UPSTREAM ||--o| SECRET : "authenticates with"
   UPSTREAM ||--o| OAUTH_CONNECTION : "connected by"
   CLIENT ||--o{ CLIENT_UPSTREAM : "is allowed"
+  CLIENT ||--o{ CLIENT_GRANT : "signed in as"
   UPSTREAM ||--o{ CLIENT_UPSTREAM : "allowed for"
   CLIENT ||--o{ PIN : "overrides"
   TOOL ||--o{ PIN : "pinned as"

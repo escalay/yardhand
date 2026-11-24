@@ -22,6 +22,7 @@ export const clientsHandlers = ({
   env,
   packs,
   listsChanged,
+  oauth,
 }: Services) => {
   const rowOf = async (id: string) => {
     const row = await clients.get(id)
@@ -69,6 +70,7 @@ export const clientsHandlers = ({
     id: row.id,
     name: row.name,
     kind: row.kind,
+    oauthClientId: row.oauthClientId,
     scope: row.scope,
     upstreams: await clients.upstreamsOf(row),
     pins: row.ownPins ? await clients.pinsOf(row.id) : null,
@@ -271,6 +273,9 @@ export const clientsHandlers = ({
     await clients.revoke(row.id)
     await packs.forgetPerson(row.id)
     principals.dropKey(row.keyHash)
+    // Every sign-in the row stands for ends at the kit at once; never the app's registration, which a later
+    // connection of the same app may use again
+    for (const grant of await clients.grantsOf(row.id)) await oauth.current?.revokeGrant(grant)
     return c.body(null, 204)
   }
   const setup: RouteHandler<Routes['setup']> = async (c) => {

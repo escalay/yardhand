@@ -87,6 +87,8 @@ export type Principal = {
 }
 
 const CLIENT_KEY = 'client:'
+const UNKNOWN_SIGN_IN = 'This sign-in is not known here: connect again.'
+const CHALLENGE = `Bearer realm="gateway", error="invalid_token", error_description="${UNKNOWN_SIGN_IN}"`
 
 export const OWNER: Principal = {
   id: 'owner',
@@ -313,18 +315,19 @@ export const createPrincipals = ({
       packs: byDefault.map((opened) => ({ name: opened.name, title: opened.title })),
     }
   }
-  /** The client row behind a caller (OAuth clients appear on first use), with the token's scope cap. */
+  /**
+   * The client row behind a caller, with the token's scope cap. An OAuth caller is its sign-in's row (made with the
+   * sign-in), or, for an access token from before 0.6.4 that carries no grant, the row of the name it gave; never one
+   * made here. Neither: 401, so the app signs in again.
+   */
   const rowOf = async (caller: Caller): Promise<{ row: ClientRow | undefined; scopeCap?: 'read' | 'write' }> => {
     if (caller.kind === 'key') return { row: await clients.get(caller.name.slice(CLIENT_KEY.length)) }
     if (caller.kind !== 'agent') return { row: undefined }
     const scopeCap = caller.scopes.includes('write') ? 'write' : 'read'
-    const known = await clients.byOAuthName(caller.name)
-    if (known) return { row: known, scopeCap }
-    // Two first requests at once: the second finds the row the first just made
-    const id = await clients
-      .create({ name: caller.name, kind: 'oauth', oauthName: caller.name, scope: 'write', upstreams: 'all' })
-      .catch(() => null)
-    return { row: id ? await clients.get(id) : await clients.byOAuthName(caller.name), scopeCap }
+    const row = caller.grant ? await clients.byGrant(caller.grant) : await clients.byOAuthName(caller.name)
+    if (!row)
+      throw new ProblemError('unauthorized', { detail: UNKNOWN_SIGN_IN, headers: { 'www-authenticate': CHALLENGE } })
+    return { row, scopeCap }
   }
   /** The owner inside a pack: what a write key of that pack would see and run; why not when there is no such pack. */
   const inPack = async (name: string): Promise<Principal | string> => {

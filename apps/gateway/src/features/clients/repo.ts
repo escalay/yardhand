@@ -1,10 +1,11 @@
 /** Clients, their allowlists and pins: the only queries on these tables. */
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, getTableColumns, inArray, isNotNull, isNull, like } from 'drizzle-orm'
-import type { Db } from '../../kit/index.js'
+import { and, asc, eq, getTableColumns, gt, inArray, isNotNull, isNull, like } from 'drizzle-orm'
+import { type Db, oauthKeys } from '../../kit/index.js'
 import {
   type ClientPackRow,
   type ClientRow,
+  clientGrants,
   clientPacks,
   clients,
   clientUpstreams,
@@ -18,6 +19,10 @@ export type ClientDraft = {
   kind: 'key' | 'oauth'
   keyHash?: string
   oauthName?: string
+  /** The app's OAuth client id, shown to the owner. */
+  oauthClientId?: string
+  /** The sign-in it is made for: an OAuth client row is made with its first grant, or not at all. */
+  grant?: string
   scope: 'read' | 'write'
   upstreams: 'all' | string[]
   pins?: string[] | null
@@ -35,6 +40,7 @@ export type ClientChange = Partial<
 >
 
 const HOUR_MS = 3_600_000
+const nowSeconds = () => Math.floor(Date.now() / 1000)
 
 export const clientsRepo = (db: Db) => {
   const setUpstreams = async (clientId: string, upstreams: 'all' | string[]) => {
@@ -122,16 +128,52 @@ export const clientsRepo = (db: Db) => {
         .update(clientPacks)
         .set({ cameBy: null, cameByAt: null })
         .where(and(eq(clientPacks.packId, packId), eq(clientPacks.cameBy, name))),
+    /** The client row a sign-in (the kit's grant) stands for. */
+    byGrant: async (grant: string): Promise<ClientRow | undefined> =>
+      (
+        await db
+          .select(getTableColumns(clients))
+          .from(clientGrants)
+          .innerJoin(clients, eq(clients.id, clientGrants.clientId))
+          .where(eq(clientGrants.grant, grant))
+      )[0],
+    /** Maps a sign-in to a row; a grant mapped already keeps the row it has. */
+    mapGrant: (grant: string, clientId: string, legacy = false) =>
+      db.insert(clientGrants).values({ grant, clientId, legacy }).onConflictDoNothing(),
+    /** Every sign-in a row stands for. */
+    grantsOf: async (clientId: string) =>
+      (await db.select().from(clientGrants).where(eq(clientGrants.clientId, clientId))).map((row) => row.grant),
+    /**
+     * The sign-ins the kit holds as they stand: each live refresh token not yet used, and each claimed agent
+     * registration, with its grant (`family`, else its own id, as the kit reads it) and the name its app gave. Read
+     * once, at the start that maps the sign-ins from before 0.6.4.
+     */
+    kitSignIns: async () => {
+      const rows = await db
+        .select()
+        .from(oauthKeys)
+        .where(and(inArray(oauthKeys.kind, ['refresh', 'registration']), gt(oauthKeys.expiresAt, nowSeconds())))
+      return rows.flatMap((row) => {
+        const value = JSON.parse(row.value) as Record<string, unknown>
+        const live = row.kind === 'refresh' ? !value.used : value.claimed === true
+        if (!live) return []
+        const client = row.kind === 'refresh' ? String(value.client) : row.id
+        return [{ grant: String(value.family ?? row.id), client, name: String(value.name ?? client) }]
+      })
+    },
     globalPins: () => pinsOf(GLOBAL_PINS),
     setGlobalPins: (toolNames: string[]) => setPins(GLOBAL_PINS, toolNames),
     create: async (draft: ClientDraft) => {
       const id = `cl_${randomUUID().replaceAll('-', '').slice(0, 16)}`
+      // The grant first: one mapped already refuses the row before it exists
+      if (draft.grant) await db.insert(clientGrants).values({ grant: draft.grant, clientId: id, legacy: false })
       await db.insert(clients).values({
         id,
         name: draft.name,
         kind: draft.kind,
         keyHash: draft.keyHash ?? null,
         oauthName: draft.oauthName ?? null,
+        oauthClientId: draft.oauthClientId ?? null,
         scope: draft.scope,
         allUpstreams: draft.upstreams === 'all',
         ownPins: Boolean(draft.pins),

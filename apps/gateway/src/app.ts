@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url'
 import type { Model } from './features/ai/model.js'
 import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { withPlaybookQuery } from './features/catalog/query.js'
+import { onGrantFor } from './features/clients/grants.js'
+import { mapLegacySignIns } from './features/clients/legacy.js'
 import { packBaseOf, packChoice, withPackAddresses } from './features/clients/pack-choice.js'
 import { callerOf, isOwner } from './features/clients/principals.js'
 import { FEATURES } from './features/index.js'
@@ -110,8 +112,15 @@ export const createApp = async ({
           store: oauthStore,
           // Access first, so one approval reads one owner; the owner's own session approves an app's sign-in too
           owner: async (c) => (access ? await accessOwner(access)(c) : null) ?? (await kitOwner(sessions)(c)),
+          // Every new sign-in is its own client row, made here and nowhere else
+          onGrant: (grant) => onGrantFor(services)(grant),
         })
       : undefined
+  if (oauth) {
+    services.oauth.current = oauth
+    // Before the first request: a sign-in from before 0.6.4 finds its row by its grant from now on
+    await mapLegacySignIns({ clients: services.clients, vault: services.vault, revokeGrant: oauth.revokeGrant })
+  }
   const app = createAgentApi({
     title: 'Yardhand',
     version: VERSION,
@@ -150,10 +159,12 @@ export const createApp = async ({
     packChoice((name) => services.packs.currentNameOf(name)),
   )
   // A pack address the key doesn't open is refused at the door, saying which packs it does open. A key whose access
-  // has ended goes on: it connects and is told why, in the instructions and by every tool
+  // has ended goes on: it connects and is told why, in the instructions and by every tool. A sign-in the gateway
+  // doesn't know is a 401 here, so the app connects again
   app.use('/mcp', async (c, next) => {
     const caller = callerOf(c)
-    if (caller?.pack && !(await services.principals.ended(caller))) await services.principals.require(caller)
+    const ended = await services.principals.ended(caller)
+    if (caller?.pack && !ended) await services.principals.require(caller)
     await next()
   })
   // Per caller: runs reach paid and rate-limited upstreams, so a runaway agent stops here first

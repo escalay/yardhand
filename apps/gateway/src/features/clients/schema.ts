@@ -10,7 +10,10 @@ export const clients = sqliteTable('clients', {
   name: text('name').notNull(),
   kind: text('kind', { enum: ['key', 'oauth'] }).notNull(),
   keyHash: text('key_hash'),
+  /** The name a client signed in before 0.6.4 gave, which its tokens from then are known by; null for every later one. */
   oauthName: text('oauth_name'),
+  /** The app's OAuth client id, for display: a client is known by its grants (`client_grants`), never by this. */
+  oauthClientId: text('oauth_client_id'),
   scope: text('scope', { enum: ['read', 'write'] }).notNull(),
   allUpstreams: integer('all_upstreams', { mode: 'boolean' }).notNull(),
   ownPins: integer('own_pins', { mode: 'boolean' }).notNull(),
@@ -43,6 +46,16 @@ export const pins = sqliteTable(
 )
 
 /**
+ * The OAuth sign-ins (the kit's grants) each OAuth client row stands for, many to one. A row is made with its first
+ * grant; `legacy` marks a sign-in from before 0.6.4, mapped once at start by the name it gave.
+ */
+export const clientGrants = sqliteTable('client_grants', {
+  grant: text('grant').primaryKey(),
+  clientId: text('client_id').notNull(),
+  legacy: integer('legacy', { mode: 'boolean' }).notNull(),
+})
+
+/**
  * Every pack a key opens, each at `/p/<pack>/`; `clients.pack_id` names the default among them. The one row per
  * client and pack: what belongs to a person in a pack goes here.
  */
@@ -73,6 +86,10 @@ export const CLIENTS_MIGRATIONS = [
   'alter table clients add column app text',
   'alter table client_packs add column came_by text',
   'alter table client_packs add column came_by_at text',
+  `create table if not exists client_grants (grant text primary key, client_id text not null,
+    legacy integer not null default 0);
+  create index if not exists client_grants_client on client_grants (client_id);
+  alter table clients add column oauth_client_id text`,
 ] as const
 
 export type ClientRow = typeof clients.$inferSelect
