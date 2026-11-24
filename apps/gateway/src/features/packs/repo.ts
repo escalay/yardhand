@@ -9,6 +9,7 @@ import type { Fixed } from './entries.js'
 import {
   type PackDocKind,
   type PackDocSource,
+  type PackIconRow,
   type PackItemRow,
   type PackReason,
   type PackRow,
@@ -16,6 +17,7 @@ import {
   type PackVariableRow,
   packDocs,
   packDocVersions,
+  packIcons,
   packItems,
   packNames,
   packPersonValues,
@@ -239,6 +241,16 @@ export const packsRepo = (db: Db) => {
           .set({ ...change, updatedAt: new Date().toISOString() })
           .where(eq(packs.id, packId))
     },
+    /** The icon the owner set the pack, if any. */
+    iconOf: async (packId: string) => (await db.select().from(packIcons).where(eq(packIcons.packId, packId)))[0],
+    setIcon: async (packId: string, icon: Omit<PackIconRow, 'packId' | 'updatedAt'>) => {
+      const row = { ...icon, updatedAt: new Date().toISOString() }
+      await db
+        .insert(packIcons)
+        .values({ packId, ...row })
+        .onConflictDoUpdate({ target: packIcons.packId, set: row })
+    },
+    removeIcon: (packId: string) => db.delete(packIcons).where(eq(packIcons.packId, packId)),
     /** Notes the owner's first try of the pack, once; not a change to the pack, so `updatedAt` stays. */
     markTried: (packId: string) =>
       db
@@ -253,6 +265,7 @@ export const packsRepo = (db: Db) => {
       await db.delete(packDocs).where(eq(packDocs.packId, packId))
       await db.delete(packDocVersions).where(eq(packDocVersions.packId, packId))
       await db.delete(packPersonValues).where(eq(packPersonValues.packId, packId))
+      await db.delete(packIcons).where(eq(packIcons.packId, packId))
       await db.delete(packs).where(eq(packs.id, packId))
     },
     /** Adds tools at the end; a name already in (the alias, else the tool's) keeps its place, wording and reason. */

@@ -26,14 +26,15 @@
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.19",
     "jose": "^6.2.17",
+    "sharp": "^0.35.5",
     "tsx": "^4.23.15",
     "yaml": "2.9.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "@types/node": "^26.6.6",
     "fast-check": "4.10.2",
-    "sharp": "^0.35.5",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
   }

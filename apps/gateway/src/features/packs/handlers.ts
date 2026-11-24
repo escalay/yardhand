@@ -16,6 +16,8 @@ import { type LiveTool, needsWrite } from '../tools/repo.js'
 import { checkPack, judge, perPersonOf, throwOnRefused, variableKindOf, writersOf } from './checks.js'
 import { defaultsOf, fixedOf, inputProblems, lostInputs, modeOf, personOf } from './entries.js'
 import { flagOf, type PersonValues, packFlags, peopleValuesOf, personalProblems } from './flags.js'
+import { iconView } from './icon.handlers.js'
+import { PALETTE } from './icon.js'
 import { noPack } from './names.js'
 import { docFlagsOf, ownOf, shownFindings } from './own.handlers.js'
 import { listedOf } from './people.js'
@@ -56,6 +58,7 @@ export const packsHandlers = ({
   listsChanged,
   builds,
   builder,
+  packIcons,
 }: Services) => {
   const repos = { packs, tools, catalog, upstreams }
   const packOf = async (name: string) => {
@@ -178,11 +181,12 @@ export const packsHandlers = ({
 
   const cardOf = async (origin: string, pack: PackRow, contents?: PackContents) => {
     const held = contents ?? (await packs.contentsOf(pack))
-    const [toolRows, live, items, docFlags] = await Promise.all([
+    const [toolRows, live, items, docFlags, icon] = await Promise.all([
       toolsOf(held.tools, await knownOf(pack, held.variables)),
       liveKeysOf(pack),
       catalog.liveNames([...held.playbooks, ...held.manuals]),
       docFlagsOf(tools, pack, held),
+      packIcons.of(pack),
     ])
     return {
       card: {
@@ -202,6 +206,7 @@ export const packsHandlers = ({
         flags:
           toolRows.filter((tool) => tool.flag || tool.lostInputs.length || tool.inputs.some((input) => input.problem))
             .length + [...docFlags.values()].filter(Boolean).length,
+        icon: iconView(origin, pack, icon),
         updatedAt: pack.updatedAt,
         _links: linksOf(origin, { self: `${PATH}/${pack.name}`, people: `${PATH}/${pack.name}/people`, list: PATH }),
       },
@@ -278,6 +283,7 @@ export const packsHandlers = ({
       triedAt: pack.triedAt,
       lastCallAt: await lastCallOf(pack),
       formerNames: await formerNamesOf(pack, listed),
+      palette: [...PALETTE],
       build: await buildOf(pack),
     }
   }

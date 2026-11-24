@@ -10,6 +10,7 @@
       "!**/deploy/helm/**/templates",
       "!**/src/kit",
       "!**/src/guide.gen.ts",
+      "!**/src/brand.gen.ts",
       "!**/.state",
       "!**/tools.gen.ts",
       "!**/routeTree.gen.ts",

@@ -992,6 +992,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/packs/{name}/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upload a pack’s icon
+         * @description Gives the pack an icon of its own, shown by MCP clients and in the app: an SVG, or a PNG of at least 96 × 96, at most 1 MB and within 4:5 of square (padded to square), sent as the body. It is drawn at 512 × 512 and kept as PNGs and a favicon; the file sent is not kept, and an SVG is never served as one. An SVG that links to anything outside itself (an image by URL, a stylesheet) is refused: nothing it names is fetched. So is an SVG with an image in it, embedded or not (send the image as a PNG), one with text, since icons are drawn with no fonts: convert its text to outlines first; and one that takes more than 10 seconds to draw. Ten uploads an hour. Its files are open at its address, no key needed: `/p/<name>/icon-96.png`, `icon-192.png`, `icon-512.png` and `favicon.ico`. Until the owner sets an icon there, they are the monogram of the name, alike for every name; an icon set (an upload or a colour) tells anyone who fetches them that a pack of this name exists.
+         */
+        put: operations["setPackIcon"];
+        post?: never;
+        /**
+         * Back to the monogram
+         * @description Drops the icon the owner set, uploaded or recoloured: the pack shows the monogram of its name in its name’s own colour, as a pack that was never given one.
+         */
+        delete: operations["resetPackIcon"];
+        options?: never;
+        head?: never;
+        /**
+         * Recolour a pack’s monogram
+         * @description Shows the monogram of the pack's name (its first letter in white) on another colour of the palette the pack lists in `palette`. An uploaded icon gives way to it. Its files are open at its address, no key needed: `/p/<name>/icon-96.png`, `icon-192.png`, `icon-512.png` and `favicon.ico`. Until the owner sets an icon there, they are the monogram of the name, alike for every name; an icon set (an upload or a colour) tells anyone who fetches them that a pack of this name exists.
+         */
+        patch: operations["recolourPackIcon"];
+        trace?: never;
+    };
     "/api/packs/{name}/playbooks": {
         parameters: {
             query?: never;
@@ -1533,13 +1561,13 @@ export interface paths {
         };
         /**
          * Export the settings
-         * @description Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs, defaults and inputs filled per person, as written), variables (one only Per person inputs read has a null value), playbooks and manuals, as one JSON document (owner only). The values each person gives a pack’s Per person inputs are not in it. The playbooks and the skill written for a pack are under its `files`, by path: `playbooks/<name>.md` as written and `SKILL.md` as it is read, with its `{{name}}` left as written. Each is a plain Markdown file to keep in git; their older versions are not exported.
+         * @description Every upstream (without its credential), client (without its key), the global pins, the tool access overrides and every pack with its tools (wording, alias, fixed inputs, defaults and inputs filled per person, as written), variables (one only Per person inputs read has a null value), playbooks and manuals, as one JSON document (owner only). The values each person gives a pack’s Per person inputs are not in it. The playbooks and the skill written for a pack are under its `files`, by path: `playbooks/<name>.md` as written and `SKILL.md` as it is read, with its `{{name}}` left as written. Each is a plain Markdown file to keep in git; their older versions are not exported. A pack’s `icon` is null for the monogram of its name, else the icon the owner set: `{ png }`, an upload as its 512 × 512 PNG in base64, or `{ colour }`, its monogram’s colour.
          */
         get: operations["exportConfig"];
         put?: never;
         /**
          * Import the settings
-         * @description Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the variables, tools, playbooks, manuals and files it lacks. Variables go in first, so a tool’s fixed inputs and defaults are checked with them filled in; a variable or a tool that would leave a value its tool’s live schema refuses is skipped and named. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. A pack’s `files` go in last, each a plain Markdown file by path (`playbooks/<name>.md`, `SKILL.md`), checked as a save of it is: one that names a tool the pack does not have yet, or that the checks refuse, is skipped and named; one the pack already has is kept as it is. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.
+         * @description Applies an export (owner only): adds upstreams that are missing (credentials are never in an export, so set them with PATCH /api/upstreams/{id}), then the global pins and tool access for tools that are live, then the packs. A pack that is missing is created; one that exists keeps everything it has and gains the variables, tools, playbooks, manuals and files it lacks. Variables go in first, so a tool’s fixed inputs and defaults are checked with them filled in; a variable or a tool that would leave a value its tool’s live schema refuses is skipped and named. Only live tools, playbooks and manuals go in, so after an upstream syncs, import again to fill the rest. A pack’s `icon` goes in when it has none of its own yet: an uploaded one is drawn again as an upload is, and one that can’t be is skipped and named. Its `files` go in last, each a plain Markdown file by path (`playbooks/<name>.md`, `SKILL.md`), checked as a save of it is: one that names a tool the pack does not have yet, or that the checks refuse, is skipped and named; one the pack already has is kept as it is. Imported wording counts as written against the live tool. Clients are not imported: their keys exist only as hashes in the database backups.
          */
         post: operations["importConfig"];
         delete?: never;
@@ -2917,8 +2945,34 @@ export interface components {
             keys: number;
             /** @description What to recheck: tools whose wording their upstream rewrote or with a fixed or default value that no longer fits, and playbooks of its own, or its skill, written for a tool that has changed or left the pack. */
             flags: number;
+            icon: components["schemas"]["PackIcon"];
             updatedAt: string;
             _links: components["schemas"]["Links"];
+        };
+        /** @description A pack’s icon, shown by MCP clients and in the app: an uploaded one, else the monogram of its name. */
+        PackIcon: {
+            /**
+             * @description `upload`: an icon the owner sent (`PUT /api/packs/{name}/icon`). `monogram`: the first letter of its name in white on a colour.
+             * @enum {string}
+             */
+            source: "upload" | "monogram";
+            /** @description The monogram’s letter: the first of the pack’s name, upper case. */
+            letter: string;
+            /**
+             * @description The monogram’s colour, the one picked or else its name’s; null while an uploaded icon is shown.
+             * @example #0f766e
+             * @enum {string|null}
+             */
+            colour: "#006ad9" | "#6d28d9" | "#a21caf" | "#be185d" | "#b91c1c" | "#c2410c" | "#a16207" | "#15803d" | "#0f766e" | "#475569" | null;
+            /** @description Whether the owner set it, by an upload or a colour: false is the monogram any pack gets from its name, and `DELETE /api/packs/{name}/icon` goes back to it. */
+            set: boolean;
+            /** @description Changes whenever the icon does. */
+            etag: string;
+            /**
+             * @description Its 96 × 96 PNG at the pack’s address, with the version in the query so a changed icon is fetched again. Open: no key needed. `icon-192.png`, `icon-512.png` and `favicon.ico` sit beside it.
+             * @example https://gw.example.com/p/desk/icon-96.png?v=3f2a9c0d1e4b5a67
+             */
+            url: string;
         };
         /** @description A pack with everything in it, in order. */
         Pack: components["schemas"]["PackCard"] & {
@@ -2950,6 +3004,8 @@ export interface components {
                 /** @description People listed (`GET /api/packs/{name}/people`) who last connected at this name: those whose access ended count too, since Extend brings their setup back. */
                 people: number;
             }[];
+            /** @description The colours its monogram can take (`PATCH /api/packs/{name}/icon`). */
+            palette: ("#006ad9" | "#6d28d9" | "#a21caf" | "#be185d" | "#b91c1c" | "#c2410c" | "#a16207" | "#15803d" | "#0f766e" | "#475569")[];
             /** @description Its newest Build or Refresh with AI while it runs or waits to be accepted, or null. `GET /api/packs/{name}/builds/{id}` reads it. */
             build: {
                 id: string;
@@ -3477,6 +3533,10 @@ export interface components {
             summary: string;
             /** @description Already in the pack asked about. */
             inPack: boolean;
+        };
+        /** @description A pack’s icon, with links to its files. */
+        PackIconResource: components["schemas"]["PackIcon"] & {
+            _links: components["schemas"]["Links"];
         };
         /** @description The playbooks written for a pack, in the order they were made. */
         PackOwnPlaybookList: {
@@ -4447,6 +4507,13 @@ export interface components {
                 files: {
                     [key: string]: string;
                 };
+                /** @default null */
+                icon: {
+                    png: string;
+                } | {
+                    /** @enum {string} */
+                    colour: "#006ad9" | "#6d28d9" | "#a21caf" | "#be185d" | "#b91c1c" | "#c2410c" | "#a16207" | "#15803d" | "#0f766e" | "#475569";
+                } | null;
             }[];
         } & {
             [key: string]: unknown;
@@ -8107,6 +8174,230 @@ export interface operations {
                 };
                 content: {
                     "application/hal+json": components["schemas"]["PlaybookUses"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setPackIcon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        /** @description The icon, as a PNG or an SVG file. */
+        requestBody: {
+            content: {
+                "image/png": string;
+                "image/svg+xml": string;
+            };
+        };
+        responses: {
+            /** @description The icon it has now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackIconResource"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `payload_too_large`: The body is over the limit given in `detail`. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `unsupported_media_type`: Send the content type the operation lists. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `too_many_requests`: Slow down: wait the seconds in `Retry-After`, then retry. `spend_cap`: This operation costs money and its budget is used up. Free operations still work. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resetPackIcon: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The icon it has now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackIconResource"];
+                };
+            };
+            /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description `not_found`: Nothing at this path or with this id in the current snapshot. Find ids through search or a list, then follow `_links`. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    recolourPackIcon: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /**
+                 * @description The pack’s name: lowercase letters, digits and dashes.
+                 * @example design
+                 */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description A colour of the monogram palette: each reads white text well.
+                     * @example #0f766e
+                     * @enum {string}
+                     */
+                    colour: "#006ad9" | "#6d28d9" | "#a21caf" | "#be185d" | "#b91c1c" | "#c2410c" | "#a16207" | "#15803d" | "#0f766e" | "#475569";
+                };
+            };
+        };
+        responses: {
+            /** @description The icon it has now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/hal+json": components["schemas"]["PackIconResource"];
+                };
+            };
+            /** @description `bad_request`: A parameter or the body is invalid. `errors` lists each one with its path; fix them and retry. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
             /** @description `unauthorized`: No valid API key. Send `Authorization: Bearer <key>`; keys are issued per client. */

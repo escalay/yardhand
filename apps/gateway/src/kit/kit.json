@@ -11,9 +11,12 @@
     "mcp",
     "vectors",
     "web",
+    "brand",
     "testing"
   ],
   "files": {
+    "brand/README.md": "a7d68969db6d2fcbaa7291a856f85dc2fdc4c47bf2b83cb745e4a79c2cd1b249",
+    "brand/index.ts": "92992af357d26b61a852bf985bee6dfde8a9e71c6ecdba2bf0d1cca7b6409477",
     "core/README.md": "4956cda4134f266b9dcea22c593312a73d9ec66f02f45b947dbbe52f2c583570",
     "core/api.ts": "40f91086f0b07dbcf56729e2f4d02b638d6cfb9a5a0fc31cfe2a37fac95d6639",
     "core/auth.ts": "7dfdde84913c64caf3cabcc6bb3af1f0610bd34d9b8a831b8b1ad992eca89237",
@@ -33,7 +36,7 @@
     "guide/README.md": "4731379c57ce2341f5079a28865b25bce244a9af92f2dff427294e69a91a7072",
     "guide/guide.ts": "26cd97f4c96c9b4b5bd8df2398263fa64f1984569a4e7a28921e068c81a253a9",
     "guide/reference.ts": "915f93aa5da4159fe0c8ce7b3f1ef78bdd44ac1b1f8edf23abfb7d5abb9cbd0c",
-    "index.ts": "d2f08e7f7f083483be403333b3602dd584036b68a8a53b8e3a2042ca23d94ee2",
+    "index.ts": "dc3198130e678c7707be64ae4766bd2f820898e6ffcaa07af4000b7b4ad50a13",
     "mcp/README.md": "8e13409d7f81227ca491b00d964ac51ad3bcca6bec7a3342814dcc198fd4f3ef",
     "mcp/index.ts": "d0e89f7843fefac59f415adc43328c8dcfb899af87cfbe6d7a76dc22929d907c",
     "mcp/skills.ts": "8f10c46070188287b2d61cb1f3acbeb7a058d28829f53ead6b7d63c6570faf19",

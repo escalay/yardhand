@@ -24,6 +24,7 @@ import { clientsRepo } from './features/clients/repo.js'
 import { callbackPath, loopbackRedirect, type SignInVia, vaultOAuthProvider } from './features/connections/provider.js'
 import { createEvents } from './features/events/bus.js'
 import { createGrouping } from './features/groups/grouping.js'
+import { createPackIcons } from './features/packs/icon.js'
 import { createPackDocs } from './features/packs/own.js'
 import { packsRepo } from './features/packs/repo.js'
 import { searchesRepo } from './features/searches/repo.js'
@@ -202,6 +203,7 @@ export const createServices = async ({
   const credentialOf = (id: string) => vault.get<Credential>(secretIdOf(id))
   const packs = packsRepo(db)
   const packDocs = createPackDocs({ packs })
+  const packIcons = createPackIcons({ packs })
   const handed = createHanded({ calls, catalog })
   const principals = createPrincipals({ clients, packs, catalog, keys, oauth })
   await principals.loadKeys()
@@ -352,6 +354,8 @@ export const createServices = async ({
     packs,
     /** A pack's own playbooks and skill, as its keys are served them. */
     packDocs,
+    /** Each pack's icon, and what every name's address serves. */
+    packIcons,
     credentialOf,
     upstreamHeaders,
     meaning,

@@ -56,7 +56,7 @@ type Operation = { tags?: string[] } & Record<string, unknown>
 type Paths = Record<string, Record<string, Operation>>
 type Tag = { name: string; description?: string }
 type OpenApi = {
-  info: { title: string; version: string; description?: string }
+  info: { title: string; version: string; description?: string } & Record<string, unknown>
   paths: Paths
   tags?: Tag[]
   security?: Record<string, string[]>[]
@@ -112,6 +112,8 @@ export const packOpenApi = ({
       ]
         .filter(Boolean)
         .join('\n\n'),
+      // The pack's own icon, on the gateway's ground
+      'x-logo': { ...(gateway.info['x-logo'] as object | undefined), url: `${url}/icon-512.png`, altText: pack.title },
     },
     servers: [{ url, description: `The ${pack.title} pack` }],
     externalDocs: {

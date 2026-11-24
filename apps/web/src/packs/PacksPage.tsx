@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/ui/shadcn/input'
 import { Skeleton } from '@/ui/shadcn/skeleton'
 import { Textarea } from '@/ui/shadcn/textarea'
+import { PackIcon } from './PackIcon'
 import { holdsLine, isPackName, slugOf } from './packs.rules'
 import { allPlaybooksQuery, packsQuery } from './queries'
 
@@ -54,7 +55,10 @@ const Card = ({ pack }: { pack: PackCard }) => (
       ) : null}
     </div>
     <div className="flex flex-1 flex-col gap-2">
-      <h2 className="text-2xl tracking-tight text-balance group-hover:text-primary">{pack.title}</h2>
+      <div className="flex items-center gap-3">
+        <PackIcon icon={pack.icon} />
+        <h2 className="min-w-0 text-2xl tracking-tight text-balance group-hover:text-primary">{pack.title}</h2>
+      </div>
       <p className="line-clamp-3 text-sm text-pretty text-muted-foreground">
         {pack.description || 'No description yet: agents read it first.'}
       </p>

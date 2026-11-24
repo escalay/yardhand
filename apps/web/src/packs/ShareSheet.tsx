@@ -16,6 +16,7 @@ import { Button } from '@/ui/shadcn/button'
 import { Input } from '@/ui/shadcn/input'
 import { RadioGroup, RadioGroupItem } from '@/ui/shadcn/radio-group'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/ui/shadcn/sheet'
+import { PackIcon } from './PackIcon'
 import { refusedValues, ValueFields } from './PersonValues'
 import {
   accessOf,
@@ -244,7 +245,9 @@ export const ShareSheet = ({
         }}
       >
         <SheetHeader className="border-b border-border px-5 py-4">
-          <SheetTitle>Share {pack.title}</SheetTitle>
+          <SheetTitle className="flex items-center gap-2">
+            <PackIcon icon={pack.icon} className="size-6" /> Share {pack.title}
+          </SheetTitle>
           <SheetDescription>One person, one key, for this pack alone.</SheetDescription>
         </SheetHeader>
         <Share pack={pack} onMade={() => setMade(true)} onDone={() => change(false)} />

@@ -215,6 +215,43 @@ test('a pack’s Overview checks it as it is built: its steps, a search as its k
   await expect(page).toHaveURL(/\/app\/packs$/)
 })
 
+/** A 128 × 128 PNG: an amber dot on graphite. */
+const ICON_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAIAAAACAAgMAAAC+UIlYAAAADFBMVEURFCj1ngtxThzMhRD6GdWhAAAACXBIWXMAAAsTAAALEwEAmpwYAAABIUlEQVRYw+2WPQ7CMAyFoRUDAyNHYGBg7M4RGHDLUAmOwFgx9RI9BeIOXKKXYGfnT4XGdvwERZ3yVn9K4pfE9mAQFBQEdLxuL1b8RHcd/PE5PVX44lH9ArLSAyyIzCWaBbxLTOitvQpUHyBVd6CWSnsHfY+kDeQKULeBTMZjcnS2j6AdInGB3HJBdSIiJu7EkANL+4zylDMObOwkZBoVB1LLaMVskSXPM5aAextjCey+A0YSWNk+cacgkEjAtXIqgbXtNPe6O1BLIPszQIr6BnpIs4fLgg8GPrnurxp+nO5/E35/WEBgCcJFDJZBWEhhKYbFHLYD2FBwS4JNDbZF2Fhxa4bNHY4HcMDAIwoccuCYhAet5vEXvw97eFwMCgp66Abjb7z8M3cajgAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+test('a pack’s icon: the monogram of its name, an upload on its page and the board, and back', async ({ page }) => {
+  await signIn(page, demo())
+  await page.goto('/app/packs/loud?tab=overview')
+  const part = page.locator('section', { has: page.getByRole('heading', { name: 'Icon' }) })
+  await expect(part).toContainText('The letter L on a colour')
+  const shown = page.getByRole('heading', { level: 1 }).getByRole('presentation')
+  const monogram = await shown.getAttribute('src')
+  expect(monogram).toMatch(/^\/p\/loud\/icon-96\.png\?v=\w+$/)
+
+  await part
+    .getByLabel('An SVG or PNG for Loud’s icon')
+    .setInputFiles({ name: 'dot.png', mimeType: 'image/png', buffer: ICON_PNG })
+  await expect(part).toContainText('Your upload')
+  await expect(shown).not.toHaveAttribute('src', monogram ?? '')
+  const uploaded = (await shown.getAttribute('src')) ?? ''
+  // Open at the pack's address: no key, a PNG, cached by anyone
+  const anyone = await request.newContext()
+  const file = await anyone.get(new URL(uploaded, page.url()).href)
+  expect([file.status(), file.headers()['content-type']]).toEqual([200, 'image/png'])
+  // Loaded, not a broken image
+  await expect.poll(() => shown.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(96)
+
+  await page.goto('/app/packs')
+  await expect(page.locator('a[href$="/packs/loud"]').getByRole('presentation')).toHaveAttribute('src', uploaded)
+
+  await page.goto('/app/packs/loud?tab=overview')
+  await part.getByRole('button', { name: 'Back to the monogram' }).click()
+  await expect(part).toContainText('The letter L on a colour')
+  await expect(shown).toHaveAttribute('src', monogram ?? '')
+})
+
 test('sharing a pack: who, where and how long, a message with the key, and the person under People', async ({
   page,
   baseURL,
