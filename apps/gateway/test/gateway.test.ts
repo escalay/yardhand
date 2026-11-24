@@ -6,6 +6,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { afterAll, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.js'
 import { hashApiKey, testDb } from '../src/kit/index.js'
+import { approveSignIn } from '../src/kit/testing/index.js'
 import { fakeMeaning } from './fixtures/meaning.js'
 import { startOAuthUpstream } from './fixtures/oauth-upstream.js'
 import { startRest } from './fixtures/rest.js'
@@ -689,14 +690,8 @@ describe('OAuth upstreams', () => {
 
       const started = await api(OWNER, '/api/upstreams/secure/connect', { method: 'POST' })
       expect(started.json).toMatchObject({ connected: false })
-      const consent = await fetch(started.json.authorizeUrl, { headers: { 'x-test-owner': 'owner@example.com' } })
-      const ticket = (await consent.text()).match(/name="ticket" value="([^"]+)"/)?.[1]
-      expect(ticket).toBeTruthy()
-      const approved = await fetch(new URL('/oauth/authorize', secure.url), {
-        method: 'POST',
-        headers: { 'x-test-owner': 'owner@example.com', 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ ticket: ticket!, decision: 'allow' }),
-        redirect: 'manual',
+      const approved = await approveSignIn(secure, new URL(started.json.authorizeUrl).searchParams, {
+        headers: { 'x-test-owner': 'owner@example.com' },
       })
       const back = new URL(approved.headers.get('location')!)
       expect(back.pathname).toBe('/app/connect/callback')
@@ -746,13 +741,8 @@ describe('OAuth upstreams', () => {
       const authorize = new URL(started.json.authorizeUrl)
       expect(authorize.searchParams.get('redirect_uri')).toBe('http://localhost:8765/callback')
 
-      const consent = await fetch(authorize, { headers: { 'x-test-owner': 'owner@example.com' } })
-      const ticket = (await consent.text()).match(/name="ticket" value="([^"]+)"/)?.[1]
-      const approved = await fetch(new URL('/oauth/authorize', secure.url), {
-        method: 'POST',
-        headers: { 'x-test-owner': 'owner@example.com', 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ ticket: ticket!, decision: 'allow' }),
-        redirect: 'manual',
+      const approved = await approveSignIn(secure, authorize.searchParams, {
+        headers: { 'x-test-owner': 'owner@example.com' },
       })
       const landedAt = approved.headers.get('location')!
       expect(landedAt).toMatch(/^http:\/\/localhost:8765\/callback\?code=/)

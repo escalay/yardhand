@@ -7,7 +7,8 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { serve } from '@hono/node-server'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { exportJWK, generateKeyPair, SignJWT } from 'jose'
+import { sql } from 'drizzle-orm'
+import { decodeJwt, exportJWK, generateKeyPair, SignJWT } from 'jose'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApp, type Env } from '../src/app.js'
 import { generateOAuthKey, hashApiKey, testDb } from '../src/kit/index.js'
@@ -42,9 +43,9 @@ afterAll(() => {
 type App = Awaited<ReturnType<typeof createApp>>
 
 /** A gateway with its OAuth server on and the sample tools connected; each test gets its own. */
-const gateway = async (env: Partial<Env> = {}) => {
+const gateway = async (env: Partial<Env> = {}, db?: Awaited<ReturnType<typeof testDb>>) => {
   const app = await createApp({
-    db: await testDb(),
+    db: db ?? (await testDb()),
     env: {
       API_KEYS: `owner:${hashApiKey(OWNER)}`,
       GATEWAY_MASTER_KEY: randomBytes(32).toString('base64'),
@@ -74,6 +75,10 @@ const browserOn = (app: App) => {
       headers: { ...(cookie ? { cookie } : {}), ...init.headers },
       ...(init.body === undefined ? {} : { body: init.body }),
     })
+    return keep(response)
+  }
+  /** Keeps the cookies a page sets, also on a page reached without sending any. */
+  const keep = (response: Response) => {
     for (const line of response.headers.getSetCookie()) {
       const pair = line.split(';')[0] ?? ''
       const name = pair.slice(0, pair.indexOf('='))
@@ -83,7 +88,7 @@ const browserOn = (app: App) => {
     }
     return response
   }
-  return { send, jar }
+  return { send, keep, jar }
 }
 type Browser = ReturnType<typeof browserOn>
 
@@ -256,10 +261,13 @@ describe('an app signing in to the gateway', () => {
     const browser = browserOn(app)
     await signInWithKey(browser)
     const client = await register(app)
-    // Arriving from the app's site: the strict session cookie stays behind, Access comes along
-    const consent = await app.request(client.authorize, {
-      headers: { 'cf-access-jwt-assertion': accessToken, 'sec-fetch-site': 'cross-site' },
-    })
+    // Arriving from the app's site: the strict session cookie stays behind, Access comes along, and the browser keeps
+    // the cookie the page binds its approval to
+    const consent = browser.keep(
+      await app.request(client.authorize, {
+        headers: { 'cf-access-jwt-assertion': accessToken, 'sec-fetch-site': 'cross-site' },
+      }),
+    )
     expect(consent.status).toBe(200)
     const { action, body } = allowFormOf(await consent.text())
     // The click is same-origin: the session cookie and Access both arrive
@@ -274,6 +282,103 @@ describe('an app signing in to the gateway', () => {
     })
     expect(allowed.status).toBe(302)
     expect(new URL(allowed.headers.get('location') ?? '').searchParams.get('code')).toBeTruthy()
+  })
+
+  it('a sign-in made before the update refreshes after it, sending resource=<origin>/mcp', async () => {
+    const db = await testDb()
+    const app = await gateway({}, db)
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    const client = await register(app)
+    const first = await tokenFor(app, {
+      grant_type: 'authorization_code',
+      code: await approve(browser, client.authorize),
+      redirect_uri: REDIRECT,
+      client_id: client.clientId,
+      code_verifier: client.verifier,
+      resource: 'http://localhost/mcp',
+    })
+    expect(first.status).toBe(200)
+    expect((await roll(app, first.json.access_token)).status).toBe(200)
+    // Its refresh row as kit 1.7.0 wrote it: who, approved by whom, for what; no family, audience or resource
+    const id = createHash('sha256').update(first.json.refresh_token).digest('hex')
+    const [row] = await db.all<[string]>(sql`select value from oauth where kind = 'refresh' and id = ${id}`)
+    const { client: clientId, name, owner, scopes } = JSON.parse(row?.[0] ?? '{}')
+    expect([clientId, name]).toEqual([client.clientId, 'Sample'])
+    await db.run(
+      sql`update oauth set value = ${JSON.stringify({ client: clientId, name, owner, scopes })} where kind = 'refresh' and id = ${id}`,
+    )
+
+    const refreshed = await tokenFor(app, {
+      grant_type: 'refresh_token',
+      refresh_token: first.json.refresh_token,
+      client_id: client.clientId,
+      resource: 'http://localhost/mcp',
+    })
+    expect(refreshed.status).toBe(200)
+    expect(refreshed.json.scope).toBe('read write')
+    // A sign-in from before audiences never gains one: its tokens are taken wherever they were
+    expect(decodeJwt(refreshed.json.access_token).aud).toBeUndefined()
+    const mcp = await mcpWith(app, refreshed.json.access_token)
+    expect((await mcp.listTools()).tools.map((tool) => tool.name)).toContain('call_tool')
+    await mcp.close()
+    expect((await roll(app, refreshed.json.access_token)).status).toBe(200)
+    // Still the one client it was, and its next refresh goes through too
+    const listed = await app.request('/api/clients', { headers: bearer(OWNER) })
+    const rows = ((await listed.json()) as { _embedded: { clients: { name: string; kind: string }[] } })._embedded
+      .clients
+    expect(rows.filter((one) => one.kind === 'oauth' && one.name === 'Sample')).toHaveLength(1)
+    const again = await tokenFor(app, {
+      grant_type: 'refresh_token',
+      refresh_token: refreshed.json.refresh_token,
+      client_id: client.clientId,
+    })
+    expect(again.status).toBe(200)
+  })
+
+  it('an app that names a pack’s address as its resource signs in as before, to the whole gateway', async () => {
+    const app = await gateway()
+    const made = await app.request('/api/packs', {
+      method: 'POST',
+      headers: bearer(OWNER),
+      body: JSON.stringify({ name: 'loud', title: 'Loud' }),
+    })
+    expect(made.status).toBe(201)
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    const client = await register(app)
+    const pack = 'http://localhost/p/loud/mcp'
+    const code = await approve(
+      browser,
+      client.authorize.replace(
+        `resource=${encodeURIComponent('http://localhost/mcp')}`,
+        `resource=${encodeURIComponent(pack)}`,
+      ),
+    )
+    const first = await tokenFor(app, {
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: REDIRECT,
+      client_id: client.clientId,
+      code_verifier: client.verifier,
+      resource: pack,
+    })
+    expect(first.status).toBe(200)
+    // The gateway names no resource of its own yet, so the token is for all of it
+    expect(decodeJwt(first.json.access_token).aud).toBe('http://localhost')
+    expect((await roll(app, first.json.access_token)).status).toBe(200)
+    const atPack = await app.request('/p/loud/api/me', { headers: bearer(first.json.access_token) })
+    expect(atPack.status).toBe(403)
+    expect(((await atPack.json()) as { detail: string }).detail).toBe(
+      "This key isn't locked to packs: connect to /mcp, which serves everything it may reach.",
+    )
+    const refreshed = await tokenFor(app, {
+      grant_type: 'refresh_token',
+      refresh_token: first.json.refresh_token,
+      client_id: client.clientId,
+      resource: pack,
+    })
+    expect(refreshed.status).toBe(200)
   })
 
   it('also takes the session where Access is in front', async () => {

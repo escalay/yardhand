@@ -4,7 +4,7 @@
  * `If-None-Match` gets `304 Not Modified` without the route running, and a deploy never leaves it on an old answer. `Cache-Control` says how long each kind of response may be kept; errors are never stored.
  *
  * @example
- * app.use('/api/*', snapshotEtag(() => store.version, { skip: (path) => path.startsWith('/api/v1/menus') }))
+ * app.use('/api/*', snapshotEtag(() => store.version, { skip: (path) => path.startsWith('/api/v1/boards') }))
  * app.use('*', cacheControl({ '/media/': CACHE.media, '/api/': CACHE.api }))
  */
 import { createHash, randomUUID } from 'node:crypto'

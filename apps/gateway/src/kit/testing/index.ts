@@ -8,6 +8,9 @@
  *   guideGaps       placeholders a guide uses that neither the app nor the kit's generated parts fill
  *   toolRoutes      MCP tools whose call doesn't land on a documented operation
  *   toolsRun        MCP tools that fail when run: each called in-process with sample arguments, as an agent would
+ *   cliGaps         commands the app's CLI can't offer well: unnamed, duplicated, shadowing, plural, undescribed, no example
+ *   cliSnapshot     every command as the CLI package carries it (`commands.json`)
+ *   approveSignIn   an OAuth approval on the kit's consent page, as a browser makes it (ticket cookie, same-origin)
  *
  * @example
  * const doc = await (await app.request('/openapi.json')).json()
@@ -18,7 +21,7 @@ import { fillTemplate } from '../guide/guide.js'
 import type { ResourceLike, ToolLike } from '../core/discovery.js'
 import { pathWith } from '../core/hal.js'
 import { PROBLEM_JSON } from '../core/problem.js'
-import { generatedVars, toolRoute, type OpenApiDoc } from '../guide/reference.js'
+import { brandVars, generatedVars, toolRoute, type CliCommandLike, type OpenApiDoc } from '../guide/reference.js'
 
 type Operation = {
   operationId?: string
@@ -83,13 +86,13 @@ export const guideRoutes = (files: Map<string, string>, doc: Document, prefix = 
 
 /**
  * Placeholders a guide uses that nothing fills: not `vars`, and not the kit's generated parts when `doc` (and `tools`)
- * are given, so a typo like `{{api.endpoint}}` is caught too.
+ * are given, so a typo like `{{api.endpoint}}` is caught too. `brand`: the app's (`defineBrand`), for `{{brand.*}}`.
  */
-export const guideGaps = (files: Map<string, string>, vars: Record<string, unknown>, { doc, tools, resources }: { doc?: OpenApiDoc; tools?: ToolLike[]; resources?: ResourceLike[] } = {}) => {
-  const generated = doc ? generatedVars({ origin: 'https://example.test', doc, tools, resources, files }) : {}
-  const skipped = doc ? [] : ['api.', 'mcp.', 'skills.']
+export const guideGaps = (files: Map<string, string>, vars: Record<string, unknown>, { doc, tools, resources, commands, brand }: { doc?: OpenApiDoc; tools?: ToolLike[]; resources?: ResourceLike[]; commands?: CliCommandLike[]; brand?: { name: string; title: string; description: string } } = {}) => {
+  const generated = doc ? generatedVars({ origin: 'https://example.test', doc, tools, resources, commands, files }) : {}
+  const skipped = doc ? [] : ['api.', 'mcp.', 'skills.', 'cli.']
   return [...files].flatMap(([file, text]) =>
-    fillTemplate(text, { origin: 'https://example.test', ...generated, ...vars })
+    fillTemplate(text, { origin: 'https://example.test', ...generated, ...(brand ? { brand: brandVars(brand) } : {}), ...vars })
       .missing.filter((name) => !skipped.some((root) => name.startsWith(root)))
       .map((name) => `${file}: {{${name}}}`),
   )
@@ -114,8 +117,8 @@ type RequestableApp = { request: (path: string, init?: RequestInit) => Response 
  * the right route and still fails (a mangled id, a wrong query parameter).
  *
  * @example
- * const menu = await (await app.request('/api/menus', { method: 'POST', headers, body: '{"name":"Test"}' })).json()
- * expect(await toolsRun(TOOLS, app, { search_notes: { q: 'soup' }, get_menu: { id: menu.id } }, { headers })).toEqual([])
+ * const board = await (await app.request('/api/boards', { method: 'POST', headers, body: '{"name":"Test"}' })).json()
+ * expect(await toolsRun(TOOLS, app, { search_notes: { q: 'soup' }, get_board: { id: board.id } }, { headers })).toEqual([])
  */
 export const toolsRun = async (tools: RunnableTool[], app: RequestableApp, args: Record<string, Record<string, unknown>>, { headers = {} }: { headers?: Record<string, string> } = {}) => {
   const failures: string[] = []
@@ -160,3 +163,30 @@ export const toolsRun = async (tools: RunnableTool[], app: RequestableApp, args:
   for (const name of Object.keys(args)) if (!tools.some((tool) => tool.name === name)) failures.push(`${name}: sample arguments for a tool that doesn't exist`)
   return failures
 }
+
+/**
+ * Approves a sign-in on the kit's own consent page the way a browser does: opens `/oauth/authorize`, keeps the ticket
+ * cookie it sets, and posts the answer same-origin with it. Returns the answer, a 302 to the client's redirect with
+ * `code` (or `error=access_denied`). `headers` go on both requests: whatever signs the owner in, a forwarded host.
+ * A hand-made approval POST without the cookie and a same-origin header is refused.
+ *
+ * @example
+ * const answer = await approveSignIn(app, { response_type: 'code', client_id, redirect_uri, code_challenge, code_challenge_method: 'S256' }, { headers: { 'x-test-owner': 'owner@example.test' } })
+ * const code = new URL(answer.headers.get('location')!).searchParams.get('code')
+ */
+export const approveSignIn = async (app: RequestableApp, query: URLSearchParams | Record<string, string> | string, { headers = {}, decision = 'allow' }: { headers?: Record<string, string>; decision?: 'allow' | 'deny' } = {}) => {
+  const page = await app.request(`/oauth/authorize?${new URLSearchParams(query)}`, { headers })
+  const html = await page.text()
+  const ticket = /name="ticket" value="([^"]+)"/.exec(html)?.[1]
+  if (!ticket) throw new Error(`approveSignIn: /oauth/authorize answered ${page.status} with no consent form: ${html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200)}`)
+  const cookies = page.headers.getSetCookie().map((line) => line.split(';')[0]!)
+  const cookie = [headers.cookie, ...cookies].filter(Boolean).join('; ')
+  return app.request('/oauth/authorize', {
+    method: 'POST',
+    headers: { ...headers, 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-site': 'same-origin', ...(cookie ? { cookie } : {}) },
+    body: new URLSearchParams({ ticket, decision }).toString(),
+  })
+}
+
+export { softAuthenticator } from './authenticator.js'
+export { cliGaps, cliSnapshot, flagsOf, type CliFlag, type CliJobLike, type CliSnapshot, type CliSnapshotCommand } from './cli.js'

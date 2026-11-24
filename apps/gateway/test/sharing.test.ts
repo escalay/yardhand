@@ -161,6 +161,21 @@ describe('Extend', () => {
     expect((await extend(sam.id, 'never')).json.expiresAt).toBeNull()
   })
 
+  it('runs a request refused while the key had ended once it is extended, sent again with the same Idempotency-Key', async () => {
+    const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '8h' })
+    await end(sam.id)
+    const call = {
+      method: 'POST',
+      body: { tool: 'fixture.echo', arguments: { text: 'again' } },
+      headers: { 'idempotency-key': 'refused-while-ended' },
+    }
+    expect((await api(sam.key, '/p/loud/api/calls', call)).status).toBe(403)
+    expect((await extend(sam.id, '7d')).status).toBe(200)
+    // A refusal is never kept for the key: the same request runs now
+    const ran = await api(sam.key, '/p/loud/api/calls', call)
+    expect([ran.status, ran.headers.get('idempotent-replayed')]).toEqual([200, null])
+  })
+
   it('leaves the end alone when a change says nothing about it', async () => {
     const sam = await keyFor({ name: 'Sam', pack: 'loud', expiresIn: '7d' })
     const renamed = await owner(`/api/clients/${sam.id}`, { method: 'PATCH', body: { name: 'Sam at the desk' } })

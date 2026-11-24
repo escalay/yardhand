@@ -448,7 +448,8 @@ const packGreeting = new AsyncLocalStorage<Pick<Served, 'info' | 'instructions'>
 const gatewayMcp = (app: OpenAPIHono, services: Services) => {
   const callApi = viaMcp(app)
   const build = ({ info, instructions, tools, prompts }: Served) =>
-    mcpServerFactory({ info, instructions, tools, resources: RESOURCES, prompts, callApi })
+    // Typed JSON only beside a declared output schema: clients show it instead of the text when both come
+    mcpServerFactory({ info, instructions, tools, resources: RESOURCES, prompts, callApi, structured: 'withOutput' })
   const gateway = {
     info: { ...INFO, websiteUrl: `${services.publicOrigin}/llms.txt` },
     tools: META_TOOLS,

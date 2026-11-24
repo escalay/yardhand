@@ -71,8 +71,11 @@ export const startOAuthUpstream = async () => {
     }),
     allowedHostnames: ['127.0.0.1', 'localhost'],
   })
+  const origin = `http://127.0.0.1:${port}`
   return {
-    url: `http://127.0.0.1:${port}/mcp`,
+    url: `${origin}/mcp`,
+    /** A request to the fixture over its real address, redirects left to the caller (for `approveSignIn`). */
+    request: (path: string, init?: RequestInit) => fetch(new URL(path, origin), { ...init, redirect: 'manual' }),
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   }
 }

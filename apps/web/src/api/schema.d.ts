@@ -1680,7 +1680,7 @@ export interface components {
              * @description Stable machine-readable code. Branch on this, not on `title`.
              * @enum {string}
              */
-            code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "method_not_allowed" | "conflict" | "gone" | "payload_too_large" | "unsupported_media_type" | "unprocessable" | "too_many_requests" | "spend_cap" | "internal" | "upstream" | "unavailable";
+            code: "bad_request" | "unauthorized" | "forbidden" | "feature_disabled" | "not_found" | "method_not_allowed" | "conflict" | "gone" | "payload_too_large" | "unsupported_media_type" | "unprocessable" | "too_many_requests" | "spend_cap" | "internal" | "upstream" | "unavailable";
             /**
              * @description Short, human summary of the problem type.
              * @example Not found
@@ -1962,7 +1962,7 @@ export interface components {
             /** @description For a pack key: its default pack, one of the packs it opens. */
             pack?: string;
             /**
-             * @description Extend: how long it works from now, 7 days, 30 days or until revoked (it replaces when it ends). An ended key works again with the same key; a revoked one does not, and a pack key whose packs were all removed is refused (409) unless `packs` gives it one in the same change. A request that was refused with an `Idempotency-Key` while the key had ended keeps answering that refusal for a day: its holder sends it again with a new `Idempotency-Key`.
+             * @description Extend: how long it works from now, 7 days, 30 days or until revoked (it replaces when it ends). An ended key works again with the same key; a revoked one does not, and a pack key whose packs were all removed is refused (409) unless `packs` gives it one in the same change. A request that was refused while the key had ended runs when it is sent again, with the same `Idempotency-Key` or a new one.
              * @enum {string}
              */
             expiresIn?: "7d" | "30d" | "never";
@@ -4571,7 +4571,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4609,7 +4609,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4647,7 +4647,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4662,7 +4662,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -4701,7 +4701,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4742,7 +4742,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4790,7 +4790,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4814,7 +4814,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -4856,7 +4856,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4906,7 +4906,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4953,7 +4953,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5004,7 +5004,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5042,7 +5042,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5057,7 +5057,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -5096,7 +5096,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5120,7 +5120,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -5159,7 +5159,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5200,7 +5200,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5248,7 +5248,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5272,7 +5272,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -5314,7 +5314,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5338,7 +5338,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -5367,7 +5367,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5426,7 +5426,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5462,7 +5462,7 @@ export interface operations {
                 via?: "gateway" | "loopback";
             };
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -5500,7 +5500,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5533,7 +5533,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -5575,7 +5575,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5631,7 +5631,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5697,7 +5697,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5753,7 +5753,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5768,7 +5768,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -5807,7 +5807,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5822,7 +5822,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -5864,7 +5864,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5942,7 +5942,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5975,7 +5975,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6017,7 +6017,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6067,7 +6067,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6130,7 +6130,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6154,7 +6154,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6196,7 +6196,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6266,7 +6266,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6299,7 +6299,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6343,7 +6343,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6367,7 +6367,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6411,7 +6411,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6474,7 +6474,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6498,7 +6498,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6536,7 +6536,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6610,7 +6610,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6657,7 +6657,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6672,7 +6672,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6714,7 +6714,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6729,7 +6729,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6758,7 +6758,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6815,7 +6815,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6856,7 +6856,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6921,7 +6921,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -6989,7 +6989,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7030,7 +7030,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7089,7 +7089,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7144,7 +7144,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7200,7 +7200,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7238,7 +7238,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7253,7 +7253,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -7292,7 +7292,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7358,7 +7358,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7411,7 +7411,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7462,7 +7462,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7495,7 +7495,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -7540,7 +7540,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7602,7 +7602,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7658,7 +7658,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7711,7 +7711,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7735,7 +7735,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -7780,7 +7780,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7844,7 +7844,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7912,7 +7912,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7980,7 +7980,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8004,7 +8004,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -8051,7 +8051,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8116,7 +8116,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8169,7 +8169,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8193,7 +8193,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -8238,7 +8238,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8311,7 +8311,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8382,7 +8382,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8438,7 +8438,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8497,7 +8497,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8563,7 +8563,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8614,7 +8614,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8638,7 +8638,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -8683,7 +8683,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8707,7 +8707,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -8752,7 +8752,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8785,7 +8785,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -8831,7 +8831,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8907,7 +8907,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8963,7 +8963,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8996,7 +8996,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -9049,7 +9049,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9146,7 +9146,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9161,7 +9161,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -9200,7 +9200,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9251,7 +9251,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -9295,7 +9295,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9403,7 +9403,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9444,7 +9444,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9506,7 +9506,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9556,7 +9556,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9603,7 +9603,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9661,7 +9661,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9722,7 +9722,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9760,7 +9760,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9816,7 +9816,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9863,7 +9863,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9878,7 +9878,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -9907,7 +9907,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9954,7 +9954,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10001,7 +10001,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10025,7 +10025,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10064,7 +10064,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10088,7 +10088,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10114,7 +10114,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10147,7 +10147,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10186,7 +10186,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10242,7 +10242,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10257,7 +10257,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10296,7 +10296,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10340,7 +10340,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10369,7 +10369,7 @@ export interface operations {
                 force?: "true" | "false";
             };
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -10410,7 +10410,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10448,7 +10448,7 @@ export interface operations {
                 force?: "true" | "false";
             };
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10488,7 +10488,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10521,7 +10521,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10560,7 +10560,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `forbidden`: The key is valid but may not do this. */
+            /** @description `forbidden`: The key is valid but may not do this. `feature_disabled`: This feature is switched off here. `feature` names it, `blockedBy` the features it needs that are off, and an owner switches it on at `switchOn`. */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10622,7 +10622,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
                 "Idempotency-Key"?: string;
             };
             path?: never;

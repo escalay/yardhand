@@ -21,8 +21,8 @@ import { requestId } from 'hono/request-id'
 import { secureHeaders } from 'hono/secure-headers'
 import { authenticate, OAUTH_OPEN_PATHS, SCOPES, type OAuthServer } from './auth.js'
 import { cacheControl, CACHE } from './cache.js'
-import { idempotency, type GuardStore } from './guards.js'
-import { API_CATALOG_TYPE, apiCatalog, LINK_HEADER, markdownTokens, MARKDOWN_TYPE, poppyJson, robotsTxt, sendPublic, sitemapXml, WELL_KNOWN, wantsMarkdown, type DiscoveryConfig } from './discovery.js'
+import { idempotency, type AddressTrust, type GuardStore, type IdempotencyOptions } from './guards.js'
+import { API_CATALOG_TYPE, apiCatalog, LINK_HEADER, markdownTokens, MARKDOWN_TYPE, poppyJson, publicOriginOf, recordMounted, robotsTxt, sendPublic, sitemapXml, WELL_KNOWN, wantsMarkdown, type AgentBrand, type DiscoveryConfig } from './discovery.js'
 import { HAL_JSON, originOf } from './hal.js'
 import { errorHandler, notFoundHandler, PROBLEMS, problemResponse, problemResponses, validationHook, type ProblemCode } from './problem.js'
 
@@ -41,12 +41,29 @@ export type AgentApiConfig = {
   corsOrigins?: string[]
   /** robots.txt: Content Signals and crawling (defaults: private, no, no, no). See `discovery.ts`. */
   discovery?: DiscoveryConfig
-  /** `docs` (default): `/` sends people to `/docs` and agents asking for Markdown to the guide. `false`: the app serves `/`. */
-  home?: 'docs' | false
+  /** `docs` (default): `/` sends people to `/docs` and agents asking for Markdown to the guide. `app`: people go to the browser app at `/app/` instead (and `/app` redirects there). `false`: the app serves `/`. */
+  home?: 'docs' | 'app' | false
   /** The service as its own OAuth server (`createOAuth`): mounted here, its tokens accepted beside keys. */
   oauth?: OAuthServer
-  /** Where Idempotency-Key answers are kept (default: this process's memory). On Workers: `dbGuardStore(db)`. */
-  guards?: { store?: GuardStore }
+  /**
+   * The app's brand (`createBrand` from the `brand` part): its favicon, icons, manifest and OG card served (and open,
+   * unless private), OpenAPI's `x-logo`, the docs page's head tags, and what MCP, A2A, the guide and the front door read.
+   */
+  brand?: AgentBrand
+  /**
+   * Idempotency-Key: where answers are kept (`store`, default this process's memory; on Workers `dbGuardStore(db)`),
+   * which statuses are kept (`keep`, default a success), and more paths never kept (`skip`, beside the OAuth ones).
+   *
+   * @example
+   * guards: { store: await dbGuardStore(db), skip: ['/join/*'] }
+   */
+  guards?: Pick<IdempotencyOptions, 'store' | 'keep' | 'skip'>
+  /**
+   * Where a caller's address is read for the guards and every part that counts by it (default 'headers': today's read,
+   * as sent). Behind Cloudflare `{ header: 'cf-connecting-ip' }`, behind a proxy that appends
+   * `{ header: 'x-forwarded-for', hops }`, nothing in front on Node 'socket'. See `AddressTrust`.
+   */
+  address?: AddressTrust
   /**
    * Private: nothing about the service is readable without credentials. Only `robots.txt`, `/api/health` (status only),
    * the error pages and what an OAuth client needs to ask for access stay open; the guide, docs, spec, discovery files
@@ -70,7 +87,7 @@ const IDEMPOTENCY_HEADER = {
   name: 'Idempotency-Key',
   in: 'header',
   required: false,
-  description: 'Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours.',
+  description: 'Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again.',
   schema: { type: 'string', maxLength: 255 },
 }
 
@@ -133,12 +150,21 @@ const markdownForAgents = (app: { request: (input: string, init?: RequestInit) =
 export const createAgentApi = (config: AgentApiConfig) => {
   const app = new OpenAPIHono({ defaultHook: validationHook as never })
   const home = config.home ?? 'docs'
+  const brand = config.brand
   // Discovery is public: what exists and how to reach it, never the data
-  const discovery = ['/robots.txt', '/sitemap.xml', '/.well-known/*', '*/server-card', ...(home === 'docs' ? ['/'] : [])]
+  const discovery = ['/robots.txt', '/sitemap.xml', '/.well-known/*', '*/server-card', ...(home ? ['/'] : []), ...(home === 'app' ? ['/app'] : [])]
   const open = config.private
     ? [...PRIVATE_OPEN, ...(config.oauth ? PRIVATE_OAUTH_OPEN : []), ...(config.auth.open ?? [])]
-    : ['/api/health', '/openapi.json', '/docs', '/llms.txt', '/llms-full.txt', '/agents/*', '/skills/*', '/problems/*', ...discovery, ...(config.oauth ? OAUTH_OPEN_PATHS : []), ...(config.auth.open ?? [])]
+    : ['/api/health', '/openapi.json', '/docs', '/llms.txt', '/llms-full.txt', '/agents/*', '/skills/*', '/problems/*', ...discovery, ...(config.oauth ? OAUTH_OPEN_PATHS : []), ...(config.brand?.paths ?? []), ...(config.auth.open ?? [])]
 
+  // First, so every guard and part after it reads the address from the source the app named
+  if (config.address) {
+    const address = config.address
+    app.use('*', async (c, next) => {
+      c.set('kit:address' as never, address as never)
+      await next()
+    })
+  }
   app.use('*', requestId({ headerName: 'x-request-id' }))
   app.use('*', secureHeaders({ crossOriginResourcePolicy: false, contentSecurityPolicy: undefined }))
   // Same-site unless a route says otherwise (a sandboxed page's own files must load from its opaque origin)
@@ -160,7 +186,7 @@ export const createAgentApi = (config: AgentApiConfig) => {
     app.use('*', linkHeaders)
     app.use('*', markdownForAgents(app))
   }
-  app.use('*', authenticate({ relay: ['/mcp', '/a2a'], ...config.auth, open, ...(config.oauth ? { tokens: config.oauth.verify, resourceMetadata: config.oauth.resourceMetadataFor } : {}) }) as MiddlewareHandler)
+  app.use('*', authenticate({ relay: [config.oauth?.mcpPath ?? '/mcp', '/a2a'], ...config.auth, open, ...(config.oauth ? { tokens: config.oauth.verify, resourceMetadata: config.oauth.resourceMetadataFor } : {}) }) as MiddlewareHandler)
   app.use('*', cacheControl({ '/openapi.json': CACHE.docs, '/problems/': CACHE.docs, '/api/': CACHE.api }))
   // Resources under /api are HAL; Hono writes plain JSON, so name the media type once here
   app.use('/api/*', async (c, next) => {
@@ -169,7 +195,7 @@ export const createAgentApi = (config: AgentApiConfig) => {
   })
   app.use('*', rejectUnknownQuery(app))
   // After auth: a retried POST is recognised per caller
-  app.use('*', idempotency({ store: config.guards?.store }))
+  app.use('*', idempotency(config.guards))
   app.onError(errorHandler)
   app.notFound(notFoundHandler)
 
@@ -182,7 +208,7 @@ export const createAgentApi = (config: AgentApiConfig) => {
     app.openAPIRegistry.registerComponent('securitySchemes', 'oauth', {
       type: 'oauth2',
       description: 'An OAuth token the owner approved: authorization code with PKCE (clients register at `/oauth/register`), or agent registration as `/auth.md` describes.',
-      flows: { authorizationCode: { authorizationUrl: '/oauth/authorize', tokenUrl: '/oauth/token', refreshUrl: '/oauth/token', scopes: Object.fromEntries(SCOPES.map((scope) => [scope, scope === 'read' ? 'Read everything' : 'Make changes (menus)'])) } },
+      flows: { authorizationCode: { authorizationUrl: '/oauth/authorize', tokenUrl: '/oauth/token', refreshUrl: '/oauth/token', scopes: Object.fromEntries(SCOPES.map((scope) => [scope, scope === 'read' ? 'Read everything' : 'Make changes'])) } },
     })
     config.oauth.mount(app)
   }
@@ -216,7 +242,7 @@ export const createAgentApi = (config: AgentApiConfig) => {
   app.get('/openapi.json', (c) => {
     const doc = app.getOpenAPI31Document({
       openapi: '3.1.0',
-      info: { title: config.title, version: config.version, description: config.description },
+      info: { title: config.title, version: config.version, description: config.description, ...(brand ? { 'x-logo': { url: originOf(c) + brand.logo, backgroundColor: brand.background, altText: brand.title }, ...(brand.termsUrl ? { termsOfService: brand.termsUrl } : {}) } : {}) },
       servers: [{ url: originOf(c), description: 'This server' }],
       security: [{ [SECURITY_SCHEME]: [] }, ...(config.oauth ? [{ oauth: [...SCOPES] }] : [])],
       tags: [...config.tags, { name: 'Meta', description: 'Health and errors.' }],
@@ -224,14 +250,29 @@ export const createAgentApi = (config: AgentApiConfig) => {
     }) as unknown as OpenApiDocument
     return c.json({ ...hoistParameterDocs(doc), ...(config.tagGroups ? { 'x-tagGroups': [...config.tagGroups, { name: 'Meta', tags: ['Meta'] }] } : {}) })
   })
-  app.get('/docs', Scalar({ url: '/openapi.json', pageTitle: `${config.title} — API`, hideClientButton: false, defaultOpenAllTags: false }))
+  const docs = Scalar({ url: '/openapi.json', pageTitle: `${config.title} — API`, hideClientButton: false, defaultOpenAllTags: false })
+  if (!brand) app.get('/docs', docs)
+  else
+    app.get('/docs', async (c, next) => {
+      const page = (await docs(c, next)) as Response | undefined
+      if (!page?.headers.get('content-type')?.startsWith('text/html')) return page
+      return c.html((await page.text()).replace(/<head(?:\s[^>]*)?>/i, (head) => head + brand.headTags(originOf(c))), page.status as 200)
+    })
 
-  app.get(WELL_KNOWN.apiCatalog, (c) => sendPublic(c, JSON.stringify(apiCatalog(originOf(c)), null, 2), API_CATALOG_TYPE))
-  app.get('/robots.txt', (c) => sendPublic(c, robotsTxt(config.private ? { private: true } : (config.discovery ?? {}), originOf(c)), 'text/plain; charset=utf-8'))
+  // With the OAuth server's publicOrigin, every publicly cached document names it, never a forwarded host
+  if (config.oauth?.issuerOf) recordMounted(app, { publicOrigin: config.oauth.issuerOf })
+  app.get(WELL_KNOWN.apiCatalog, (c) => sendPublic(c, JSON.stringify(apiCatalog(publicOriginOf(app, c)), null, 2), API_CATALOG_TYPE))
+  app.get('/robots.txt', (c) => sendPublic(c, robotsTxt(config.private ? { private: true } : (config.discovery ?? {}), publicOriginOf(app, c)), 'text/plain; charset=utf-8'))
   const { sitemap, poppy } = config.private ? {} : (config.discovery ?? {})
-  if (sitemap?.length) app.get('/sitemap.xml', (c) => sendPublic(c, sitemapXml(originOf(c), sitemap), 'application/xml; charset=utf-8'))
-  if (poppy) app.get('/.well-known/poppy.json', (c) => sendPublic(c, JSON.stringify(poppyJson(originOf(c), poppy, Boolean(config.oauth)), null, 2), 'application/json'))
-  if (home === 'docs') app.get('/', (c) => c.redirect('/docs', 302))
+  if (sitemap?.length) app.get('/sitemap.xml', (c) => sendPublic(c, sitemapXml(publicOriginOf(app, c), sitemap), 'application/xml; charset=utf-8'))
+  if (poppy) app.get('/.well-known/poppy.json', (c) => sendPublic(c, JSON.stringify(poppyJson(publicOriginOf(app, c), poppy, Boolean(config.oauth)), null, 2), 'application/json'))
+  if (home) app.get('/', (c) => c.redirect(home === 'app' ? '/app/' : '/docs', 302))
+  // The app's files are served under /app/, so the bare path is sent there too
+  if (home === 'app') app.get('/app', (c) => c.redirect('/app/', 302))
+  if (brand) {
+    recordMounted(app, { brand })
+    brand.mount(app, { private: config.private })
+  }
 
   return app
 }

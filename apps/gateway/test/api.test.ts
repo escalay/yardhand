@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { afterAll, describe, expect, it } from 'vitest'
 import { createApp, TOOLS } from '../src/app.js'
 import { GUIDE_VARS } from '../src/guide.vars.js'
@@ -52,6 +53,32 @@ describe('the API', () => {
       get_playbook: { name: 'fixture-warm-up' },
     }
     expect(await toolsRun(TOOLS, app, samples, { headers })).toEqual([])
+  })
+
+  it('every tool listing names its route under api-kit/route', async () => {
+    const made = await app.request('/api/packs', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'desk', title: 'Desk', playbook: 'fixture-warm-up' }),
+    })
+    expect(made.status).toBe(201)
+    for (const path of ['/mcp', '/p/desk/mcp']) {
+      const client = new Client({ name: 'test', version: '1.0.0' })
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(path, 'http://localhost'), {
+          requestInit: { headers },
+          fetch: async (url, init) => app.request(new Request(url, init)),
+        }),
+      )
+      const { tools } = await client.listTools()
+      await client.close()
+      // The gateway's own tools carry the route they call; a pack's tools are an upstream's and carry none of ours
+      const own = tools.filter((tool) => TOOLS.some((meta) => meta.name === tool.name))
+      expect(own.length, path).toBeGreaterThan(0)
+      for (const tool of own) expect(tool._meta?.['api-kit/route'], `${path} ${tool.name}`).toMatch(/^[A-Z]+ \/\S+$/)
+      for (const tool of tools)
+        expect(Object.keys(tool._meta ?? {}), `${path} ${tool.name}`).not.toContain('agent-api-kit/route')
+    }
   })
 
   it('fills every placeholder in the agent guide', async () => {
