@@ -1303,6 +1303,9 @@ describe('a pack address asks for sign-in at its own resource', () => {
       body: JSON.stringify({ tool: 'sample.roll_dice', arguments: { count: 1, sides: 6 } }),
     })
     expect(called.status).toBe(200)
+    // Its row keeps no upstreams of its own: what it reaches is the pack's, as for a pack key
+    const me = await app.request('/p/desk/api/me', { headers: bearer(token) })
+    expect(await me.json()).toMatchObject({ scope: 'write', upstreams: ['sample'], pack: { name: 'desk' } })
     const elsewhere = 'This sign-in opens Front desk only: connect at http://localhost/p/desk/mcp.'
     for (const [path, headers] of [
       ['/mcp', {}],

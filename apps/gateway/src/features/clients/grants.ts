@@ -13,6 +13,7 @@ const packDraftOf = async (packs: PacksRepo, name: string, scopes: string[]) => 
   if (!held) return null
   return {
     scope: scopes.includes('write') ? 'write' : 'read',
+    // None of its own: a pack-locked row reaches its pack's upstreams, as a pack key does
     upstreams: [],
     packIds: [held.pack.id],
     packId: held.pack.id,
