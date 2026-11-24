@@ -39,6 +39,7 @@ import { BuildDialog } from './BuildDialog'
 import { buildNote } from './build.rules'
 import { Checklist } from './Checklist'
 import { PackDocs } from './PackDocs'
+import { IconSection, PackIcon } from './PackIcon'
 import { UpstreamChips } from './PacksPage'
 import { PackTools } from './PackTools'
 import { People } from './People'
@@ -369,7 +370,12 @@ export const PackPage = ({
           { label: 'Packs', to: '/packs' },
           { label: data.name, to: `/packs/${data.name}` },
         ]}
-        title={<em>{data.title}</em>}
+        title={
+          <span className="flex items-center gap-3">
+            <PackIcon icon={data.icon} className="size-10 sm:size-12" />
+            <em className="min-w-0">{data.title}</em>
+          </span>
+        }
         actions={
           <>
             <Button asChild variant="muted">
@@ -466,6 +472,7 @@ export const PackPage = ({
                 <Section title={`People · ${data.keys}`}>
                   <Shared pack={data} onShare={() => sharing(true)} />
                 </Section>
+                <IconSection pack={data} />
                 <Section title="Remove">
                   <div className="flex flex-col gap-3 border border-border bg-card p-4 text-sm text-muted-foreground">
                     {data.keys
