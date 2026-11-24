@@ -1,4 +1,5 @@
 /** Maps each sign-in from before 0.6.4, once, to the client row its name used: revoked rows end it, none makes one. */
+import { nameOf } from './grants.js'
 import type { ClientsRepo } from './repo.js'
 
 export const mapLegacySignIns = async ({
@@ -16,7 +17,7 @@ export const mapLegacySignIns = async ({
     else if (row) await clients.mapGrant(grant, row.id, true)
     else {
       const id = await clients.create({
-        name,
+        name: nameOf(name),
         kind: 'oauth',
         oauthName: name,
         oauthClientId: client,

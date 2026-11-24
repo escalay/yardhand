@@ -655,6 +655,16 @@ describe('an app is known by its sign-in, not the name it gives', () => {
     expect((await oauthRows(restarted)).map((row) => row.name)).toEqual(['Sample'])
   })
 
+  it('a pre-update sign-in with a blank name gets a row shown as an unnamed app, still known by that name', async () => {
+    const before = await beforeTheUpdate()
+    const old = await before.refreshRow(' ', 'client_blank')
+    const app = await before.update()
+    const [row] = await oauthRows(app)
+    expect(row?.name).toBe('Unnamed app')
+    expect((await meOf(app, (await refresh(app, old)).json.access_token)).json.id).toBe(row?.id)
+    expect((await meOf(app, await before.accessToken(' ', 'client_blank'))).json.id).toBe(row?.id)
+  })
+
   it('a pre-update sign-in the kit already refuses gets no row at start', async () => {
     const before = await beforeTheUpdate()
     const replayed = await before.refreshRow('Ghost', 'client_ghost')

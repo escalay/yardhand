@@ -48,6 +48,13 @@ describe('the row a new sign-in gets', () => {
     expect((await clients.list()).map((row) => row.id)).toEqual([id])
   })
 
+  it('an app that gives a blank name is shown as an unnamed app', async () => {
+    const clients = await repo()
+    await onGrantFor({ clients })(grantOf('g1', ''))
+    await onGrantFor({ clients })(grantOf('g2', '  '))
+    expect((await clients.list()).map((row) => row.name)).toEqual(['Unnamed app', 'Unnamed app'])
+  })
+
   it('a row that fails to be made leaves its grant free for the next try', async () => {
     const clients = await repo()
     await clients.create({ name: 'Sample', kind: 'oauth', oauthName: 'Sample', scope: 'write', upstreams: 'all' })
