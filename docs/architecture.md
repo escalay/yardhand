@@ -222,6 +222,11 @@ erDiagram
     text scope "read or write"
     int result_cap_tokens
   }
+  CLIENT_GRANT {
+    text grant PK "the kit's grant: one sign-in"
+    text client_id FK
+    int legacy "mapped by name from before 0.6.4"
+  }
   PIN {
     text client_id "null means global default"
     text tool_id
