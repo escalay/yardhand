@@ -34,6 +34,7 @@ export type ClientDraft = {
   packId?: string | null
   expiresAt?: string | null
   app?: ClientRow['app']
+  joinedBy?: ClientRow['joinedBy']
 }
 
 export type ClientChange = Partial<
@@ -205,6 +206,7 @@ export const clientsRepo = (db: Db) => {
           packId: draft.packId ?? draft.packIds?.[0] ?? null,
           expiresAt: draft.expiresAt ?? null,
           app: draft.app ?? null,
+          joinedBy: draft.joinedBy ?? null,
           createdAt: new Date().toISOString(),
         })
         .catch(freeGrant)
