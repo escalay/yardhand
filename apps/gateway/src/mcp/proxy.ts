@@ -18,6 +18,8 @@ const TEXTUAL = /json|text\/|xml|javascript/
 export const mountProxy = (app: OpenAPIHono, { principals, upstreams, upstreamHeaders, handed }: Services) => {
   app.get('/u/:upstream/r/*', async (c: Context) => {
     const principal = await principals.require(callerOf(c)).catch((problem: ProblemError) => problem)
+    // A sign-in the gateway doesn't know stays a 401, so the app connects again
+    if (principal instanceof ProblemError && principal.code === 'unauthorized') throw principal
     if (principal instanceof ProblemError) return problemResponse(c, 'forbidden', { detail: principal.message })
     const id = c.req.param('upstream') ?? ''
     const upstream = await upstreams.get(id)

@@ -21,6 +21,8 @@ export const mountPassthrough = (
 ) => {
   app.all('/u/:upstream/mcp', async (c: Context) => {
     const principal = await principals.require(callerOf(c)).catch((problem: ProblemError) => problem)
+    // A sign-in the gateway doesn't know stays a 401, so the app connects again
+    if (principal instanceof ProblemError && principal.code === 'unauthorized') throw principal
     if (principal instanceof ProblemError) return problemResponse(c, 'forbidden', { detail: principal.message })
     // A passthrough serves the whole upstream, so a key locked to a pack never gets one
     if (principal.pack)

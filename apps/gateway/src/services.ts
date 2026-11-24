@@ -38,7 +38,7 @@ import { createWatcher } from './features/upstreams/watch.js'
 import { parseMasterKey } from './features/vault/crypto.js'
 import { vaultRepo } from './features/vault/repo.js'
 import type { JobRun, Jobs } from './jobs.js'
-import type { Db } from './kit/index.js'
+import type { Db, OAuth } from './kit/index.js'
 import { VERSION } from './version.js'
 
 export type Env = {
@@ -147,6 +147,8 @@ export const createServices = async ({
   const updates: { current: Updates | null } = { current: null }
   /** Ends the process so its supervisor starts it again, where the server runs under one. */
   const restart: { current: (() => void) | null } = { current: null }
+  /** The gateway's own OAuth server, once `createApp` makes it (only with `OAUTH_SIGNING_KEY`). */
+  const oauth: { current: OAuth | null } = { current: null }
   const calls: typeof log = {
     ...log,
     record: async (row) => {
@@ -198,7 +200,7 @@ export const createServices = async ({
   const packs = packsRepo(db)
   const packDocs = createPackDocs({ packs })
   const handed = createHanded({ calls, catalog })
-  const principals = createPrincipals({ clients, packs, catalog, keys })
+  const principals = createPrincipals({ clients, packs, catalog, keys, oauth })
   await principals.loadKeys()
   /** The AI jobs' settings: Settings (sealed in the vault) over .env over defaults. */
   const ai = {
@@ -329,6 +331,7 @@ export const createServices = async ({
     telemetry,
     updates,
     restart,
+    oauth,
     vault,
     clients,
     upstreams,

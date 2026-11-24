@@ -1,10 +1,12 @@
 /** Clients, their allowlists and pins: the only queries on these tables. */
 import { randomUUID } from 'node:crypto'
-import { and, asc, eq, getTableColumns, inArray, isNotNull, isNull, like } from 'drizzle-orm'
-import type { Db } from '../../kit/index.js'
+import { and, asc, eq, getTableColumns, gt, inArray, isNotNull, isNull, like } from 'drizzle-orm'
+import { type Db, oauthKeys } from '../../kit/index.js'
 import {
   type ClientPackRow,
   type ClientRow,
+  clientGrants,
+  clientLegacyMapping,
   clientPacks,
   clients,
   clientUpstreams,
@@ -18,6 +20,10 @@ export type ClientDraft = {
   kind: 'key' | 'oauth'
   keyHash?: string
   oauthName?: string
+  /** The app's OAuth client id, shown to the owner. */
+  oauthClientId?: string
+  /** The sign-in it is made for: an OAuth client row is made with its first grant, or not at all. */
+  grant?: string
   scope: 'read' | 'write'
   upstreams: 'all' | string[]
   pins?: string[] | null
@@ -35,6 +41,7 @@ export type ClientChange = Partial<
 >
 
 const HOUR_MS = 3_600_000
+const nowSeconds = () => Math.floor(Date.now() / 1000)
 
 export const clientsRepo = (db: Db) => {
   const setUpstreams = async (clientId: string, upstreams: 'all' | string[]) => {
@@ -122,26 +129,85 @@ export const clientsRepo = (db: Db) => {
         .update(clientPacks)
         .set({ cameBy: null, cameByAt: null })
         .where(and(eq(clientPacks.packId, packId), eq(clientPacks.cameBy, name))),
+    /** The client row a sign-in (the kit's grant) stands for. */
+    byGrant: async (grant: string): Promise<ClientRow | undefined> =>
+      (
+        await db
+          .select(getTableColumns(clients))
+          .from(clientGrants)
+          .innerJoin(clients, eq(clients.id, clientGrants.clientId))
+          .where(eq(clientGrants.grant, grant))
+      )[0],
+    /** Maps a sign-in to a row; a grant mapped already keeps the row it has. */
+    mapGrant: (grant: string, clientId: string, legacy = false) =>
+      db.insert(clientGrants).values({ grant, clientId, legacy }).onConflictDoNothing(),
+    /** Every sign-in a row stands for. */
+    grantsOf: async (clientId: string) =>
+      (await db.select().from(clientGrants).where(eq(clientGrants.clientId, clientId))).map((row) => row.grant),
+    /** Whether the sign-ins from before 0.6.4 are mapped. */
+    legacyMapped: async () => (await db.select().from(clientLegacyMapping).limit(1)).length > 0,
+    markLegacyMapped: (signIns: number) =>
+      db.insert(clientLegacyMapping).values({ at: new Date().toISOString(), signIns }),
+    /** Sign-ins the kit still takes: unused refresh tokens, claimed registrations holding a claim token, unrevoked. */
+    kitSignIns: async () => {
+      const rows = await db
+        .select()
+        .from(oauthKeys)
+        .where(
+          and(
+            inArray(oauthKeys.kind, ['refresh', 'registration', 'claim-token', 'revoked-family', 'revoked-client']),
+            gt(oauthKeys.expiresAt, nowSeconds()),
+          ),
+        )
+      const revoked = new Set(
+        rows.filter((row) => row.kind.startsWith('revoked-')).map((row) => `${row.kind}:${row.id}`),
+      )
+      const uncollected = new Set(
+        rows
+          .filter((row) => row.kind === 'claim-token')
+          .map((row) => String((JSON.parse(row.value) as Record<string, unknown>).registration)),
+      )
+      return rows.flatMap((row) => {
+        if (row.kind !== 'refresh' && row.kind !== 'registration') return []
+        const value = JSON.parse(row.value) as Record<string, unknown>
+        const live = row.kind === 'refresh' ? !value.used : value.claimed === true && uncollected.has(row.id)
+        const client = row.kind === 'refresh' ? String(value.client) : row.id
+        const grant = String(value.family ?? row.id)
+        if (!live || revoked.has(`revoked-family:${grant}`) || revoked.has(`revoked-client:${client}`)) return []
+        return [{ grant, client, name: String(value.name ?? client) }]
+      })
+    },
     globalPins: () => pinsOf(GLOBAL_PINS),
     setGlobalPins: (toolNames: string[]) => setPins(GLOBAL_PINS, toolNames),
     create: async (draft: ClientDraft) => {
       const id = `cl_${randomUUID().replaceAll('-', '').slice(0, 16)}`
-      await db.insert(clients).values({
-        id,
-        name: draft.name,
-        kind: draft.kind,
-        keyHash: draft.keyHash ?? null,
-        oauthName: draft.oauthName ?? null,
-        scope: draft.scope,
-        allUpstreams: draft.upstreams === 'all',
-        ownPins: Boolean(draft.pins),
-        macTools: draft.macTools ?? false,
-        resultCap: draft.resultCap ?? DEFAULT_RESULT_CAP,
-        packId: draft.packId ?? draft.packIds?.[0] ?? null,
-        expiresAt: draft.expiresAt ?? null,
-        app: draft.app ?? null,
-        createdAt: new Date().toISOString(),
-      })
+      // The grant first, so one mapped already refuses the row; freed again when the row can't be made
+      const { grant } = draft
+      if (grant) await db.insert(clientGrants).values({ grant, clientId: id, legacy: false })
+      const freeGrant = async (error: unknown) => {
+        if (grant) await db.delete(clientGrants).where(eq(clientGrants.grant, grant))
+        throw error
+      }
+      await db
+        .insert(clients)
+        .values({
+          id,
+          name: draft.name,
+          kind: draft.kind,
+          keyHash: draft.keyHash ?? null,
+          oauthName: draft.oauthName ?? null,
+          oauthClientId: draft.oauthClientId ?? null,
+          scope: draft.scope,
+          allUpstreams: draft.upstreams === 'all',
+          ownPins: Boolean(draft.pins),
+          macTools: draft.macTools ?? false,
+          resultCap: draft.resultCap ?? DEFAULT_RESULT_CAP,
+          packId: draft.packId ?? draft.packIds?.[0] ?? null,
+          expiresAt: draft.expiresAt ?? null,
+          app: draft.app ?? null,
+          createdAt: new Date().toISOString(),
+        })
+        .catch(freeGrant)
       await setUpstreams(id, draft.upstreams)
       await setPacks(id, draft.packIds ?? (draft.packId ? [draft.packId] : []))
       if (draft.pins) await setPins(id, draft.pins)

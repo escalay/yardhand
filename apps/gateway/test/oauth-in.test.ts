@@ -7,11 +7,12 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { serve } from '@hono/node-server'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { sql } from 'drizzle-orm'
-import { decodeJwt, exportJWK, generateKeyPair, SignJWT } from 'jose'
+import { decodeJwt, exportJWK, generateKeyPair, importJWK, SignJWT } from 'jose'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createApp, type Env } from '../src/app.js'
-import { generateOAuthKey, hashApiKey, testDb } from '../src/kit/index.js'
+import { type ClientDraft, clientsRepo } from '../src/features/clients/repo.js'
+import { secrets } from '../src/features/vault/schema.js'
+import { dbOAuthStore, generateOAuthKey, hashApiKey, testDb } from '../src/kit/index.js'
 
 const OWNER = 'owner-key-for-oauth'
 const REDIRECT = 'http://localhost:9/cb'
@@ -157,6 +158,87 @@ const approve = async (browser: Browser, authorize: string, headers: Record<stri
   return back.searchParams.get('code') ?? ''
 }
 
+/** Keys an instance keeps across restarts, so its vault and its sign-ins still open after one. */
+const instanceKeys = async () => ({
+  API_KEYS: `owner:${hashApiKey(OWNER)}`,
+  GATEWAY_MASTER_KEY: randomBytes(32).toString('base64'),
+  OAUTH_SIGNING_KEY: await generateOAuthKey(),
+})
+
+/**
+ * An instance as the version before this one left it: its tables made by a start with OAuth off (so nothing is mapped
+ * yet) and the sample tools connected, then client rows and sign-ins written as that gateway and kit 1.7.0 wrote them.
+ * `update` starts this version on it, with the same keys.
+ */
+const beforeTheUpdate = async () => {
+  const db = await testDb()
+  const env = await instanceKeys()
+  await gateway({ ...env, OAUTH_SIGNING_KEY: undefined }, db)
+  const store = await dbOAuthStore(db)
+  const clients = clientsRepo(db)
+  const hourFromNow = Math.floor(Date.now() / 1000) + 3600
+  return {
+    clients,
+    /** The row the gateway made on an app's first call: write, every upstream, known by the name the app gave. */
+    oauthClient: (name: string, draft: Partial<ClientDraft> = {}) =>
+      clients.create({ name, kind: 'oauth', oauthName: name, scope: 'write', upstreams: 'all', ...draft }),
+    /** A refresh token as kit 1.7.0 kept it: who, approved by whom, for what; no family, audience or resource. */
+    refreshRow: async (name: string, client: string) => {
+      const token = `rt_${randomBytes(24).toString('base64url')}`
+      const id = createHash('sha256').update(token).digest('hex')
+      await store.put(
+        'refresh',
+        id,
+        { client, name, owner: 'owner@example.test', scopes: ['read', 'write'] },
+        hourFromNow,
+      )
+      return token
+    },
+    /** An access token from before grants: signed by this instance, its `jti` issued, and no grant claim. */
+    accessToken: async (name: string, client: string) => {
+      const jti = randomBytes(12).toString('base64url')
+      await store.put('access', jti, { client }, hourFromNow)
+      return new SignJWT({ sub: 'owner@example.test', client_id: client, name, scope: 'read write', jti })
+        .setProtectedHeader({ alg: 'ES256' })
+        .setIssuer('http://localhost')
+        .setIssuedAt()
+        .setExpirationTime(hourFromNow)
+        .sign(await importJWK(JSON.parse(env.OAUTH_SIGNING_KEY), 'ES256'))
+    },
+    /** A kit marker: `revoked-family` by grant (a 1.7.0 refresh row's is the sha256 of its token), `revoked-client`. */
+    revoked: (kind: 'revoked-family' | 'revoked-client', id: string) => store.put(kind, id, {}, hourFromNow),
+    /** An agent registration kit 1.7.0 claimed, with its claim token (returned) until the agent collected it. */
+    claimedRow: async (name: string, id: string, { collected = false } = {}) => {
+      await store.put(
+        'registration',
+        id,
+        { name, type: 'agent', claimed: true, owner: 'owner@example.test' },
+        hourFromNow,
+      )
+      if (collected) return undefined
+      const token = `clm_${randomBytes(24).toString('base64url')}`
+      await store.put(
+        'claim-token',
+        createHash('sha256').update(token).digest('hex'),
+        { registration: id },
+        hourFromNow,
+      )
+      return token
+    },
+    /** The identity assertion kit 1.7.0 gave an agent with its claim. */
+    assertion: async (id: string) =>
+      new SignJWT({ sub: id, typ: 'agent_identity', email: 'owner@example.test', email_verified: true })
+        .setProtectedHeader({ alg: 'ES256' })
+        .setIssuer('http://localhost')
+        .setIssuedAt()
+        .setExpirationTime(hourFromNow)
+        .sign(await importJWK(JSON.parse(env.OAUTH_SIGNING_KEY), 'ES256')),
+    /** The ids in the vault, never their values. */
+    secretIds: async () => (await db.select({ id: secrets.id }).from(secrets)).map((row) => row.id),
+    update: (keys: Partial<Env> = {}) => createApp({ db, env: { ...env, ...keys } }),
+  }
+}
+
 type Tokens = { access_token: string; refresh_token: string; scope: string }
 const tokenFor = async (app: App, form: Record<string, string>) => {
   const answer = await app.request('/oauth/token', {
@@ -231,9 +313,12 @@ const useAndRevoke = async (app: App, client: { clientId: string; verifier: stri
   const row = rows.find((one) => one.kind === 'oauth' && one.name === 'Sample')
   expect(row).toBeDefined()
   expect((await app.request(`/api/clients/${row?.id}`, { method: 'DELETE', headers: bearer(OWNER) })).status).toBe(204)
+  // Revoking ends the sign-in at the kit: its token is no longer one, and its refresh is refused
   const refused = await roll(app, refreshed.json.access_token)
-  expect(refused.status).toBe(403)
-  expect(((await refused.json()) as { detail: string }).detail).toMatch(/revoked/)
+  expect(refused.status).toBe(401)
+  expect(((await refused.json()) as { detail: string }).detail).toMatch(/not valid/)
+  const after = await tokenFor(app, { grant_type: 'refresh_token', refresh_token: refreshed.json.refresh_token })
+  expect([after.status, after.json.error]).toEqual([400, 'invalid_grant'])
 }
 
 describe('an app signing in to the gateway', () => {
@@ -285,33 +370,16 @@ describe('an app signing in to the gateway', () => {
   })
 
   it('a sign-in made before the update refreshes after it, sending resource=<origin>/mcp', async () => {
-    const db = await testDb()
-    const app = await gateway({}, db)
-    const browser = browserOn(app)
-    await signInWithKey(browser)
-    const client = await register(app)
-    const first = await tokenFor(app, {
-      grant_type: 'authorization_code',
-      code: await approve(browser, client.authorize),
-      redirect_uri: REDIRECT,
-      client_id: client.clientId,
-      code_verifier: client.verifier,
-      resource: 'http://localhost/mcp',
-    })
-    expect(first.status).toBe(200)
-    expect((await roll(app, first.json.access_token)).status).toBe(200)
-    // Its refresh row as kit 1.7.0 wrote it: who, approved by whom, for what; no family, audience or resource
-    const id = createHash('sha256').update(first.json.refresh_token).digest('hex')
-    const [row] = await db.all<[string]>(sql`select value from oauth where kind = 'refresh' and id = ${id}`)
-    const { client: clientId, name, owner, scopes } = JSON.parse(row?.[0] ?? '{}')
-    expect([clientId, name]).toEqual([client.clientId, 'Sample'])
-    await db.run(
-      sql`update oauth set value = ${JSON.stringify({ client: clientId, name, owner, scopes })} where kind = 'refresh' and id = ${id}`,
-    )
+    // Kit 1.7.0 issued it and its app called once, so a client row of its name exists
+    const before = await beforeTheUpdate()
+    await before.oauthClient('Sample')
+    const client = { clientId: 'client_sample' }
+    const old = await before.refreshRow('Sample', client.clientId)
+    const app = await before.update()
 
     const refreshed = await tokenFor(app, {
       grant_type: 'refresh_token',
-      refresh_token: first.json.refresh_token,
+      refresh_token: old,
       client_id: client.clientId,
       resource: 'http://localhost/mcp',
     })
@@ -387,6 +455,354 @@ describe('an app signing in to the gateway', () => {
     await signInWithKey(browser)
     const client = await register(app)
     expect((await approve(browser, client.authorize)).length).toBeGreaterThan(0)
+  })
+})
+
+describe('an app is known by its sign-in, not the name it gives', () => {
+  const UNKNOWN = 'This sign-in is not known here: connect again.'
+  /** An app registering, approved by the owner's browser, trading its code: the tokens of one new sign-in. */
+  const signIn = async (app: App, browser: Browser, name = 'Sample') => {
+    const client = await register(app, name)
+    const tokens = await tokenFor(app, {
+      grant_type: 'authorization_code',
+      code: await approve(browser, client.authorize),
+      redirect_uri: REDIRECT,
+      client_id: client.clientId,
+      code_verifier: client.verifier,
+      resource: 'http://localhost/mcp',
+    })
+    expect(tokens.status).toBe(200)
+    return { ...client, tokens: tokens.json }
+  }
+  const signedIn = async (app: App) => {
+    const browser = browserOn(app)
+    await signInWithKey(browser)
+    return browser
+  }
+  const oauthRows = async (app: App) =>
+    (
+      (await (await app.request('/api/clients', { headers: bearer(OWNER) })).json()) as {
+        _embedded: {
+          clients: { id: string; name: string; kind: string; oauthClientId: string | null; revokedAt: string | null }[]
+        }
+      }
+    )._embedded.clients.filter((row) => row.kind === 'oauth')
+  type Me = { id: string; scope: string; upstreams: 'all' | string[]; pins: { name: string }[] }
+  const meOf = async (app: App, token: string) => {
+    const answer = await app.request('/api/me', { headers: bearer(token) })
+    return { status: answer.status, json: (await answer.json()) as Me & { detail?: string } }
+  }
+  const refresh = (app: App, token: string) => tokenFor(app, { grant_type: 'refresh_token', refresh_token: token })
+  const revoke = async (app: App, id: string) =>
+    expect((await app.request(`/api/clients/${id}`, { method: 'DELETE', headers: bearer(OWNER) })).status).toBe(204)
+  /** Refused by the kit: the token is no longer one, the refresh is spent. */
+  const expectEnded = async (app: App, access: string, refreshToken: string) => {
+    const refused = await roll(app, access)
+    expect(refused.status).toBe(401)
+    expect(((await refused.json()) as { detail: string }).detail).toMatch(/not valid/)
+    const again = await refresh(app, refreshToken)
+    expect([again.status, again.json.error]).toEqual([400, 'invalid_grant'])
+  }
+
+  it('two apps that register the same name are two clients', async () => {
+    const app = await gateway()
+    const browser = await signedIn(app)
+    const one = await signIn(app, browser)
+    // The row is made when the sign-in is, before any call
+    expect((await oauthRows(app)).map((row) => [row.name, row.oauthClientId])).toEqual([['Sample', one.clientId]])
+    const two = await signIn(app, browser)
+    expect((await roll(app, one.tokens.access_token)).status).toBe(200)
+    expect((await roll(app, two.tokens.access_token)).status).toBe(200)
+    const rows = await oauthRows(app)
+    expect(rows.map((row) => [row.name, row.oauthClientId])).toEqual([
+      ['Sample', one.clientId],
+      ['Sample', two.clientId],
+    ])
+    expect((await meOf(app, one.tokens.access_token)).json.id).toBe(rows[0]?.id)
+    expect((await meOf(app, two.tokens.access_token)).json.id).toBe(rows[1]?.id)
+  })
+
+  it('revoke ends the sign-in at the kit: the access token is refused and the refresh is invalid_grant', async () => {
+    const app = await gateway()
+    const browser = await signedIn(app)
+    const { tokens } = await signIn(app, browser)
+    const refreshed = await refresh(app, tokens.refresh_token)
+    expect(refreshed.status).toBe(200)
+    const [row] = await oauthRows(app)
+    await revoke(app, row?.id ?? '')
+    expect((await roll(app, tokens.access_token)).status).toBe(401)
+    await expectEnded(app, refreshed.json.access_token, refreshed.json.refresh_token)
+    const mcp = await app.request('/mcp', {
+      method: 'POST',
+      headers: { ...bearer(refreshed.json.access_token), accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    })
+    expect(mcp.status).toBe(401)
+  })
+
+  it('a new connection after the owner revoked a same-named one is a new client and works', async () => {
+    const app = await gateway()
+    const browser = await signedIn(app)
+    await signIn(app, browser)
+    const [first] = await oauthRows(app)
+    await revoke(app, first?.id ?? '')
+    const again = await signIn(app, browser)
+    expect((await roll(app, again.tokens.access_token)).status).toBe(200)
+    const rows = await oauthRows(app)
+    expect(rows.map((row) => [row.name, Boolean(row.revokedAt)])).toEqual([
+      ['Sample', true],
+      ['Sample', false],
+    ])
+    expect((await meOf(app, again.tokens.access_token)).json.id).toBe(rows[1]?.id)
+  })
+
+  it('every sign-in made before the update keeps the row it used, with its pins and allowlist', async () => {
+    const before = await beforeTheUpdate()
+    const id = await before.oauthClient('Sample', { pins: ['sample.roll_dice'], upstreams: ['sample'] })
+    const laptop = await before.refreshRow('Sample', 'client_laptop')
+    const phone = await before.refreshRow('Sample', 'client_phone')
+    const app = await before.update()
+    for (const old of [laptop, phone]) {
+      const refreshed = await refresh(app, old)
+      expect(refreshed.status).toBe(200)
+      const me = await meOf(app, refreshed.json.access_token)
+      expect(me.json).toMatchObject({ id, upstreams: ['sample'] })
+      expect(me.json.pins.map((pin) => pin.name)).toEqual(['sample.roll_dice'])
+      expect((await roll(app, refreshed.json.access_token)).status).toBe(200)
+    }
+    expect((await oauthRows(app)).map((row) => row.id)).toEqual([id])
+  })
+
+  it('revoking a row shared by two pre-update sign-ins ends both', async () => {
+    const before = await beforeTheUpdate()
+    const id = await before.oauthClient('Sample')
+    const olds = [await before.refreshRow('Sample', 'client_laptop'), await before.refreshRow('Sample', 'client_phone')]
+    const app = await before.update()
+    const refreshed = await Promise.all(olds.map((old) => refresh(app, old)))
+    for (const one of refreshed) expect((await roll(app, one.json.access_token)).status).toBe(200)
+    await revoke(app, id)
+    for (const one of refreshed) await expectEnded(app, one.json.access_token, one.json.refresh_token)
+  })
+
+  it('a narrowed or ended row stays narrow or ended for every pre-update sign-in of its name', async () => {
+    const before = await beforeTheUpdate()
+    const narrow = await before.oauthClient('Sample', { scope: 'read', upstreams: [] })
+    await before.oauthClient('Ended', { expiresAt: '2026-01-01T00:00:00.000Z' })
+    const olds = [await before.refreshRow('Sample', 'client_laptop'), await before.refreshRow('Sample', 'client_phone')]
+    const ended = await before.refreshRow('Ended', 'client_ended')
+    const app = await before.update()
+    for (const old of olds) {
+      const me = await meOf(app, (await refresh(app, old)).json.access_token)
+      expect(me.json).toMatchObject({ id: narrow, scope: 'read', upstreams: [] })
+    }
+    const refused = await roll(app, (await refresh(app, ended)).json.access_token)
+    expect(refused.status).toBe(403)
+    expect(((await refused.json()) as { detail: string }).detail).toBe(
+      'This key expired on 1 Jan 2026: the owner can issue a new one in /app.',
+    )
+  })
+
+  it('a pre-update sign-in of a revoked name is ended at start', async () => {
+    const before = await beforeTheUpdate()
+    await before.clients.revoke(await before.oauthClient('Gone'))
+    const old = await before.refreshRow('Gone', 'client_gone')
+    const app = await before.update()
+    const refreshed = await refresh(app, old)
+    expect([refreshed.status, refreshed.json.error]).toEqual([400, 'invalid_grant'])
+    expect((await oauthRows(app)).map((row) => [row.name, Boolean(row.revokedAt)])).toEqual([['Gone', true]])
+  })
+
+  /** A request at one of the gateway's doors, as an app connecting there sends it. */
+  const knock = (app: App, [path, method]: readonly [string, 'GET' | 'POST'], authorization: string) =>
+    app.request(path, {
+      method,
+      headers: { authorization, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      ...(method === 'POST'
+        ? {
+            body: JSON.stringify(
+              path.endsWith('/calls')
+                ? { tool: 'sample.roll_dice', arguments: { count: 2, sides: 6 } }
+                : { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+            ),
+          }
+        : {}),
+    })
+  /** A sign-in the start never saw, refreshed once: the kit takes it, the gateway knows no row for it. */
+  const unseenSignIn = async (app: App, before: Awaited<ReturnType<typeof beforeTheUpdate>>) => {
+    const refreshed = await refresh(app, await before.refreshRow('Sample', 'client_unseen'))
+    expect(refreshed.status).toBe(200)
+    return refreshed.json
+  }
+  const challengeOf = (response: Response) => {
+    const header = response.headers.get('www-authenticate') ?? ''
+    return {
+      error: /error="([^"]+)"/.exec(header)?.[1],
+      pointer: /resource_metadata="([^"]+)"/.exec(header)?.[1],
+      scope: /scope="([^"]+)"/.exec(header)?.[1],
+    }
+  }
+
+  it('a token whose grant has no row is refused and makes none', async () => {
+    const before = await beforeTheUpdate()
+    const app = await before.update()
+    // Each door gets its own sign-in: the first refusal ends the sign-in at the kit
+    for (const door of [
+      ['/api/calls', 'POST'],
+      ['/mcp', 'POST'],
+      // The passthrough and the link proxy ask it to connect again too
+      ['/u/sample/mcp', 'POST'],
+      ['/u/sample/r/recipes/1', 'GET'],
+    ] as const) {
+      const tokens = await unseenSignIn(app, before)
+      const refused = await knock(app, door, `Bearer ${tokens.access_token}`)
+      expect([door[0], refused.status]).toEqual([door[0], 401])
+      expect(refused.headers.get('www-authenticate')).toMatch(/^Bearer /)
+      expect(((await refused.json()) as { detail: string }).detail).toBe(UNKNOWN)
+    }
+    expect(await oauthRows(app)).toEqual([])
+  })
+
+  it('the 401 for an unknown sign-in points where the kit’s own does, and its refresh is then invalid_grant', async () => {
+    const before = await beforeTheUpdate()
+    const app = await before.update()
+    const made = await app.request('/api/packs', {
+      method: 'POST',
+      headers: bearer(OWNER),
+      body: JSON.stringify({ name: 'loud', title: 'Loud' }),
+    })
+    expect(made.status).toBe(201)
+    // A pack renamed while it had a key: its old name still opens, and must not give its new one away
+    const owner = (path: string, method: string, body: unknown) =>
+      app.request(path, { method, headers: bearer(OWNER), body: JSON.stringify(body) })
+    expect((await owner('/api/packs', 'POST', { name: 'shed', title: 'Shed' })).status).toBe(201)
+    const key = { name: 'Sam', scope: 'write', packs: ['shed'], expiresIn: '7d' }
+    expect((await owner('/api/clients', 'POST', key)).status).toBe(201)
+    expect((await owner('/api/packs/shed', 'PATCH', { name: 'garden' })).status).toBe(200)
+    for (const door of [
+      ['/api/calls', 'POST'],
+      ['/mcp', 'POST'],
+      ['/p/loud/mcp', 'POST'],
+      ['/p/loud/api/calls', 'POST'],
+      ['/p/shed/mcp', 'POST'],
+      ['/p/shed/api/calls', 'POST'],
+    ] as const) {
+      const tokens = await unseenSignIn(app, before)
+      const refused = await knock(app, door, `Bearer ${tokens.access_token}`)
+      expect([door[0], refused.status]).toEqual([door[0], 401])
+      expect(((await refused.json()) as { detail: string }).detail).toBe(UNKNOWN)
+      const kits = challengeOf(await knock(app, door, 'Bearer not-a-token'))
+      expect(kits.pointer).toBeTruthy()
+      expect([door[0], challengeOf(refused)]).toEqual([door[0], { ...kits, error: 'invalid_token' }])
+      expect(kits.scope).toBe('read write')
+      // Ended at the kit: the app's next refresh is refused, so it authorizes again
+      const again = await refresh(app, tokens.refresh_token)
+      expect([door[0], again.status, again.json.error]).toEqual([door[0], 400, 'invalid_grant'])
+    }
+    expect(await oauthRows(app)).toEqual([])
+  })
+
+  it('an access token from before the update finds its row by name and makes none', async () => {
+    const before = await beforeTheUpdate()
+    const id = await before.oauthClient('Sample', { pins: ['sample.roll_dice'] })
+    const app = await before.update()
+    const known = await meOf(app, await before.accessToken('Sample', 'client_laptop'))
+    expect(known.json).toMatchObject({ id })
+    const stranger = await meOf(app, await before.accessToken('Stranger', 'client_stranger'))
+    expect([stranger.status, stranger.json.detail]).toEqual([401, UNKNOWN])
+    expect((await oauthRows(app)).map((row) => row.id)).toEqual([id])
+  })
+
+  it('the mapping runs once', async () => {
+    const before = await beforeTheUpdate()
+    // A sign-in whose app never called: the start makes the row its first call would have made
+    const old = await before.refreshRow('Sample', 'client_laptop')
+    const app = await before.update()
+    const refreshed = await refresh(app, old)
+    expect(await meOf(app, refreshed.json.access_token)).toMatchObject({
+      status: 200,
+      json: { name: 'Sample', scope: 'write', upstreams: 'all' },
+    })
+    // Written after the first start, it is not mapped by the next one
+    const later = await before.refreshRow('Later', 'client_later')
+    const restarted = await before.update()
+    const unseen = await meOf(restarted, (await refresh(restarted, later)).json.access_token)
+    expect([unseen.status, unseen.json.detail]).toEqual([401, UNKNOWN])
+    expect((await roll(restarted, refreshed.json.access_token)).status).toBe(200)
+    expect((await oauthRows(restarted)).map((row) => row.name)).toEqual(['Sample'])
+  })
+
+  it('a pre-update sign-in with a blank name gets a row shown as an unnamed app, still known by that name', async () => {
+    const before = await beforeTheUpdate()
+    const old = await before.refreshRow(' ', 'client_blank')
+    const app = await before.update()
+    const [row] = await oauthRows(app)
+    expect(row?.name).toBe('Unnamed app')
+    expect((await meOf(app, (await refresh(app, old)).json.access_token)).json.id).toBe(row?.id)
+    expect((await meOf(app, await before.accessToken(' ', 'client_blank'))).json.id).toBe(row?.id)
+  })
+
+  it('a pre-update sign-in the kit already refuses gets no row at start', async () => {
+    const before = await beforeTheUpdate()
+    const replayed = await before.refreshRow('Ghost', 'client_ghost')
+    await before.revoked('revoked-family', createHash('sha256').update(replayed).digest('hex'))
+    await before.claimedRow('Reg', 'client_reg')
+    await before.revoked('revoked-client', 'client_reg')
+    const app = await before.update()
+    expect(await oauthRows(app)).toEqual([])
+    const refreshed = await refresh(app, replayed)
+    expect([refreshed.status, refreshed.json.error]).toEqual([400, 'invalid_grant'])
+  })
+
+  it('a pre-update agent claimed but not yet collected is mapped at start, and collecting reaches that row', async () => {
+    const before = await beforeTheUpdate()
+    const claim = await before.claimedRow('Agent', 'reg_waiting')
+    const app = await before.update()
+    const [row] = await oauthRows(app)
+    expect(row?.name).toBe('Agent')
+    const collected = await tokenFor(app, {
+      grant_type: 'urn:workos:agent-auth:grant-type:claim',
+      claim_token: claim ?? '',
+    })
+    expect(collected.status).toBe(200)
+    expect((await meOf(app, collected.json.access_token)).json.id).toBe(row?.id)
+    expect((await meOf(app, (await refresh(app, collected.json.refresh_token)).json.access_token)).json.id).toBe(
+      row?.id,
+    )
+    expect((await oauthRows(app)).map((one) => one.id)).toEqual([row?.id])
+  })
+
+  it('a pre-update agent whose claim was collected gets no row: its identity assertion is refused', async () => {
+    const before = await beforeTheUpdate()
+    await before.claimedRow('Agent', 'reg_collected', { collected: true })
+    const app = await before.update()
+    expect(await oauthRows(app)).toEqual([])
+    const asserted = await tokenFor(app, {
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: await before.assertion('reg_collected'),
+    })
+    expect([asserted.status, asserted.json.error]).toEqual([400, 'invalid_grant'])
+    expect(await oauthRows(app)).toEqual([])
+  })
+
+  it('a refresh token of the same name as a collected agent still maps, to one row', async () => {
+    const before = await beforeTheUpdate()
+    await before.claimedRow('Agent', 'reg_collected', { collected: true })
+    const old = await before.refreshRow('Agent', 'client_agent')
+    const app = await before.update()
+    const [row, ...more] = await oauthRows(app)
+    expect([row?.name, more]).toEqual(['Agent', []])
+    const refreshed = await refresh(app, old)
+    expect(refreshed.status).toBe(200)
+    expect((await meOf(app, refreshed.json.access_token)).json.id).toBe(row?.id)
+  })
+
+  it('a start under another master key still comes up, and the mapping leaves nothing in the vault', async () => {
+    const before = await beforeTheUpdate()
+    const old = await before.refreshRow('Sample', 'client_laptop')
+    await before.update()
+    const app = await before.update({ GATEWAY_MASTER_KEY: randomBytes(32).toString('base64') })
+    expect((await roll(app, (await refresh(app, old)).json.access_token)).status).toBe(200)
+    expect(await before.secretIds()).toEqual([])
   })
 })
 
