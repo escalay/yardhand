@@ -507,6 +507,28 @@ describe('an app is known by its sign-in, not the name it gives', () => {
     expect([again.status, again.json.error]).toEqual([400, 'invalid_grant'])
   }
 
+  it('two refreshes of one token sent at once both go through; the same token sent past the grace ends the sign-in', async () => {
+    const app = await gateway()
+    const browser = await signedIn(app)
+    const { tokens } = await signIn(app, browser)
+    const [one, two] = await Promise.all([refresh(app, tokens.refresh_token), refresh(app, tokens.refresh_token)])
+    expect([one?.status, two?.status]).toEqual([200, 200])
+    // Within 30 s the retry gets the successor the first refresh got, never a second one
+    expect(one?.json.refresh_token).toBe(two?.json.refresh_token)
+    expect((await roll(app, one?.json.access_token ?? '')).status).toBe(200)
+    expect((await roll(app, two?.json.access_token ?? '')).status).toBe(200)
+    const later = Date.now() + 31_000
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => later)
+    try {
+      const replayed = await refresh(app, tokens.refresh_token)
+      expect([replayed.status, replayed.json.error]).toEqual([400, 'invalid_grant'])
+      for (const answer of [one, two])
+        await expectEnded(app, answer?.json.access_token ?? '', answer?.json.refresh_token ?? '')
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
   it('two apps that register the same name are two clients', async () => {
     const app = await gateway()
     const browser = await signedIn(app)

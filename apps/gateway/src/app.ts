@@ -164,6 +164,8 @@ export const createApp = async ({
           // The one origin of every sign-in document and check, when the owner named one others reach
           ...(services.statedOrigin ? { publicOrigin: services.statedOrigin } : {}),
           limits: { store: await dbGuardStore(db), address },
+          // A refresh sent again within 30 s (two at once, a lost answer) gets the same successor; later, it ends the sign-in
+          reuseGraceSeconds: 30,
         })
       : undefined
   if (oauth) {
