@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -29,9 +29,13 @@ const axis = (index: number) => {
 }
 const nameOf = (row: number) => `shelf.tool_${String(row).padStart(3, '0')}`
 /** A search over `rows` tools: the first `matching` are exactly what "on topic" asks for, the rest nothing like it. */
-const searchOver = (rows: number, matching: number) =>
+const searchOver = (
+  rows: number,
+  matching: number,
+  file = join(mkdtempSync(join(tmpdir(), 'meaning-')), 'tools.jsonl'),
+) =>
   createMeaningSearch({
-    file: join(mkdtempSync(join(tmpdir(), 'meaning-')), 'tools.jsonl'),
+    file,
     tools: {
       listLive: async () =>
         Array.from({ length: rows }, (_, row) => ({
@@ -244,5 +248,26 @@ describe('a refresh that fails or stops', () => {
     await pause(WAIT * 2)
     expect(search.calls()).toBe(3)
     expect(search.status?.().retryAt).toBeNull()
+  })
+})
+
+describe('the ledger’s lock', () => {
+  it('is taken over when a gateway stopped mid-refresh left it under the process id this one has now', async () => {
+    // In a container the restarted process often gets the same id, which the kit reads as a writer still running
+    const file = join(mkdtempSync(join(tmpdir(), 'meaning-')), 'tools.jsonl')
+    writeFileSync(`${file}.lock`, String(process.pid))
+    const search = searchOver(60, 1, file)
+    await search.refresh()
+    expect(search.status?.()).toMatchObject({ failed: null, missing: 0 })
+    expect(existsSync(`${file}.lock`)).toBe(false)
+  })
+
+  it('still refuses a refresh while another process holds it', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'meaning-')), 'tools.jsonl')
+    writeFileSync(`${file}.lock`, String(process.ppid))
+    const search = searchOver(60, 1, file)
+    await search.refresh()
+    expect(search.status?.().failed).toMatch(/is being written by process/)
+    search.stop?.()
   })
 })
