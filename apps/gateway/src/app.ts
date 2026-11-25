@@ -15,7 +15,7 @@ import { addressTrustOf } from './env.js'
 import type { Model } from './features/ai/model.js'
 import { parseTraceparent, traceContext } from './features/calls/traces.js'
 import { withPlaybookQuery } from './features/catalog/query.js'
-import { onGrantFor } from './features/clients/grants.js'
+import { onGrantFor, onRevokeFor } from './features/clients/grants.js'
 import { mapLegacySignIns } from './features/clients/legacy.js'
 import { packChoice, withPackAddresses } from './features/clients/pack-choice.js'
 import { callerOf, isOwner } from './features/clients/principals.js'
@@ -153,6 +153,8 @@ export const createApp = async ({
           owner: async (c) => (access ? await accessOwner(access)(c) : null) ?? (await kitOwner(sessions)(c)),
           // Every new sign-in is its own client row, made here and nowhere else
           onGrant: (grant) => onGrantFor(services)(grant),
+          // A sign-in withdrawn before its first token takes the row `onGrant` made for it along
+          onRevoke: onRevokeFor(services),
           // What a sign-in is for: the root or one pack's address, read by `classOf` alone (features/clients/resources)
           mcpPath: '/mcp',
           resources: issuesFor,

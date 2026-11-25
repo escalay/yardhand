@@ -248,6 +248,21 @@ export const clientsRepo = (db: Db) => {
       await db.delete(pins).where(like(pins.toolName, `${upstreamId}.%`))
     },
     revoke: (id: string) => db.update(clients).set({ revokedAt: new Date().toISOString() }).where(eq(clients.id, id)),
+    /**
+     * Lets go of a sign-in that never got a token, and of the row made for it when it stands for nothing else. A row
+     * mapped from before 0.6.4 (`legacy`) is never touched: it was there before the sign-in.
+     */
+    dropSignIn: async (grant: string) => {
+      const [mapping] = await db.select().from(clientGrants).where(eq(clientGrants.grant, grant))
+      if (!mapping || mapping.legacy) return
+      await db.delete(clientGrants).where(eq(clientGrants.grant, grant))
+      const others = await db.select().from(clientGrants).where(eq(clientGrants.clientId, mapping.clientId)).limit(1)
+      if (others.length) return
+      await db.delete(clientUpstreams).where(eq(clientUpstreams.clientId, mapping.clientId))
+      await db.delete(pins).where(eq(pins.clientId, mapping.clientId))
+      await db.delete(clientPacks).where(eq(clientPacks.clientId, mapping.clientId))
+      await db.delete(clients).where(eq(clients.id, mapping.clientId))
+    },
   }
 }
 
