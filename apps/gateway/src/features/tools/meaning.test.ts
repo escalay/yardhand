@@ -262,6 +262,44 @@ describe('the ledger’s lock', () => {
     expect(existsSync(`${file}.lock`)).toBe(false)
   })
 
+  it('is never taken from a search of this process still writing: a new one made for a new key waits its turn', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'meaning-')), 'tools.jsonl')
+    let release = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let embedding = () => {}
+    const started = new Promise<void>((resolve) => {
+      embedding = resolve
+    })
+    const tools = {
+      listLive: async () => [{ name: nameOf(0), upstreamId: 'shelf', title: null, description: 'on topic' }],
+    } as unknown as ToolsRepo
+    const old = createMeaningSearch({
+      file,
+      tools,
+      embed: async (inputs) => {
+        embedding()
+        await held
+        return { vectors: inputs.map(() => axis(0)), tokens: 0, cost: 0 }
+      },
+      query: async () => axis(0),
+      log: () => {},
+    })
+    const first = old.refresh()
+    await started
+    // The old key's search is stopped (a flag) while its run still holds the lock
+    old.stop?.()
+    const next = searchOver(1, 1, file)
+    await next.refresh()
+    expect(next.status?.().failed).toMatch(/is being written by process/)
+    expect(existsSync(`${file}.lock`)).toBe(true)
+    next.stop?.()
+    release()
+    await first
+    expect(existsSync(`${file}.lock`)).toBe(false)
+  })
+
   it('still refuses a refresh while another process holds it', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'meaning-')), 'tools.jsonl')
     writeFileSync(`${file}.lock`, String(process.ppid))

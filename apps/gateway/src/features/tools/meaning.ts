@@ -102,12 +102,18 @@ export type MeaningSearch = {
   stop?: () => void
 }
 
+/** Ledgers whose locks this process has looked at since it started. */
+const lockChecked = new Set<string>()
+
 /**
- * Drops a ledger lock holding this process's id. Refreshes run one at a time in this process, so none is ours while
- * the next starts: such a lock is a stopped gateway's whose restarted process got the same id, as it often does in a
- * container, and the kit would read it as a writer still running.
+ * Drops a ledger lock holding this process's id, once per ledger and process: before this process wrote it, such a
+ * lock is a stopped gateway's whose restarted process got the same id, as it often does in a container, and the kit
+ * would read it as a writer still running. Later, one is a search of this process still writing (the one a new key
+ * replaced), and stays.
  */
 const dropOwnStaleLock = (file: string) => {
+  if (lockChecked.has(file)) return
+  lockChecked.add(file)
   const lock = `${file}.lock`
   try {
     if (readFileSync(lock, 'utf8').trim() === String(process.pid)) rmSync(lock)
