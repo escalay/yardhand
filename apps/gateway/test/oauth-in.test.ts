@@ -1530,68 +1530,71 @@ describe('a pack address asks for sign-in at its own resource', () => {
     expect((await browser.send(asked, { headers: forged })).status).toBe(400)
   })
 
-  it('a forwarded host with a path, query, user or fragment in it never moves a pack’s audience or issuer', async () => {
-    for (const env of [{}, { PUBLIC_HOST: 'http://localhost:8080' }]) {
-      for (const host of [
-        'localhost/p/loud',
-        'localhost/mcp?x=1',
-        'localhost?resource=x',
-        'someone@localhost',
-        'evil.example.test@localhost',
-        'localhost#p/loud',
-        '',
-      ]) {
-        const app = await withDesk(env)
-        const forged = { 'x-forwarded-host': host, 'x-forwarded-proto': 'http' }
-        // Every request the app and the owner send says it came by the forged host
-        const through = {
-          ...app,
-          request: (path: string, init: RequestInit = {}) =>
-            app.request(path, { ...init, headers: { ...(init.headers as Record<string, string>), ...forged } }),
-        } as unknown as App
-        const metadata = await through.request('/.well-known/oauth-protected-resource/p/desk/mcp')
-        expect([host, await metadata.json()]).toEqual([
+  // One gateway per case: a forwarded host with a path, query, user or fragment in it, unset and on the compose default
+  const forgedCases = [undefined, 'http://localhost:8080'].flatMap((publicHost) =>
+    [
+      'localhost/p/loud',
+      'localhost/mcp?x=1',
+      'localhost?resource=x',
+      'someone@localhost',
+      'evil.example.test@localhost',
+      'localhost#p/loud',
+      '',
+    ].map((host) => [publicHost ?? 'unset', host, publicHost ? { PUBLIC_HOST: publicHost } : {}] as const),
+  )
+  it.each(forgedCases)(
+    'with PUBLIC_HOST %s, a forwarded host %j never moves a pack’s audience, issuer or links',
+    async (_named, host, env) => {
+      const app = await withDesk(env)
+      const forged = { 'x-forwarded-host': host, 'x-forwarded-proto': 'http' }
+      // Every request the app and the owner send says it came by the forged host
+      const through = {
+        ...app,
+        request: (path: string, init: RequestInit = {}) =>
+          app.request(path, { ...init, headers: { ...(init.headers as Record<string, string>), ...forged } }),
+      } as unknown as App
+      const metadata = await through.request('/.well-known/oauth-protected-resource/p/desk/mcp')
+      expect([host, await metadata.json()]).toEqual([
+        host,
+        expect.objectContaining({
+          resource: 'http://localhost/p/desk/mcp',
+          authorization_servers: ['http://localhost'],
+        }),
+      ])
+      const server = await through.request('/.well-known/oauth-authorization-server')
+      expect(((await server.json()) as { issuer: string }).issuer).toBe('http://localhost')
+      const { clientId, tokens } = await signInFor(through, 'http://localhost/p/desk/mcp')
+      const issued = { iss: 'http://localhost', aud: 'http://localhost/p/desk/mcp' }
+      expect(decodeJwt(tokens.access_token)).toMatchObject(issued)
+      const refreshed = await through.request('/oauth/token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: tokens.refresh_token,
+          client_id: clientId,
+        }).toString(),
+      })
+      expect(refreshed.status).toBe(200)
+      const again = ((await refreshed.json()) as Tokens).access_token
+      expect(decodeJwt(again)).toMatchObject(issued)
+      // Still the pack's alone: taken at its address, refused at the root and at another pack
+      expect((await knock(app, '/p/desk/mcp', again, forged)).status).toBe(200)
+      const me = await app.request('/p/desk/api/me', { headers: { ...bearer(again), ...forged } })
+      expect(((await me.json()) as { _links: { self: { href: string } } })._links.self.href).toBe(
+        'http://localhost/p/desk/api/me',
+      )
+      for (const path of ['/mcp', '/p/loud/mcp']) {
+        const refused = await knock(app, path, again, forged)
+        expect([host, path, refused.status, await detailOf(refused)]).toEqual([
           host,
-          expect.objectContaining({
-            resource: 'http://localhost/p/desk/mcp',
-            authorization_servers: ['http://localhost'],
-          }),
+          path,
+          401,
+          'This sign-in opens Front desk only: connect at http://localhost/p/desk/mcp.',
         ])
-        const server = await through.request('/.well-known/oauth-authorization-server')
-        expect(((await server.json()) as { issuer: string }).issuer).toBe('http://localhost')
-        const { clientId, tokens } = await signInFor(through, 'http://localhost/p/desk/mcp')
-        const issued = { iss: 'http://localhost', aud: 'http://localhost/p/desk/mcp' }
-        expect(decodeJwt(tokens.access_token)).toMatchObject(issued)
-        const refreshed = await through.request('/oauth/token', {
-          method: 'POST',
-          headers: { 'content-type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            grant_type: 'refresh_token',
-            refresh_token: tokens.refresh_token,
-            client_id: clientId,
-          }).toString(),
-        })
-        expect(refreshed.status).toBe(200)
-        const again = ((await refreshed.json()) as Tokens).access_token
-        expect(decodeJwt(again)).toMatchObject(issued)
-        // Still the pack's alone: taken at its address, refused at the root and at another pack
-        expect((await knock(app, '/p/desk/mcp', again, forged)).status).toBe(200)
-        const me = await app.request('/p/desk/api/me', { headers: { ...bearer(again), ...forged } })
-        expect(((await me.json()) as { _links: { self: { href: string } } })._links.self.href).toBe(
-          'http://localhost/p/desk/api/me',
-        )
-        for (const path of ['/mcp', '/p/loud/mcp']) {
-          const refused = await knock(app, path, again, forged)
-          expect([host, path, refused.status, await detailOf(refused)]).toEqual([
-            host,
-            path,
-            401,
-            'This sign-in opens Front desk only: connect at http://localhost/p/desk/mcp.',
-          ])
-        }
       }
-    }
-  })
+    },
+  )
 
   it('behind Cloudflare, a pack’s addresses answer under the public origin the proxy forwards', async () => {
     const app = await withDesk({ PUBLIC_HOST: 'gw.example.test', GATEWAY_ADDRESS_HEADER: 'cf-connecting-ip' })
