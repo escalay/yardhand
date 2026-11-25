@@ -4,7 +4,7 @@
  * client's own routes.
  */
 import type { RouteHandler } from '@hono/zod-openapi'
-import { linksOf, originOf, ProblemError } from '../../kit/index.js'
+import { linksOf, originOf, ProblemError, showOnce } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { expiryOf, standingOf } from '../clients/lifetimes.js'
 import { requireOwner } from '../clients/principals.js'
@@ -146,6 +146,10 @@ export const peopleHandlers = ({
       packId: pack.id,
       expiresAt: expiryOf(expiresIn),
     })
+    showOnce(
+      c,
+      `Shared ${pack.title} with ${name} as client ${id} (GET /api/clients/${id}) with this Idempotency-Key; the key and its message were shown once, in that answer, and are never shown again. Lost them? Revoke it (DELETE /api/clients/${id}) and share again.`,
+    )
     if (values && Object.keys(values).length) await packs.setPersonValues(pack.id, id, values)
     // The pack counts one more person: an open app reads it again
     listsChanged()

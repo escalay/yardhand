@@ -79,7 +79,7 @@ export interface paths {
         put?: never;
         /**
          * Make a client
-         * @description A new API-key client. Answers 201 with the key, shown this once (owner only). Sent with an `Idempotency-Key`, the same request sent again within a day is answered the same key, not a second client: that answer is kept sealed with the master key, as every answer kept for an `Idempotency-Key` is.
+         * @description A new API-key client. Answers 201 with the key, shown this once (owner only). Sent with an `Idempotency-Key`, the same request sent again within a day makes no second client and is a 409 `shown_once` naming the client made: the key is never kept, so it is never shown again.
          */
         post: operations["createClient"];
         delete?: never;
@@ -899,7 +899,7 @@ export interface paths {
         put?: never;
         /**
          * Share a pack with a person
-         * @description Makes one person’s key for this pack alone, read only and for 30 days unless said, with their own `values` for the pack’s Per person inputs (each checked against every input that reads it, before the key is made), and answers with a message ready to send them: what the pack is, what they can do, until when, and the setup for their app with the key in it, at the address set in `PUBLIC_HOST` (unset, or naming only this machine as `localhost` does, the address this request came by). The key and the message are shown this once. Sent with an `Idempotency-Key`, the same request sent again within a day is answered the same key and message, not a second person: that answer is kept sealed with the master key. Extend and Revoke are the client’s own routes (`PATCH` and `DELETE /api/clients/{id}`). A pack that holds no tools is a 409.
+         * @description Makes one person’s key for this pack alone, read only and for 30 days unless said, with their own `values` for the pack’s Per person inputs (each checked against every input that reads it, before the key is made), and answers with a message ready to send them: what the pack is, what they can do, until when, and the setup for their app with the key in it, at the address set in `PUBLIC_HOST` (unset, or naming only this machine as `localhost` does, the address this request came by). The key and the message are shown this once. Sent with an `Idempotency-Key`, the same request sent again within a day makes no second person and is a 409 `shown_once` naming the client made: the key and the message are never kept, so they are never shown again. Extend and Revoke are the client’s own routes (`PATCH` and `DELETE /api/clients/{id}`). A pack that holds no tools is a 409.
          */
         post: operations["sharePack"];
         delete?: never;
@@ -1708,7 +1708,7 @@ export interface components {
              * @description Stable machine-readable code. Branch on this, not on `title`.
              * @enum {string}
              */
-            code: "bad_request" | "unauthorized" | "forbidden" | "feature_disabled" | "not_found" | "method_not_allowed" | "conflict" | "gone" | "payload_too_large" | "unsupported_media_type" | "unprocessable" | "too_many_requests" | "spend_cap" | "internal" | "upstream" | "unavailable";
+            code: "bad_request" | "unauthorized" | "forbidden" | "feature_disabled" | "not_found" | "method_not_allowed" | "conflict" | "shown_once" | "gone" | "payload_too_large" | "unsupported_media_type" | "unprocessable" | "too_many_requests" | "spend_cap" | "internal" | "upstream" | "unavailable";
             /**
              * @description Short, human summary of the problem type.
              * @example Not found
@@ -4731,7 +4731,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -4883,7 +4883,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -5126,7 +5126,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -5174,7 +5174,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5189,7 +5189,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -5341,7 +5341,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -5407,7 +5407,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -5531,7 +5531,7 @@ export interface operations {
                 via?: "gateway" | "loopback";
             };
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -5602,7 +5602,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -5784,7 +5784,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5837,7 +5837,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -5891,7 +5891,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -5951,7 +5951,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6029,7 +6029,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6044,7 +6044,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6223,7 +6223,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6283,7 +6283,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6353,7 +6353,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6368,7 +6368,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6436,7 +6436,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6567,7 +6567,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6623,7 +6623,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6741,7 +6741,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -6798,7 +6798,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -7322,7 +7322,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -7370,7 +7370,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7549,7 +7549,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7564,7 +7564,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -7627,7 +7627,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7804,7 +7804,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -7867,7 +7867,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8073,7 +8073,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -8138,7 +8138,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8357,7 +8357,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -8486,7 +8486,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -8549,7 +8549,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8931,7 +8931,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -9000,7 +9000,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -9063,7 +9063,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9078,7 +9078,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -9142,7 +9142,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9274,7 +9274,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9289,7 +9289,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -9360,7 +9360,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9454,7 +9454,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -9511,7 +9511,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9544,7 +9544,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -9606,7 +9606,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10171,7 +10171,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -10209,7 +10209,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10256,7 +10256,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10303,7 +10303,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10318,7 +10318,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10366,7 +10366,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10381,7 +10381,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10416,7 +10416,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10440,7 +10440,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10488,7 +10488,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10550,7 +10550,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10662,7 +10662,7 @@ export interface operations {
                 force?: "true" | "false";
             };
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path: {
@@ -10721,7 +10721,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10741,7 +10741,7 @@ export interface operations {
                 force?: "true" | "false";
             };
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10799,7 +10799,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10814,7 +10814,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;
@@ -10862,7 +10862,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). */
+            /** @description `conflict`: The change clashes with the current state (a name already taken, a stale If-Match). `shown_once`: A retry with the Idempotency-Key of a request that was done and answered a secret once (a new key, an enrolment, a session). The secret is never kept, so it is not shown again: `detail` says what was made and what to do if the first answer was lost. Send a new key only to make another. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10915,7 +10915,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. */
+                /** @description Any unique string (a UUID): a retry with the same key and body gets the first answer instead of doing the work twice; the same key with another body is a 422. Kept 24 hours, and only a success: after a refusal or a server error, a retry runs again. An answer that showed a secret once (a new key) is never kept: its retry is a 409 `shown_once` saying what was made. */
                 "Idempotency-Key"?: string;
             };
             path?: never;

@@ -225,8 +225,10 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 1. Every call, MCP or REST, goes through the one pipeline: authenticate → allowlist → scope → resolve → credential →
    adapter → cap → audit. No route calls an adapter directly.
 2. Secrets are AES-GCM encrypted in SQLite with the master key from env (`GATEWAY_MASTER_KEY`); they never appear in
-   logs, exports, call payloads sent to Langfuse, or errors. An answer the kit keeps for an `Idempotency-Key` can
-   hold a key shown once, so the store it is given seals every answer (`features/vault/answers.ts`).
+   logs, exports, call payloads sent to Langfuse, or errors. A route that answers a secret once (a new client's
+   key, a share, the claim, a session cookie) calls the kit's `showOnce`, so a retry with its `Idempotency-Key` is
+   told what was made and the secret is never kept; every other answer kept for one is sealed by the store the kit
+   is given (`features/vault/answers.ts`).
 3. Third-party upstreams (`trust = review`) never change a live tool by themselves: a changed description or schema is
    a `pending` version until the owner approves it.
 4. `src/kit/` is vendored from api-kit and never edited, examples and comments included: a change goes upstream, then

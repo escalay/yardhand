@@ -172,7 +172,9 @@ flag. The pack's keys get what you wrote at once (see Pack keys).
 - Over MCP, a result bigger than your key's cap is cut: you get page 1 and a call id; `get_result` (or
   `GET /api/calls/{id}/result?page=2`) gives the rest for an hour. REST answers are never cut.
 - `POST` runs accept `Idempotency-Key`: a retried request with the same key answers the first result again. A new
-  request needs a new key: the same one with another body is a 422.
+  request needs a new key: the same one with another body is a 422. An answer that showed a key once is never
+  repeated: sent again, it is a 409 `shown_once` saying what was made. Over MCP, send it on the request to `/mcp`:
+  each tool call in it gets its own, so a retried call runs once.
 - Calls are rate-limited per key (`RateLimit` headers; 429 with `Retry-After` when over).
 - Errors are `application/problem+json` with a `detail` that says what to do next: arguments that don't match
   the tool's input schema are a 400 listing each bad field in `errors`, before the upstream is called. A tool
