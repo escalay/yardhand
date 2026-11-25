@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.5](https://github.com/escalay/yardhand/compare/v0.6.4...v0.6.5) (2026-11-25)
+
+
+### Fixes
+
+* **gateway:** take kit 1.33.0 ([#55](https://github.com/escalay/yardhand/issues/55)) ([ccbb585](https://github.com/escalay/yardhand/commit/ccbb585f0915d7782737d0c6ac0b67b359aeb018))
+
 ## [0.6.4](https://github.com/escalay/yardhand/compare/v0.6.3...v0.6.4) (2026-11-24)
 
 
