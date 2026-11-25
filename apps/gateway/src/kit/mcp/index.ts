@@ -10,7 +10,8 @@
  * const tools = [mcpTool({ name: 'search_recipes', title: 'Search recipes', description: '…', input: z.object({ q: z.string() }),
  *   call: ({ q }) => ({ path: '/api/v1/search/recipes', query: { q } }), summarize: (page) => … })]
  * mountMcp(app, { factory: mcpServerFactory({ info, instructions, tools, callApi: inProcess(app) }), allowedHostnames: ['cookbook.example.com'] })
- * // a stdio client on a laptop: the same tools over HTTP with its own key
+ * // a stdio client on a laptop: the same tools over HTTP with its own key (serveStdio is the SDK's:
+ * // import { serveStdio } from '@modelcontextprotocol/server/stdio')
  * serveStdio(mcpServerFactory({ info, instructions, tools, callApi: overHttp(origin, process.env.COOKBOOK_API_KEY!) }))
  */
 import { createMcpHandler, McpServer, originValidationResponse, ResourceTemplate, SUPPORTED_PROTOCOL_VERSIONS, UriTemplate, type AuthInfo, type CallToolResult, type McpRequestContext, type McpServerFactory } from '@modelcontextprotocol/server'
@@ -18,10 +19,11 @@ import type { SkillCatalog } from '@modelcontextprotocol/server/ext/skills'
 import { createHash } from 'node:crypto'
 import { z } from '@hono/zod-openapi'
 import type { Context, Hono } from 'hono'
-import { CLI_META, cliOf, hintsOf, PENDING_META, PROBLEM_META, TOOLS_HASH_META, resourceCli, routeOf, templateVariables, type CliSpec } from '../core/cli.js'
+import { CLI_META, cliOf, hintsOf, PENDING_META, PROBLEM_META, TOOLS_HASH_META, resourceCli, routeOf, templateVariables, type CallAt, type CliSpec } from '../core/cli.js'
 import { attachSkills, instructionsWithSkills } from './skills.js'
 import { MODERN_PROTOCOL_VERSION, mountedOf, publicOriginOf, recordMounted, sendPublic, serverCard, SERVER_CARD_TYPE, WELL_KNOWN, type AgentBrand, type ServerIcon } from '../core/discovery.js'
-import { originOf, pathWith } from '../core/hal.js'
+import { neverKeep } from '../core/guards.js'
+import { originOf, originOfRequest, pathWith } from '../core/hal.js'
 
 type Query = Record<string, string | number | boolean | string[] | null | undefined>
 export type ApiCall = { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; path: string; query?: Query; body?: unknown }
@@ -40,7 +42,8 @@ export type McpTool<Input extends z.ZodObject = z.ZodObject> = {
   /** The route's 200 schema, when its shape is fixed: the JSON (sent as `structuredContent`) must match it. */
   output?: z.ZodTypeAny
   annotations?: ToolAnnotations
-  call: (args: z.infer<Input>) => ApiCall
+  /** `at.params`: the mount path's parameters (`/s/:space/mcp` → `{ space }`), decoded; encode each one put in a path. */
+  call: (args: z.infer<Input>, at?: CallAt) => ApiCall
   /** The text an agent reads first: a few lines per result with ids and the links to follow. */
   summarize: (json: any, args: z.infer<Input>) => string
   /** Images or files worth attaching as `resource_link` blocks (at most a handful). */
@@ -69,7 +72,7 @@ export type McpResource = {
   /** RFC 6570, e.g. `cookbook://recipes/{id}`. */
   uriTemplate: string
   /** The calls whose answers make up the resource, in order; an `optional` one (an image) is left out when it fails. */
-  read: (variables: Record<string, string>) => (ApiCall & { optional?: boolean })[]
+  read: (variables: Record<string, string>, at?: CallAt) => (ApiCall & { optional?: boolean })[]
   /** Its command, noun then verb (`'mail headers'`); the template's path variables are its positional arguments. */
   cli?: CliSpec
 }
@@ -95,13 +98,6 @@ export const serverInfoOf = (info: McpServerInfo, brand: AgentBrand | undefined,
   return { ...info, title: info.title ?? brand.title, description: info.description ?? brand.description, ...(websiteUrl ? { websiteUrl } : {}), ...(icons.length ? { icons } : {}) }
 }
 
-/** The public origin of the request MCP serves, as `mountMcp` forwards it; none over stdio. */
-const originOfRequest = (request: Request | undefined) => {
-  if (!request) return null
-  const url = new URL(request.url)
-  return `${request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() ?? url.protocol.replace(':', '')}://${request.headers.get('x-forwarded-host') ?? url.host}`
-}
-
 const HOUR = 3_600_000
 
 /** A problem+json body (or anything else) as one line an agent can act on. */
@@ -117,23 +113,73 @@ export const problemText = (json: any, status: number) =>
 export const problemOf = (json: any, status: number): Record<string, unknown> & { status: number } =>
   json && typeof json === 'object' && 'title' in json ? { ...json, status: typeof json.status === 'number' ? json.status : status } : { type: 'about:blank', title: `HTTP ${status}`, status }
 
-/**
- * A slow route answers 202 with a run in `Location`: the tool polls it (up to `waitMs`), then asks again for the
- * cached result, so a client sees one answer. Past the wait it says which run to check.
- */
-export const callWaiting = async (callApi: CallApi, call: ApiCall, auth: AuthInfo | undefined, waitMs: number) => {
-  let response = await callApi(call, auth)
+/** How a slow call stands: its answer, or (`pending`, the run's id, and `location`, its path) a run still working. */
+export type Waited = { response: Response; pending: string | null; location: string | null }
+
+const POLL_MS = 3000
+
+/** A call's answer, or the run it started when it answered 202 with a `Location`. */
+const waitedOf = (response: Response): Waited => {
   const location = response.headers.get('location')
-  if (response.status !== 202 || !location) return { response, pending: null }
+  return response.status === 202 && location ? { response, pending: location.split('/').pop()!, location } : { response, pending: null, location: null }
+}
+
+/** A path for `callApi` from a link's absolute `href`. */
+const pathOf = (href: string) => {
+  const url = new URL(href, 'http://localhost')
+  return url.pathname + url.search
+}
+
+/**
+ * The caller's auth for one JSON-RPC call: its Idempotency-Key gets the call's id, so the calls of one batch never
+ * share a key, and a retried call (the same id) runs its route once.
+ */
+const perCallAuth = (auth: AuthInfo | undefined, id: string | number): AuthInfo | undefined => {
+  const headers = (auth?.extra?.headers ?? {}) as Record<string, string>
+  const key = headers['idempotency-key']
+  return key && auth ? { ...auth, extra: { ...auth.extra, headers: { ...headers, 'idempotency-key': `${key}:${id}` } } } : auth
+}
+
+/** The caller's auth without its Idempotency-Key: a call made again after its run is done wants the result, not the 202 kept for that key. */
+const freshCallOf = (auth: AuthInfo | undefined): AuthInfo | undefined => {
+  const { 'idempotency-key': _key, ...headers } = (auth?.extra?.headers ?? {}) as Record<string, string>
+  return auth && { ...auth, extra: { ...auth.extra, headers } }
+}
+
+/**
+ * Polls a slow call's run (its `Location`) until `waitMs` has passed, looking at least once. Done: the answer is the
+ * run's `_links.result` when it names one, else the call made once more (a slow route caches its answer: the
+ * standard's 202 rule); a call that answers 202 again started another run, which is pending in turn. Failed: the
+ * run's answer. It never makes the call again while the run works, so a call with side effects isn't repeated.
+ *
+ * @example
+ * const { response, location } = await pollRun(callApi, tool.call(args), stored.location, auth, 0)
+ */
+export const pollRun = async (callApi: CallApi, call: ApiCall, location: string, auth: AuthInfo | undefined, waitMs: number): Promise<Waited> => {
   const until = Date.now() + waitMs
-  while (Date.now() < until) {
-    await new Promise((resolve) => setTimeout(resolve, 3000))
-    const run = (await (await callApi({ path: location }, auth)).json().catch(() => null)) as { status?: string } | null
-    if (run?.status === 'done') return { response: await callApi(call, auth), pending: null }
-    if (run?.status === 'failed') return { response: await callApi({ path: location }, auth), pending: null }
+  for (;;) {
+    const run = await callApi({ path: location }, auth)
+    const { status, _links } = ((await run.clone().json().catch(() => null)) ?? {}) as { status?: string; _links?: { result?: { href?: string } } }
+    if (status === 'done') {
+      const result = _links?.result?.href
+      return waitedOf(await callApi(result ? { path: pathOf(result) } : call, freshCallOf(auth)))
+    }
+    if (status === 'failed') return { response: run, pending: null, location: null }
+    if (Date.now() >= until) return { response: run, pending: location.split('/').pop()!, location }
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS))
   }
-  response = await callApi({ path: location }, auth)
-  return { response, pending: location.split('/').pop()! }
+}
+
+/**
+ * Makes a call; a slow route answers 202 with a run in `Location`, which `pollRun` polls (up to `waitMs`), so a client
+ * sees one answer. Past the wait it says which run to check, and where.
+ *
+ * @example
+ * const { response, pending, location } = await callWaiting(callApi, tool.call(args), auth, 60_000)
+ */
+export const callWaiting = async (callApi: CallApi, call: ApiCall, auth: AuthInfo | undefined, waitMs: number): Promise<Waited> => {
+  const answered = waitedOf(await callApi(call, auth))
+  return answered.location ? pollRun(callApi, call, answered.location, auth, waitMs) : answered
 }
 
 /**
@@ -162,6 +208,9 @@ const resourceMeta = (resource: McpResource) => {
   const { name, positional, examples } = resourceCli(resource)
   return { name, positional, examples }
 }
+
+/** The mount path's parameters `mountMcp` put in `authInfo`; none over stdio. */
+const callAtOf = (auth: AuthInfo | undefined): CallAt => ({ params: (auth?.extra?.params ?? {}) as Record<string, string> })
 
 const hashes = new WeakMap<McpTool[], string>()
 /**
@@ -203,7 +252,7 @@ export const mcpServerFactory = ({ info, instructions, tools, resources = [], pr
   const brand = ctx?.brand ?? ownBrand
   // No request (stdio): this server is the connection's only identity, so it takes the whole of it
   const whole = ctx?.era !== 'modern' || !ctx.requestInfo || ctx.requestInfo.headers.get('mcp-method') === 'server/discover'
-  const identity = serverInfoOf(info, brand, originOfRequest(ctx?.requestInfo), { inline: whole })
+  const identity = serverInfoOf(info, brand, ctx?.requestInfo ? originOfRequest(ctx.requestInfo) : null, { inline: whole })
   const server = new McpServer(identity, { instructions: instructionsWithSkills(instructions, skills), cacheHints: { 'server/discover': cached, 'tools/list': { ...cached, ttlMs: toolsTtlMs }, 'prompts/list': cached, 'resources/list': cached, 'resources/templates/list': cached } })
   // Clients that cache the list learn from any answer that it changed
   const listed = { [TOOLS_HASH_META]: toolsHashOf(tools, resources) }
@@ -214,9 +263,12 @@ export const mcpServerFactory = ({ info, instructions, tools, resources = [], pr
       tool.name,
       { title: tool.title, description: tool.description, inputSchema: tool.input, ...(tool.output ? { outputSchema: tool.output } : {}), annotations: { title: tool.title, ...hintsOf(tool) }, _meta: { ...(route ? { [ROUTE_META]: route } : {}), [CLI_META]: { name: cli.name, positional: cli.positional, examples: cli.examples }, ...listed } },
       async (args: Record<string, unknown>, ctx): Promise<CallToolResult> => {
-        const { response, pending } = await callWaiting(callApi, tool.call(args as never), ctx.http?.authInfo, waitMs)
+        const { response, pending, location } = await callWaiting(callApi, tool.call(args as never, callAtOf(ctx.http?.authInfo)), perCallAuth(ctx.http?.authInfo, ctx.mcpReq.id), waitMs)
         const json = await response.json().catch(() => null)
-        if (pending) return { content: [{ type: 'text', text: `Still working: run ${pending}. Check it with get_run, then call ${tool.name} again with the same arguments (it answers at once when done).` }], _meta: { [PENDING_META]: { run: pending }, ...listed } }
+        if (pending) {
+          const text = `Still working: run ${pending}. GET ${location} until its status is done (the run is also in _meta["${PENDING_META}"]), then call ${tool.name} again with the same arguments (it answers at once when done).`
+          return { content: [{ type: 'text', text }], _meta: { [PENDING_META]: { run: pending, location }, ...listed } }
+        }
         if (!response.ok) return { isError: true, content: [{ type: 'text', text: problemText(json, response.status) }], _meta: { [PROBLEM_META]: problemOf(json, response.status), ...listed } }
         return {
           content: [{ type: 'text', text: tool.summarize(json, args as never) }, ...(tool.links?.(json) ?? []).map((link) => ({ type: 'resource_link' as const, ...link }))],
@@ -241,7 +293,7 @@ export const mcpServerFactory = ({ info, instructions, tools, resources = [], pr
         const auth = ctx.http?.authInfo
         const values = Object.fromEntries(Object.entries(variables).map(([key, value]) => [key, Array.isArray(value) ? value[0]! : String(value)]))
         const parts = await Promise.all(
-          resource.read(values).map(async ({ optional, ...call }) => {
+          resource.read(values, callAtOf(auth)).map(async ({ optional, ...call }) => {
             const response = await callApi(call, auth)
             if (!response.ok && optional) return null
             if (!response.ok) throw new Error(problemText(await response.json().catch(() => null), response.status))
@@ -271,7 +323,8 @@ export const mountedMcp = (app: object) => {
   return { tools: (mcp?.tools ?? []) as unknown as McpTool[], resources: (mcp?.resources ?? []) as unknown as McpResource[] }
 }
 
-export const FORWARDED = ['authorization', 'cf-access-jwt-assertion'] as const
+/** The caller's headers a tool's route gets: who is calling, and the Idempotency-Key, so a retried call runs once. */
+export const FORWARDED = ['authorization', 'cf-access-jwt-assertion', 'idempotency-key'] as const
 
 /** Tools run the app's routes in-process with the caller's own credentials: no network hop, same auth decision. */
 export const inProcess = (app: { request: (input: string, init?: RequestInit) => Response | Promise<Response> }): CallApi => async (call, auth) => {
@@ -309,20 +362,37 @@ const modernInitialize = async (c: Context, factory: AgentMcpFactory, brand: Age
   return c.json({ jsonrpc: '2.0', id: message.id, result })
 }
 
+const SERVER_CARD_SUFFIX = '/server-card'
+
 /**
  * Serves MCP at `path` (POST; GET and DELETE answer 405 as the spec asks). Authentication has already run (the app's
  * `authenticate` guards this path like any other); the caller's credentials ride along in `authInfo` so tools reuse
- * them. Browsers' Origin is checked against `allowedHostnames`.
+ * them. Browsers' Origin is checked against `allowedHostnames`. A path with parameters (`/s/:space/mcp`) serves one
+ * MCP per value: each tool's call gets them as `at.params`, and the guide, catalogs and the well-known card keep
+ * describing the mount without parameters.
+ *
+ * @example
+ * mountMcp(app, { factory: mcpServerFactory({ info, instructions, tools, callApi: inProcess(app) }), allowedHostnames })
+ * mountMcp(app, { path: '/s/:space/mcp', factory: mcpServerFactory({ info, instructions, tools: shelfTools, callApi: inProcess(app) }), allowedHostnames })
  */
 export const mountMcp = (app: Hono<any, any, any>, { path = '/mcp', factory, allowedHostnames }: { path?: string; factory: AgentMcpFactory; allowedHostnames: string[] }) => {
   // The app's brand (`createAgentApi({ brand })`) unless the factory was given its own
   const brandOf = () => factory.brand ?? mountedOf(app).brand
   const handler = createMcpHandler((ctx) => factory({ ...ctx, brand: brandOf() } as McpRequestContext), { responseMode: 'auto' })
   // The Server Card (SEP-2127): at its reserved place beside the endpoint, and where domain scanners look
-  const card = (origin: string) => serverCard(origin, path, serverInfoOf(factory.info, brandOf(), origin), [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS])
-  recordMounted(app, { mcp: { path, card, tools: factory.tools, resources: factory.resources } })
-  for (const at of [`${path}/server-card`, WELL_KNOWN.serverCard]) app.get(at, (c: Context) => sendPublic(c, JSON.stringify(card(publicOriginOf(app, c)), null, 2), SERVER_CARD_TYPE))
+  const card = (origin: string, endpoint = path) => serverCard(origin, endpoint, serverInfoOf(factory.info, brandOf(), origin), [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS])
+  const sendCard = (c: Context, endpoint?: string) => sendPublic(c, JSON.stringify(card(publicOriginOf(app, c), endpoint), null, 2), SERVER_CARD_TYPE)
+  const hasParameters = path.includes('/:')
+  if (hasParameters) {
+    // One MCP per value: its card names the endpoint as asked (`/s/soups/mcp`), still encoded
+    app.get(path + SERVER_CARD_SUFFIX, (c: Context) => sendCard(c, new URL(c.req.url).pathname.slice(0, -SERVER_CARD_SUFFIX.length)))
+  } else {
+    recordMounted(app, { mcp: { path, card, tools: factory.tools, resources: factory.resources } })
+    for (const at of [path + SERVER_CARD_SUFFIX, WELL_KNOWN.serverCard]) app.get(at, (c: Context) => sendCard(c))
+  }
   app.all(path, async (c: Context) => {
+    // A tool's route keeps its own answer under the same Idempotency-Key; this one, holding it, is never kept
+    neverKeep(c)
     const rejected = originValidationResponse(c.req.raw, allowedHostnames)
     if (rejected) return rejected
     const greeting = await modernInitialize(c, factory, brandOf())
@@ -339,6 +409,8 @@ export const mountMcp = (app: Hono<any, any, any>, { path = '/mcp', factory, all
       extra: {
         ...(caller?.grant ? { grant: caller.grant } : {}),
         ...(caller?.name ? { name: caller.name } : {}),
+        // The mount path's parameters, read from the route: nothing a client sends can set them
+        params: c.req.param() as Record<string, string>,
         headers: {
           ...Object.fromEntries(FORWARDED.flatMap((name) => (c.req.header(name) ? [[name, c.req.header(name)!]] : []))),
           'x-forwarded-proto': new URL(originOf(c)).protocol.replace(':', ''),
@@ -351,5 +423,5 @@ export const mountMcp = (app: Hono<any, any, any>, { path = '/mcp', factory, all
   return handler
 }
 
-export { guideSkills } from './skills.js'
-export { CLI_META, cliOf, PENDING_META, PROBLEM_META, routeOf, TOOLS_HASH_META, type CliExample, type CliSpec } from '../core/cli.js'
+export { guideSkillProblems, guideSkills } from './skills.js'
+export { CLI_META, cliOf, PENDING_META, PROBLEM_META, routeOf, TOOLS_HASH_META, type CallAt, type CliExample, type CliSpec } from '../core/cli.js'

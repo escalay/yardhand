@@ -40,5 +40,6 @@ export const keptAnswersRepo = (db: Db) => {
         .from(kitGuards)
         .where(and(eq(kitGuards.kind, 'key'), ne(kitGuards.value, ''))),
     replace: (id: string, value: string) => db.update(kitGuards).set({ value }).where(answer(id)),
+    drop: (id: string) => db.delete(kitGuards).where(answer(id)),
   }
 }
