@@ -95,6 +95,7 @@ type Auth = McpRequestContext['authInfo']
 type ToolContext = {
   http?: { authInfo?: Auth }
   mcpReq?: {
+    id?: string | number
     _meta?: Record<string, unknown>
     envelope?: Record<string, unknown>
     inputResponses?: Record<string, unknown>
@@ -105,13 +106,23 @@ type ToolContext = {
 
 const CAPABILITIES = 'io.modelcontextprotocol/clientCapabilities'
 
-/** The request's auth with the caller's `_meta.traceparent` as a header, so the call joins the caller's trace. */
-const withTrace = (auth: Auth, ctx: ToolContext): Auth => {
+/**
+ * The request's auth for one tool call: the caller's `_meta.traceparent` as a header, so the call joins the caller's
+ * trace, and the caller's `Idempotency-Key` as `<key>:<call id>`, as the kit sends it, so a retried call runs once and
+ * two calls never share a key.
+ */
+const forCall = (auth: Auth, ctx: ToolContext): Auth => {
   const traceparent = ctx.mcpReq?._meta?.[TRACEPARENT_META_KEY]
-  if (typeof traceparent !== 'string') return auth
   const extra = (auth?.extra ?? {}) as Record<string, unknown>
   const headers = (extra.headers ?? {}) as Record<string, string>
-  return { ...auth, extra: { ...extra, headers: { ...headers, traceparent } } } as Auth
+  const key = headers['idempotency-key']
+  if (typeof traceparent !== 'string' && !key) return auth
+  const forThisCall = {
+    ...headers,
+    ...(typeof traceparent === 'string' ? { traceparent } : {}),
+    ...(key ? { 'idempotency-key': `${key}:${ctx.mcpReq?.id ?? ''}` } : {}),
+  }
+  return { ...auth, extra: { ...extra, headers: forThisCall } } as Auth
 }
 
 /** Can this client answer a question mid-call? Only a 2026-07-28 client that declares elicitation or sampling. */
@@ -157,7 +168,7 @@ const runTool = async (
   tool: string,
   args: Record<string, unknown>,
 ): Promise<CallToolResult | InputRequiredResult> => {
-  const auth = withTrace(ctx.http?.authInfo ?? fallbackAuth, ctx)
+  const auth = forCall(ctx.http?.authInfo ?? fallbackAuth, ctx)
   const token = ctx.mcpReq?._meta?.progressToken as string | number | undefined
   const answers = answersOf(ctx)
   const send = () =>
