@@ -1,5 +1,5 @@
 /** OAuth client rows are made with their sign-in (the kit's `onGrant`), never on a token's first use. */
-import type { SignInGrant } from '../../kit/index.js'
+import type { SignInGrant, SignInRevoked } from '../../kit/index.js'
 import type { PacksRepo } from '../packs/repo.js'
 import type { ClientDraft, ClientsRepo } from './repo.js'
 import { classOfResource } from './resources.js'
@@ -48,4 +48,15 @@ export const onGrantFor =
         () => true,
         () => false,
       )
+  }
+
+/**
+ * The kit's `onRevoke`. A sign-in withdrawn before its first token (`onGrant` said yes, then it was ended or a write
+ * failed) never became an agent: the row `onGrant` made for it goes. A grant ended later keeps its row, refused by
+ * `rowOf` like any token the kit no longer takes; the owner revokes the row.
+ */
+export const onRevokeFor =
+  ({ clients }: { clients: ClientsRepo }) =>
+  async ({ grant, reason }: SignInRevoked) => {
+    if (grant && reason === 'withdrawn') await clients.dropSignIn(grant)
   }

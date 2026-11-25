@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { createApp, TOOLS } from '../src/app.js'
 import { GUIDE_VARS } from '../src/guide.vars.js'
 import { guideFiles, guideModuleSource, hashApiKey, testDb } from '../src/kit/index.js'
+import { guideSkillProblems } from '../src/kit/mcp/index.js'
 import { guideGaps, lintOpenApi, toolRoutes, toolsRun } from '../src/kit/testing/index.js'
 import { startUpstream } from './fixtures/upstream.js'
 
@@ -83,6 +84,10 @@ describe('the API', () => {
 
   it('fills every placeholder in the agent guide', async () => {
     expect(guideGaps(guideFiles(GUIDE_DIR), GUIDE_VARS, { doc: await doc(), tools: TOOLS })).toEqual([])
+  })
+
+  it('has every skill of the guide load as a skill', async () => {
+    expect(await guideSkillProblems({ files: guideFiles(GUIDE_DIR) })).toEqual([])
   })
 
   it('serves a {{name}} the guide writes as a literal, through the guide’s own variable', async () => {

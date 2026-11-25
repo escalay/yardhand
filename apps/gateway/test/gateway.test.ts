@@ -314,6 +314,59 @@ describe('MCP', () => {
   })
 })
 
+describe('an Idempotency-Key over MCP', () => {
+  it('runs a retried tool call once, and each other call of a client that sends one key on every request', async () => {
+    const { json } = await api(OWNER, '/api/clients', {
+      method: 'POST',
+      body: { name: 'retrier', scope: 'read', upstreams: ['fixture'], pins: [] },
+    })
+    const callsOf = async () => (await api(json.key, '/api/calls')).json.count as number
+    const client = new Client({ name: 'test', version: '1.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL('/mcp', origin), {
+        requestInit: { headers: { authorization: `Bearer ${json.key}`, 'idempotency-key': 'one-for-everything' } },
+      }),
+    )
+    const echo = { name: 'call_tool', arguments: { name: 'fixture.echo', arguments: { text: 'again' } } }
+    expect(text(await client.callTool(echo))).toBe('again')
+    expect(text(await client.callTool(echo))).toBe('again')
+    expect(await callsOf()).toBe(2)
+    await client.close()
+    // The same call sent again (its answer lost on the way): same key, same id
+    const send = () =>
+      app.request('/mcp', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${json.key}`,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-protocol-version': '2026-07-28',
+          'mcp-method': 'tools/call',
+          'mcp-name': 'call_tool',
+          'idempotency-key': 'lost-answer',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 7,
+          method: 'tools/call',
+          params: {
+            ...echo,
+            _meta: {
+              'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+              'io.modelcontextprotocol/clientInfo': { name: 't', version: '1' },
+              'io.modelcontextprotocol/clientCapabilities': {},
+            },
+          },
+        }),
+      })
+    const first = await send()
+    const again = await send()
+    expect([first.status, again.status]).toEqual([200, 200])
+    expect(await again.text()).toContain('again')
+    expect(await callsOf()).toBe(3)
+  })
+})
+
 describe('big results', () => {
   it('cuts an MCP result at the client’s cap and pages the rest; REST gets it whole', async () => {
     const { json } = await api(OWNER, '/api/clients', {

@@ -17,6 +17,7 @@ import {
   originOf,
   ProblemError,
   problemResponses,
+  showOnce,
 } from '../../kit/index.js'
 import type { Feature } from '../index.js'
 import { SESSION_DAYS, type SessionsRepo } from './repo.js'
@@ -128,8 +129,8 @@ const fromThisSite = (request: Request) => {
 }
 const sameSite = (c: Context) => fromThisSite(c.req.raw)
 
-const secureOf = (c: Context) =>
-  new URL(c.req.url).protocol === 'https:' || c.req.header('x-forwarded-proto') === 'https'
+/** Whether the request came over https, here or at the proxy in front, as the kit reads the forwarded proto. */
+const secureOf = (c: Context) => originOf(c).startsWith('https:')
 
 /** Who approves on the kit's pages when the session cookie is what signed them in. */
 const SESSION_OWNER = 'the owner'
@@ -290,6 +291,10 @@ export const sessionFeature = ({
         path: '/',
         maxAge: SESSION_DAYS * 24 * 60 * 60,
       })
+      showOnce(
+        c,
+        'Signed in with this Idempotency-Key; the session was shown once, in that answer’s cookie, and is never shown again. Lost it? Sign in again with a new Idempotency-Key.',
+      )
     }
     app.openapi(routes.claim, (async (c: Context) => {
       if (!sameSite(c) && c.req.header('origin'))
@@ -317,6 +322,10 @@ export const sessionFeature = ({
       }
       keys.set(owner.hash, 'owner')
       await openSession(c)
+      showOnce(
+        c,
+        'This instance was claimed with this Idempotency-Key; the owner key was shown once, in that answer, and is never shown again. Lost it? Make a new one with scripts/reset-owner.ts (deploy/compose/README.md) and claim the instance again.',
+      )
       c.header('cache-control', 'no-store')
       return c.json({ key: owner.key, _links: linksOf(originOf(c), { self: `${PATH}/claim`, app: '/app/setup' }) }, 200)
     }) as never)

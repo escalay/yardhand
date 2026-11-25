@@ -58,7 +58,9 @@ sequenceDiagram
 
 The kit's OAuth server; you approve as the signed-in owner; the new client starts with the default allowlist.
 Each sign-in is its own client, made as its first token is issued (the kit's `onGrant`, `features/clients/grants.ts`)
-and known from then on by the kit's grant (`client_grants`), never by the name its app gives. Sign-ins from before
+and known from then on by the kit's grant (`client_grants`), never by the name its app gives. A sign-in the kit
+withdraws before its first token (ended while `onGrant` ran, or a write failed after it) takes that client along (the
+kit's `onRevoke`, `withdrawn`). Sign-ins from before
 0.6.4 were mapped once, at the first start of that version, to the row their name used (`features/clients/legacy.ts`).
 Revoking a client ends every sign-in it stands for at once. A token whose sign-in has no client is refused with a 401
 that points at the sign-in metadata, and that sign-in is ended, so the app signs in again.

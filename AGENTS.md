@@ -70,9 +70,10 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 - **Tool**: `<upstream>.<tool>`, e.g. `cookbook.research_recipes`. A tool has versions; only a `live` version is served.
 - **Client**: who calls the gateway (an API key or an OAuth client): an allowlist of upstreams, read/write scope, pins.
   An OAuth client is made with its sign-in (the kit's `onGrant`, `features/clients/grants.ts`) and known by the kit's
-  grants (`client_grants`), never by the name its app gives: a token whose grant has no row is a 401 pointing where
-  the kit's own would (`resourceMetadata` on the caller), its grant is ended at the kit, and nothing makes one on
-  use. Sign-ins from before 0.6.4 were mapped once by that name (`legacy.ts`, recorded in the plain
+  grants (`client_grants`), never by the name its app gives; a sign-in the kit withdraws before its first token takes
+  that row along (`onRevokeFor`, the kit's `onRevoke` with `withdrawn`). A token whose grant has no row is a 401
+  pointing where the kit's own would (`resourceMetadata` on the caller), its grant is ended at the kit, and nothing
+  makes one on use. Sign-ins from before 0.6.4 were mapped once by that name (`legacy.ts`, recorded in the plain
   `client_legacy_mapping`, never the vault, so a start under another master key still comes up); an access token
   from then, which carries no grant, still finds its row by name for its last hour. Revoking one ends each of its
   grants at the kit (`revokeGrant`, never `revokeClient`). A sign-in is for the address it asked, read only by
@@ -225,8 +226,10 @@ Copy is plain and specific; every error says where, why and what to do (the prob
 1. Every call, MCP or REST, goes through the one pipeline: authenticate → allowlist → scope → resolve → credential →
    adapter → cap → audit. No route calls an adapter directly.
 2. Secrets are AES-GCM encrypted in SQLite with the master key from env (`GATEWAY_MASTER_KEY`); they never appear in
-   logs, exports, call payloads sent to Langfuse, or errors. An answer the kit keeps for an `Idempotency-Key` can
-   hold a key shown once, so the store it is given seals every answer (`features/vault/answers.ts`).
+   logs, exports, call payloads sent to Langfuse, or errors. A route that answers a secret once (a new client's
+   key, a share, the claim, a session cookie) calls the kit's `showOnce`, so a retry with its `Idempotency-Key` is
+   told what was made and the secret is never kept; every other answer kept for one is sealed by the store the kit
+   is given (`features/vault/answers.ts`).
 3. Third-party upstreams (`trust = review`) never change a live tool by themselves: a changed description or schema is
    a `pending` version until the owner approves it.
 4. `src/kit/` is vendored from api-kit and never edited, examples and comments included: a change goes upstream, then

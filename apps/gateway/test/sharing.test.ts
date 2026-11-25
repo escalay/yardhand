@@ -720,51 +720,83 @@ describe('an answer kept for an Idempotency-Key', () => {
   const keptFor = async (id: string) => {
     const rows = await db.all<[string]>(sql`select value from kit_guards where kind = 'key' and id like ${`% ${id}`}`)
     expect(rows).toHaveLength(1)
-    return JSON.parse(rows[0]?.[0] ?? '') as { status: number; headers: unknown[]; body: string }
+    return rows[0]?.[0] ?? ''
   }
-  /** Everything a stored answer says to someone reading the database. */
-  const readable = (kept: { headers: unknown[]; body: string }) =>
-    `${JSON.stringify(kept)}${Buffer.from(kept.body, 'base64').toString('utf8')}`
 
-  it('holds a new key sealed, and still answers the same key to the same request', async () => {
-    for (const [path, body, id] of [
-      ['/api/packs/loud/people', { name: 'Sam', app: 'cursor' }, 'share-once'],
-      ['/api/clients', { name: 'Sam’s script', pack: 'loud' }, 'client-once'],
+  it('never holds a new key: the same request sent again is told what was made, and makes nothing', async () => {
+    for (const [path, body, id, said] of [
+      [
+        '/api/packs/loud/people',
+        { name: 'Sam', app: 'cursor' },
+        'share-once',
+        (client: string) =>
+          `Shared Loud with Sam as client ${client} (GET /api/clients/${client}) with this Idempotency-Key; the key and its message were shown once, in that answer, and are never shown again. Lost them? Revoke it (DELETE /api/clients/${client}) and share again.`,
+      ],
+      [
+        '/api/clients',
+        { name: 'Sam’s script', pack: 'loud' },
+        'client-once',
+        (client: string) =>
+          `Made the client Sam’s script (GET /api/clients/${client}) with this Idempotency-Key; its key was shown once, in that answer, and is never shown again. Lost it? Revoke it (DELETE /api/clients/${client}) and make another.`,
+      ],
     ] as const) {
       const init = { method: 'POST', body, headers: { 'idempotency-key': id } }
       const made = await owner(path, init)
-      expect(made.status).toBe(201)
+      expect([made.status, made.headers.get('shown-once')]).toEqual([201, 'true'])
       const key = made.json.key as string
       expect(key).toMatch(/^gw_/)
       const kept = await keptFor(id)
-      expect(kept.status).toBe(201)
-      expect(readable(kept)).not.toContain('gw_')
-      expect(readable(kept)).not.toContain(made.json.id)
-      // The request sent again (its answer was lost on the way) is given the same key, not a second one
+      expect(kept).not.toContain('gw_')
+      expect(JSON.parse(kept)).toEqual({ version: 2, bodyHash: expect.any(String), shownOnce: said(made.json.id) })
+      // The request sent again (its answer was lost on the way) is told what was made, never the key again
       const before = await clientCount()
       const again = await owner(path, init)
-      expect([again.status, again.headers.get('idempotent-replayed'), again.json]).toEqual([201, 'true', made.json])
-      expect(again.headers.get('location')).toBe(`/api/clients/${made.json.id}`)
+      expect([again.status, again.headers.get('idempotent-replayed'), again.json.code, again.json.detail]).toEqual([
+        409,
+        'true',
+        'shown_once',
+        said(made.json.id),
+      ])
       expect(await clientCount()).toBe(before)
       expect((await api(key, '/p/loud/api/me')).status).toBe(200)
       expect((await owner(`/api/clients/${made.json.id}`, { method: 'DELETE' })).status).toBe(204)
     }
   })
 
-  it('holds a sign-in’s cookie sealed too', async () => {
-    const signedIn = await app.request('/api/session', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'idempotency-key': 'sign-in-once' },
-      body: JSON.stringify({ key: OWNER }),
-    })
+  it('never holds a sign-in’s cookie', async () => {
+    const signIn = () =>
+      app.request('/api/session', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'idempotency-key': 'sign-in-once' },
+        body: JSON.stringify({ key: OWNER }),
+      })
+    const signedIn = await signIn()
     const cookie = /gw_session=([^;]+)/.exec(signedIn.headers.get('set-cookie') ?? '')?.[1]
     expect([signedIn.status, typeof cookie]).toEqual([200, 'string'])
-    const kept = await keptFor('sign-in-once')
-    expect(kept.headers).toEqual([])
-    expect(readable(kept)).not.toContain(cookie)
+    expect(await keptFor('sign-in-once')).not.toContain(cookie)
+    const again = await signIn()
+    expect([again.status, again.headers.get('set-cookie')]).toEqual([409, null])
+    expect(((await again.json()) as { detail: string }).detail).toBe(
+      'Signed in with this Idempotency-Key; the session was shown once, in that answer’s cookie, and is never shown again. Lost it? Sign in again with a new Idempotency-Key.',
+    )
   })
 
-  it('seals at the next start what an earlier version kept as it was', async () => {
+  it('still answers a request that shows no secret the same way again, sealed', async () => {
+    const init = {
+      method: 'POST',
+      body: { name: 'kept-pack', title: 'Kept pack', description: 'Kept.', playbook: 'fixture-say-it-back' },
+      headers: { 'idempotency-key': 'pack-once' },
+    }
+    const made = await owner('/api/packs', init)
+    expect(made.status).toBe(201)
+    const kept = JSON.parse(await keptFor('pack-once')) as { version: number; headers: unknown[]; body: string }
+    expect([kept.version, kept.headers, kept.body.startsWith('v1.')]).toEqual([2, [], true])
+    const again = await owner('/api/packs', init)
+    expect([again.status, again.headers.get('idempotent-replayed'), again.json]).toEqual([201, 'true', made.json])
+    expect((await owner('/api/packs/kept-pack', { method: 'DELETE' })).status).toBe(204)
+  })
+
+  it('drops at the next start what an earlier version kept, sealed or not, and runs its request again', async () => {
     const request = JSON.stringify({ name: 'Ola', pack: 'loud' })
     const answer = { id: 'cl_before', name: 'Ola', key: 'gw_kept-before-answers-were-sealed' }
     const plain = {
@@ -777,11 +809,21 @@ describe('an answer kept for an Idempotency-Key', () => {
     await db.run(
       sql`insert into kit_guards (kind, id, start, used, value, expires_at) values ('key', ${id}, ${Date.now()}, 0, ${JSON.stringify(plain)}, ${Date.now() + DAY})`,
     )
+    // One this version keeps for a key shown once holds no body: a start reads it as it is
+    const made = await owner('/api/clients', {
+      method: 'POST',
+      body: { name: 'Lena', pack: 'loud' },
+      headers: { 'idempotency-key': 'kept-across-starts' },
+    })
+    expect(made.status).toBe(201)
     const restarted = await createApp({
       db,
       env: { API_KEYS: `owner:${hashApiKey(OWNER)}`, GATEWAY_MASTER_KEY: MASTER_KEY },
     })
-    expect(readable(await keptFor('kept-before'))).not.toContain('gw_')
+    const rows = await db.all<[string]>(sql`select id from kit_guards where id = ${id}`)
+    expect(rows).toEqual([])
+    expect(JSON.parse(await keptFor('kept-across-starts'))).toMatchObject({ version: 2, shownOnce: expect.any(String) })
+    const before = await clientCount()
     const again = await restarted.request('/api/clients', {
       method: 'POST',
       headers: {
@@ -791,8 +833,9 @@ describe('an answer kept for an Idempotency-Key', () => {
       },
       body: request,
     })
-    expect([again.status, again.headers.get('idempotent-replayed'), await again.json()]).toEqual([201, 'true', answer])
-    await db.run(sql`delete from kit_guards where id = ${id}`)
+    expect([again.status, again.headers.get('idempotent-replayed')]).toEqual([201, null])
+    expect(((await again.json()) as { key: string }).key).not.toBe(answer.key)
+    expect(await clientCount()).toBe(before + 1)
   })
 })
 

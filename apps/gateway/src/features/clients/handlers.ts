@@ -1,6 +1,6 @@
 /** Client handlers: a new key is shown once; only its hash is kept (`principals.issue`). */
 import type { RouteHandler } from '@hono/zod-openapi'
-import { linksOf, originOf, ProblemError } from '../../kit/index.js'
+import { linksOf, originOf, ProblemError, showOnce } from '../../kit/index.js'
 import type { Services } from '../../services.js'
 import { noPack } from '../packs/names.js'
 import { findability } from '../searches/demand.js'
@@ -242,6 +242,10 @@ export const clientsHandlers = ({
       packId: chosen?.defaultId ?? null,
       expiresAt: expiryOf(expiresIn),
     })
+    showOnce(
+      c,
+      `Made the client ${input.name} (GET ${PATH}/${id}) with this Idempotency-Key; its key was shown once, in that answer, and is never shown again. Lost it? Revoke it (DELETE ${PATH}/${id}) and make another.`,
+    )
     return c.json({ ...(await cardOf(originOf(c), await rowOf(id))), key }, 201, { location: `${PATH}/${id}` })
   }
   const update: RouteHandler<Routes['update']> = async (c) => {

@@ -7,7 +7,7 @@
  * vector yet can't be scored and counts, and so does every hit for the owner typing in the app. `standouts` is the
  * search that can answer nothing; `names` always answers.
  */
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname } from 'node:path'
 import {
   createEmbedder,
@@ -102,6 +102,26 @@ export type MeaningSearch = {
   stop?: () => void
 }
 
+/** Ledgers whose locks this process has looked at since it started. */
+const lockChecked = new Set<string>()
+
+/**
+ * Drops a ledger lock holding this process's id, once per ledger and process: before this process wrote it, such a
+ * lock is a stopped gateway's whose restarted process got the same id, as it often does in a container, and the kit
+ * would read it as a writer still running. Later, one is a search of this process still writing (the one a new key
+ * replaced), and stays.
+ */
+const dropOwnStaleLock = (file: string) => {
+  if (lockChecked.has(file)) return
+  lockChecked.add(file)
+  const lock = `${file}.lock`
+  try {
+    if (readFileSync(lock, 'utf8').trim() === String(process.pid)) rmSync(lock)
+  } catch {
+    // No lock: nothing to drop
+  }
+}
+
 export const createMeaningSearch = ({
   file,
   tools,
@@ -130,6 +150,7 @@ export const createMeaningSearch = ({
   /** Embeds what is missing; throws when it failed or stopped, after serving every vector the ledger holds. */
   const rebuild = async () => {
     mkdirSync(dirname(file), { recursive: true })
+    dropOwnStaleLock(file)
     const live = await tools.listLive({ upstreams: 'all', limit: 100_000 })
     const context = await contexts()
     const names = new Set(live.map((tool) => tool.name))

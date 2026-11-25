@@ -84,6 +84,30 @@ describe('a new instance', () => {
     expect(readInstance(stateDir).masterKey).toBe(file.masterKey)
   })
 
+  it('never holds the owner key: a claim sent again is told it was claimed, and claims nothing', async () => {
+    const { stateDir, databaseFile } = fresh()
+    const first = await start(stateDir, databaseFile)
+    const claim = () =>
+      first.send('/api/session/claim', {
+        method: 'POST',
+        body: { code: first.code },
+        headers: { 'idempotency-key': 'claim-once' },
+      })
+    const claimed = await claim()
+    expect([claimed.status, claimed.headers.get('shown-once')]).toEqual([200, 'true'])
+    const { key } = (await claimed.json()) as { key: string }
+    const kept = new DatabaseSync(databaseFile)
+      .prepare("select value from kit_guards where kind = 'key' and id like '% claim-once'")
+      .all() as { value: string }[]
+    expect(kept).toHaveLength(1)
+    expect(kept[0]?.value).not.toContain(key)
+    const again = await claim()
+    expect([again.status, again.headers.get('set-cookie')]).toEqual([409, null])
+    expect(((await again.json()) as { code: string; detail: string }).detail).toBe(
+      'This instance was claimed with this Idempotency-Key; the owner key was shown once, in that answer, and is never shown again. Lost it? Make a new one with scripts/reset-owner.ts (deploy/compose/README.md) and claim the instance again.',
+    )
+  })
+
   it('is refused from another site', async () => {
     const { stateDir, databaseFile } = fresh()
     const first = await start(stateDir, databaseFile)
