@@ -14,6 +14,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { MiddlewareHandler } from 'hono'
 import { tryDecodeURI } from 'hono/utils/url'
+import { originOfRequest } from '../../kit/index.js'
 
 export const PACK_HEADER = 'x-gateway-pack'
 /** A pack's name, as a pattern: what every address and resource reads one by. */
@@ -74,13 +75,6 @@ const relink = (resource: Linked, origin: string, base: string) => {
     // Without its query or template: `/api/tools?upstream=x`, `/api/tools{?as}`
     if (insidePack(path.split(/[?#{]/)[0] ?? '')) link.href = `${origin}${base}${path}`
   }
-}
-
-/** The public origin of a request, as the kit's `originOf` reads it: the forwarded proto and host win. */
-const originOfRequest = (request: Request) => {
-  const url = new URL(request.url)
-  const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
-  return `${proto ?? url.protocol.replace(':', '')}://${request.headers.get('x-forwarded-host') ?? url.host}`
 }
 
 /**

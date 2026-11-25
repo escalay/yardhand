@@ -24,7 +24,7 @@ import { progressSink } from '../features/calls/progress.js'
 import { type Principal, packScopeFrom } from '../features/clients/principals.js'
 import { packMcpIcons } from '../features/packs/icon.js'
 import { SKILL_DOC } from '../features/packs/skill.js'
-import { MODERN_PROTOCOL_VERSION, originOf, pathWith } from '../kit/index.js'
+import { MODERN_PROTOCOL_VERSION, originOf, originOfRequest, pathWith } from '../kit/index.js'
 import {
   type AgentMcpFactory,
   type CallApi,
@@ -451,11 +451,9 @@ type Pin = {
 
 type Served = { info: McpServerInfo; instructions: string; tools: McpTool[]; prompts: McpPrompt[] }
 
-/** The address a request came by, from the forwarded headers `mountMcp` hands its tools. */
-const originOfAuth = (auth: Auth) => {
-  const headers = (auth?.extra?.headers ?? {}) as Record<string, string>
-  return `${headers['x-forwarded-proto'] ?? 'http'}://${headers['x-forwarded-host'] ?? 'localhost'}`
-}
+/** The address a request came by, from the forwarded headers `mountMcp` hands its tools, read as the kit reads them. */
+const originOfAuth = (auth: Auth) =>
+  originOfRequest(new Request('http://localhost/', { headers: (auth?.extra?.headers ?? {}) as Record<string, string> }))
 
 /**
  * A pack's name and instructions, or the refusal an ended caller reads, for the kit's own answer to `initialize`,

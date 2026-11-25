@@ -129,8 +129,8 @@ const fromThisSite = (request: Request) => {
 }
 const sameSite = (c: Context) => fromThisSite(c.req.raw)
 
-const secureOf = (c: Context) =>
-  new URL(c.req.url).protocol === 'https:' || c.req.header('x-forwarded-proto') === 'https'
+/** Whether the request came over https, here or at the proxy in front, as the kit reads the forwarded proto. */
+const secureOf = (c: Context) => originOf(c).startsWith('https:')
 
 /** Who approves on the kit's pages when the session cookie is what signed them in. */
 const SESSION_OWNER = 'the owner'
